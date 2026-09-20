@@ -1,0 +1,15 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: inference-reader-binding
+  namespace: day17-rbac
+
+subjects:
+  - kind: ServiceAccount
+    name: inference-reader
+    namespace: day17-rbac
+
+roleRef:
+  kind: Role
+  name: configmap-reader
+  apiGroup: rbac.authorization.k8s.io

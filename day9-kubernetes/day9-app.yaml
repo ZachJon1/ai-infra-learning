@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: day9-yaml-web
+
+spec:
+  replicas: 4
+
+  selector:
+    matchLabels:
+      app: day9-yaml-web
+
+  template:
+    metadata:
+      labels:
+        app: day9-yaml-web
+
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:alpine
+          ports:
+            - containerPort: 80
+
+---
+apiVersion: v1
+kind: Service
+
+metadata:
+  name: day9-yaml-service
+
+spec:
+  selector:
+    app: day9-yaml-web
+
+  ports:
+    - port: 80
+      targetPort: 80
+
+  type: ClusterIP

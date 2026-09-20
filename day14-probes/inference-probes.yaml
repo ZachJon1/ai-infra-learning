@@ -1,0 +1,47 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: inference-probes
+spec:
+  containers:
+    - name: inference
+      image: nginx:alpine
+
+      command:
+        - sh
+        - -c
+        - |
+          echo "Starting inference server..."
+
+          nginx
+
+          echo "Loading model..."
+          sleep 20
+
+          echo "Model loaded"
+          echo "started" > /usr/share/nginx/html/startup
+          echo "healthy" > /usr/share/nginx/html/health
+          echo "ready" > /usr/share/nginx/html/ready
+
+          sleep infinity
+
+      startupProbe:
+        httpGet:
+          path: /startup
+          port: 80
+        periodSeconds: 5
+        failureThreshold: 6
+
+      livenessProbe:
+        httpGet:
+          path: /health
+          port: 80
+        periodSeconds: 5
+        failureThreshold: 3
+
+      readinessProbe:
+        httpGet:
+          path: /ready
+          port: 80
+        periodSeconds: 5
+        failureThreshold: 2

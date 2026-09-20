@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: lifecycle-demo
+
+spec:
+  terminationGracePeriodSeconds: 15
+
+  containers:
+    - name: app
+      image: busybox:1.36
+
+      command:
+        - /bin/sh
+        - -c
+        - |
+          trap 'echo "SIGTERM received"; echo "Cleaning up..."; sleep 3; echo "Cleanup complete"; exit 0' TERM
+
+          echo "Application started"
+
+          while true; do
+            sleep 1
+          done
+
+      lifecycle:
+        preStop:
+          exec:
+            command:
+              - /bin/sh
+              - -c
+              - |
+                echo "preStop running"
+                sleep 3

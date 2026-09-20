@@ -1,0 +1,30 @@
+# Upstream learning repository-maintained separately
+ai-infra-engineer-learning/
+
+# Secrets / environment
+.env
+.env.*
+*.pem
+*.key
+*.crt
+kubeconfig
+.kube/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Logs / temporary output
+*.log
+*.tmp
+
+# OS/editor files
+.DS_Store
+.vscode/
+.idea/
+
+
+# Helm packaged charts
+*.tgz

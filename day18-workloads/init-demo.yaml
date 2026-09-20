@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: init-demo
+spec:
+
+  initContainers:
+    - name: model-preparation
+      image: busybox:1.36
+      command:
+        - /bin/sh
+        - -c
+        - |
+          echo "Preparing model..."
+          sleep 5
+          echo "model-v1-ready" > /models/model.txt
+          echo "Model preparation finished."
+
+      volumeMounts:
+        - name: model-storage
+          mountPath: /models
+
+  containers:
+    - name: inference-server
+      image: busybox:1.36
+      command:
+        - /bin/sh
+        - -c
+        - |
+          echo "Inference server starting..."
+          echo "Reading prepared model:"
+          cat /models/model.txt
+          echo "Server is ready."
+          sleep 3600
+
+      volumeMounts:
+        - name: model-storage
+          mountPath: /models
+
+  volumes:
+    - name: model-storage
+      emptyDir: {}

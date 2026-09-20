@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: model-reader
+spec:
+  containers:
+    - name: reader
+      image: busybox
+      command: ["sh", "-c", "sleep 3600"]
+
+      volumeMounts:
+        - name: model-volume
+          mountPath: /models
+
+  volumes:
+    - name: model-volume
+      persistentVolumeClaim:
+        claimName: model-storage

@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: config-demo
+spec:
+  containers:
+    - name: demo
+      image: alpine:3.20
+      command: ["sh", "-c", "sleep 3600"]
+
+      env:
+        - name: MODEL_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: inference-config
+              key: MODEL_NAME
+
+        - name: BATCH_SIZE
+          valueFrom:
+            configMapKeyRef:
+              name: inference-config
+              key: BATCH_SIZE
+
+        - name: DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: inference-secret
+              key: DATABASE_PASSWORD

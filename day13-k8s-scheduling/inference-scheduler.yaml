@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: inference-scheduler-demo
+
+spec:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: accelerator
+                operator: In
+                values:
+                  - gpu
+              - key: workload
+                operator: In
+                values:
+                  - inference
+
+  tolerations:
+    - key: "dedicated"
+      operator: "Equal"
+      value: "gpu"
+      effect: "NoSchedule"
+
+  containers:
+    - name: inference
+      image: nginx:alpine
+
+      resources:
+        requests:
+          cpu: "20"
+          memory: "256Mi"
+
+        limits:
+          cpu: "20"
+          memory: "512Mi"

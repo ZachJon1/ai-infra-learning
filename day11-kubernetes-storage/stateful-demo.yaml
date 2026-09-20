@@ -1,0 +1,57 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: storage-demo
+spec:
+  clusterIP: None
+  selector:
+    app: storage-demo
+  ports:
+    - port: 80
+      name: web
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: storage-demo
+spec:
+  serviceName: storage-demo
+  replicas: 2
+
+  selector:
+    matchLabels:
+      app: storage-demo
+
+  template:
+    metadata:
+      labels:
+        app: storage-demo
+
+    spec:
+      containers:
+        - name: demo
+          image: busybox
+
+          command:
+            - sh
+            - -c
+            - |
+              if [ ! -f /data/identity.txt ]; then
+                echo "$(hostname) initialized this volume at $(date)" > /data/identity.txt
+              fi
+              sleep 3600
+
+          volumeMounts:
+            - name: data
+              mountPath: /data
+
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 256Mi

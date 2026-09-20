@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: day15-web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: day15-web
+  template:
+    metadata:
+      labels:
+        app: day15-web
+    spec:
+      containers:
+      - name: web
+        image: registry.k8s.io/hpa-example
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            cpu: 200m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 128Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: day15-web
+spec:
+  selector:
+    app: day15-web
+  ports:
+  - port: 80
+    targetPort: 80

@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: restrict-api
+  namespace: day10
+
+spec:
+  podSelector:
+    matchLabels:
+      app: api
+
+  policyTypes:
+    - Ingress
+
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              role: allowed-client
+
+      ports:
+        - protocol: TCP
+          port: 80
