@@ -28,3 +28,4 @@ venv/
 
 # Helm packaged charts
 *.tgz
+generate_day_readmes.py
