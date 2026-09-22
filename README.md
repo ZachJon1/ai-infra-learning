@@ -10,9 +10,9 @@ The goal is not only to learn tools, but to develop the ability to **deploy, ope
 
 ## Current Progress
 
-**Roadmap progress:** Day 18 / 220 completed  
-**Current focus:** Kubernetes workload management and production operations  
-**Next:** Kubernetes observability, debugging, and failure diagnosis
+**Roadmap progress:** Day 19 / 220 completed  
+**Current focus:** Kubernetes observability, debugging, and failure diagnosis  
+**Next:** Kubernetes capstone: deploy and troubleshoot a realistic AI service
 
 ### Learning Path
 

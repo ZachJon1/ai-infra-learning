@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crash-loop
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: crash-loop
+  template:
+    metadata:
+      labels:
+        app: crash-loop
+    spec:
+      containers:
+          - name: worker
+            image: busybox:1.36
+            env:
+              - name: MODEL_PATH
+                value: "/models/demo"
+            command:
+              - /bin/sh
+              - -c
+              - |
+                echo "Starting model worker..."
+                echo "Loading model from ${MODEL_PATH}"
+                sleep 3
+                echo "Model worker ready"
+                sleep 3600
