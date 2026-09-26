@@ -9,8 +9,7 @@ The goal is not only to learn tools, but to develop the ability to **deploy, ope
 ---
 
 ## Current Progress
-
-**Roadmap progress:** Day 20 / 220 completed  
+**Roadmap progress:** Day 21 | GPU architecture refresher: SMs, CUDA cores, Tensor Cores, VRAM | ✅  
 **Current:** GPU Architecture Refresher
 
 ### Learning Path
