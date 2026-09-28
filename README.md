@@ -9,8 +9,8 @@ The goal is not only to learn tools, but to develop the ability to **deploy, ope
 ---
 
 ## Current Progress
-**Roadmap progress:** Day 21 | GPU architecture refresher: SMs, CUDA cores, Tensor Cores, VRAM | ✅  
-**Current:** GPU Architecture Refresher
+Roadmap progress: Day 23 | GPU monitoring with nvidia-smi | ✅
+Current: GPU Infrastructure — GPU Monitoring & Troubleshooting
 
 ### Learning Path
 
@@ -60,6 +60,9 @@ The current phase is focused on building a strong Kubernetes operations foundati
 | Batch Workloads | Jobs, retries, parallelism, Indexed Jobs |
 | Scheduled Workloads | CronJobs, concurrency policies, scheduling controls |
 | Pod Lifecycle | Init containers, graceful termination, lifecycle hooks, TTL cleanup |
+| GPU Architecture | SMs, CUDA cores, Tensor Cores, VRAM, GPU execution model |
+| CUDA Stack | NVIDIA drivers, CUDA runtime, CUDA Toolkit, compatibility |
+| GPU Monitoring | nvidia-smi, utilization, VRAM, P-states, clocks, power, temperature, process monitoring |
 
 ---
 
@@ -84,7 +87,8 @@ ai-infra-learning/
 ├── day16-helm/
 ├── day17-rbac/
 ├── day18-workloads/
-│
+│   ...
+├── day23-gpu-monitoring/
 └── README.md
 ```
 
@@ -210,6 +214,13 @@ TTL cleanup
 
 **Directory:** [`day18-workloads/`](day18-workloads/)
 
+GPU Monitoring and Troubleshooting
+
+Monitored and diagnosed GPU workloads using nvidia-smi, including GPU utilization, VRAM allocation, P-states, clocks, power, temperature, process ownership, and thermal/power constraints.
+
+A PyTorch CUDA workload was used to observe GPU behavior under sustained computation and distinguish memory allocation from active GPU computation.
+
+**Directory**: [`day23-gpu-monitoring/`](day23-gpu-monitoring/)
 ---
 
 ## Troubleshooting Practice
@@ -267,9 +278,6 @@ The later phases of the roadmap will extend these labs into production-style AI 
 Upcoming labs will cover:
 
 ```text
-GPU architecture
-CUDA runtime and drivers
-nvidia-smi
 GPU memory and OOM diagnosis
 PyTorch GPU profiling
 NVIDIA Container Toolkit
