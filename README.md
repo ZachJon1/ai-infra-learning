@@ -9,8 +9,7 @@ The goal is not only to learn tools, but to develop the ability to **deploy, ope
 ---
 
 ## Current Progress
-Roadmap progress: Day 24 | GPU memory allocation and OOM diagnosis | ✅ |
-Current: GPU Infrastructure — GPU Monitoring & Troubleshooting
+Roadmap progress: Day 31
 
 ### Learning Path
 
