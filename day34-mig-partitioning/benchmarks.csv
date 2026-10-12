@@ -1,0 +1,28 @@
+experiment,measurement_type,configuration,metric,value,unit,notes
+sharing,real,solo,iterations_per_second,677.65,iter/s,40.00s single-run sample
+sharing,real,concurrent_A,iterations_per_second,344.46,iter/s,40.00s single-run sample
+sharing,real,concurrent_B,iterations_per_second,344.45,iter/s,40.01s single-run sample
+sharing,derived,concurrent_aggregate,iterations_per_second,688.91,iter/s,Sum of concurrent A and B
+sharing,derived,concurrent_aggregate_relative_to_solo,ratio,1.01662,ratio,Single-run comparison not statistically validated
+sharing,real,concurrent_A,per_process_gpu_memory,722,MiB,nvidia-smi snapshot
+sharing,real,concurrent_B,per_process_gpu_memory,722,MiB,nvidia-smi snapshot
+sharing,real,concurrent_A,pytorch_tensor_memory,539,MiB,torch.cuda.memory_allocated output
+sharing,real,concurrent_B,pytorch_tensor_memory,539,MiB,torch.cuda.memory_allocated output
+sharing,real,concurrent_total,gpu_utilization,100,percent,Multiple active samples; not per-process utilization
+sharing,real,concurrent_total,gpu_memory_used,1762,MiB,Representative active sample
+sharing,real,concurrent_total,gpu_temperature,82,degC,One nvidia-smi snapshot
+sharing,real,concurrent_total,power_draw,124,W,One nvidia-smi snapshot; power cap 125W
+allocator_oom,real,limited_allocator,physical_cuda_visible_memory,7832,MiB,PyTorch reported total memory
+allocator_oom,real,limited_allocator,artificial_allocator_cap,783,MiB,10% process cap
+allocator_oom,real,limited_allocator,successful_first_tensor,256,MiB,Allocation passed
+allocator_oom,real,limited_allocator,failed_second_attempt,768,MiB,Expected CUDA OOM caught
+allocator_oom,real,limited_allocator,physical_memory_free_at_failure,6.95,GiB,Shows allocator cap rather than VRAM exhaustion
+failure_containment,real,service_B,iterations,23009,count,Completed while Process A handled allocator OOM
+failure_containment,real,service_B,elapsed,25.00,s,One run
+failure_containment,real,service_B,iterations_per_second,920.29,iter/s,Not directly comparable to 40s solo benchmark
+mig_simulation,simulated,original,reranker,PENDING,state,2g.10gb unavailable
+mig_simulation,simulated,modified,vision,PENDING,state,3g.20gb already assigned to reranker
+kubernetes_synthetic_failure,real_scheduler_synthetic_request,day34-mig-failure,pod_scheduled,false,boolean,RTX3070 has no nvidia.com/mig-2g.10gb resource
+kubernetes_plugin_repair,real,before_fix,capacity_gpu,0,count,Device Plugin DaemonSet blocked by taint
+kubernetes_plugin_repair,real,after_fix,capacity_gpu,1,count,Fixed matching toleration
+kubernetes_plugin_repair,real,after_fix,allocatable_gpu,1,count,Verified via jsonpath
