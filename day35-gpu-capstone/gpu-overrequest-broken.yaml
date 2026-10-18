@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: day35-gpu-overrequest
+  namespace: day35
+spec:
+  restartPolicy: Never
+
+  nodeSelector:
+    accelerator: gpu
+
+  tolerations:
+    - key: dedicated
+      operator: Equal
+      value: gpu
+      effect: NoSchedule
+
+  containers:
+    - name: gpu-test
+      image: pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
+      command: ["python", "-u", "-c"]
+      args:
+        - |
+          import torch
+          print("CUDA available:", torch.cuda.is_available())
+          print("Visible GPU count:", torch.cuda.device_count())
+          assert torch.cuda.is_available()
+          print("GPU test successful")
+      resources:
+        limits:
+          nvidia.com/gpu: 2

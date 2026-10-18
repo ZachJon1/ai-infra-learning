@@ -1,0 +1,55 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: day35-gpu-contention
+  namespace: day35
+spec:
+  completions: 2
+  parallelism: 2
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+
+      nodeSelector:
+        accelerator: gpu
+
+      tolerations:
+        - key: dedicated
+          operator: Equal
+          value: gpu
+          effect: NoSchedule
+
+      containers:
+        - name: gpu-worker
+          image: pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
+
+          command: ["python", "-u", "-c"]
+          args:
+            - |
+              import torch
+              import time
+              import socket
+
+              print("Worker:", socket.gethostname())
+              print("CUDA available:", torch.cuda.is_available())
+
+              assert torch.cuda.is_available()
+
+              x = torch.zeros((4096, 4096), device="cuda")
+              torch.cuda.synchronize()
+
+              print("GPU allocation successful")
+              print("Holding GPU for 90 seconds")
+
+              time.sleep(90)
+
+              print("Worker completed")
+
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "1Gi"
+            limits:
+              memory: "4Gi"
+              nvidia.com/gpu: 1
