@@ -1,0 +1,926 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>GPU node scheduling, explained</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=JetBrains+Mono:wght@400;600;700&display=swap">
+<style>
+:root{
+  --paper:#EEF2FA;--surface:#FFFFFF;--ink:#18203F;--ink-2:#525B82;--line:#CBD3EA;--code:#E2E7F5;
+  --web:#2F6BFF;--db:#7A4CF5;--client:#F5A524;--client-ink:#A35F00;--vol:#E94A89;--teal:#0E9FAE;
+  --ok:#0F9D65;--bad:#E0433F;--warn:#D98200;--net:rgba(47,107,255,.06);--on-client:#2A1C00;
+  --note:#FFE38A;--note-ink:#3B2E00;--hl:rgba(245,165,36,.42);
+  --sans:"Bricolage Grotesque",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  color-scheme:light;box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --paper:#151936;--surface:#1F2449;--ink:#ECEEFF;--ink-2:#A8AFD6;--line:#363E70;--code:#262C5A;
+  --web:#5C8DFF;--db:#9E80FF;--client:#FFBE3B;--client-ink:#FFCB5C;--vol:#FF6FA4;--teal:#29C3D2;
+  --ok:#33D08E;--bad:#FF6A6A;--warn:#FFB340;--net:rgba(92,141,255,.09);--note:#EBCF63;--note-ink:#2A2000;--hl:rgba(255,190,59,.30);color-scheme:dark}}
+:root[data-theme="dark"]{
+  --paper:#151936;--surface:#1F2449;--ink:#ECEEFF;--ink-2:#A8AFD6;--line:#363E70;--code:#262C5A;
+  --web:#5C8DFF;--db:#9E80FF;--client:#FFBE3B;--client-ink:#FFCB5C;--vol:#FF6FA4;--teal:#29C3D2;
+  --ok:#33D08E;--bad:#FF6A6A;--warn:#FFB340;--net:rgba(92,141,255,.09);--note:#EBCF63;--note-ink:#2A2000;--hl:rgba(255,190,59,.30);color-scheme:dark}
+*,*::before,*::after{box-sizing:inherit}
+html{height:100%;scroll-padding-top:env(safe-area-inset-top,0px);background:var(--paper)}
+body{height:100%;margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;overflow:hidden}
+.app{height:100%;display:grid;grid-template-rows:auto minmax(0,1fr) auto;padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
+.top{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px clamp(16px,3vw,44px) 4px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px;letter-spacing:-.01em}
+.brand svg{width:30px;height:22px}
+.where{font-size:15px;color:var(--ink-2);text-align:right}
+.where b{color:var(--ink);font-weight:650}
+.stage{position:relative;overflow:hidden}
+.scene{position:absolute;inset:0;display:grid;grid-template-columns:minmax(260px,.78fr) minmax(0,1.75fr);gap:clamp(16px,3.2vw,56px);align-items:center;padding:6px clamp(16px,3vw,44px) 10px;opacity:0;visibility:hidden;transform:translateX(48px);transition:opacity .45s ease,transform .6s cubic-bezier(.2,.8,.2,1),visibility 0s linear .6s}
+.scene.past{transform:translateX(-48px)}
+.scene.active{opacity:1;visibility:visible;transform:none;transition:opacity .55s ease .12s,transform .7s cubic-bezier(.2,.8,.2,1) .12s,visibility 0s}
+.copy{max-width:40ch;align-self:center;min-width:0}
+.copy h1{font-size:clamp(46px,6.6vw,98px);line-height:.95;letter-spacing:-.035em;margin:.08em 0 .25em;font-weight:800;font-variation-settings:"opsz" 96}
+.copy h2{font-size:clamp(26px,3.2vw,48px);line-height:1.04;letter-spacing:-.028em;margin:0 0 .45em;font-weight:760;font-variation-settings:"opsz" 96;text-wrap:balance}
+.copy p{font-size:clamp(15.5px,1.25vw,19px);line-height:1.45;color:var(--ink-2);margin:0 0 .75em;text-wrap:pretty}
+.copy p strong{color:var(--ink)}
+.copy code,.vis code{font-family:var(--mono);font-size:.84em;background:var(--code);color:var(--ink);padding:.06em .36em;border-radius:6px}
+.copy .rule{color:var(--ink);font-weight:680}
+.copy .rule span{background:linear-gradient(transparent 58%,var(--hl) 58%,var(--hl) 92%,transparent 92%);-webkit-box-decoration-break:clone;box-decoration-break:clone}
+.copy pre{font-family:var(--mono);font-size:13.5px;line-height:1.55;background:var(--code);color:var(--ink);padding:10px 12px;border-radius:10px;margin:0 0 .8em;overflow-x:auto;white-space:pre}
+.copy pre.yaml{font-size:12px;line-height:1.5;max-height:min(46vh,430px);overflow:auto}
+.copy .lede{font-size:clamp(18px,1.6vw,23px);color:var(--ink)}
+.copy .course{font-weight:650;color:var(--ink)}
+.copy .hint{font-size:14px}
+.rotate-hint{display:none}
+.start{font:inherit;font-weight:700;font-size:18px;padding:14px 24px 14px 20px;border-radius:999px;border:0;background:var(--ink);color:var(--paper);cursor:pointer;display:inline-flex;gap:10px;align-items:center;margin:.3em 0 1em;transition:background .2s,transform .15s}
+.start:hover{background:var(--web)}
+.start:active{transform:scale(.97)}
+.start svg{width:18px;height:18px}
+.vis{height:100%;min-height:0;min-width:0;display:flex;align-items:center;justify-content:center}
+.vis>svg{width:100%;height:100%;max-height:100%;overflow:visible;font-size:15px}
+.controls{display:flex;align-items:center;gap:10px;padding:8px clamp(16px,3vw,44px) 14px}
+.btn{width:44px;height:44px;border-radius:50%;border:1.5px solid var(--line);background:var(--surface);color:var(--ink);display:grid;place-items:center;cursor:pointer;flex:none;padding:0;transition:transform .15s,background .2s}
+.btn:hover{background:var(--code)}
+.btn:active{transform:scale(.94)}
+.btn:disabled{opacity:.35;cursor:default}
+.btn svg{width:20px;height:20px}
+.btn.play{width:52px;height:52px;background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.btn.play:hover{background:var(--web);border-color:var(--web)}
+:focus-visible{outline:3px solid var(--web);outline-offset:3px}
+.track{flex:1;display:flex;gap:4px;align-items:center;min-width:0}
+.seg{flex:1;height:28px;border:0;background:none;padding:0;cursor:pointer;display:flex;align-items:center;min-width:0}
+.seg.chstart{margin-left:7px}
+.seg i{display:block;width:100%;height:6px;border-radius:3px;background:var(--line);overflow:hidden;position:relative}
+.seg i b{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--ink);border-radius:3px}
+.seg:hover i{background:var(--ink-2)}
+.count{font-family:var(--mono);font-size:13px;color:var(--ink-2);min-width:4.6em;text-align:right}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+/* takeaways + quiz */
+.take{list-style:none;margin:0;padding:0;display:grid;gap:clamp(10px,1.8vh,20px);width:100%;max-width:660px}
+.take li{display:grid;grid-template-columns:64px 1fr;gap:16px;align-items:center;font-size:clamp(15px,1.25vw,19px);line-height:1.4;color:var(--ink-2)}
+.take li b{color:var(--ink)}
+.take svg{width:64px;height:auto;overflow:visible}
+.quiz{width:100%;max-width:740px;display:grid;gap:14px}
+.cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.card{perspective:1000px;border:0;background:none;padding:0;cursor:pointer;min-height:clamp(150px,23vh,210px);font:inherit;text-align:left;color:inherit;border-radius:18px}
+.card-inner{position:relative;display:block;width:100%;height:100%;min-height:inherit;transform-style:preserve-3d;transition:transform .65s cubic-bezier(.3,1.25,.5,1)}
+.card.flipped .card-inner{transform:rotateY(180deg)}
+.face{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;border-radius:18px;padding:16px 18px;display:flex;flex-direction:column;gap:8px}
+.front{background:var(--surface);border:2px solid var(--line);border-top:7px solid var(--k)}
+.back{background:var(--ink);color:var(--paper);transform:rotateY(180deg)}
+.face small{font-size:13px;font-weight:650;color:var(--ink-2)}
+.back small{color:var(--paper);opacity:.7}
+.face .q{font-size:clamp(15px,1.2vw,18px);line-height:1.35;font-weight:620}
+.face em{margin-top:auto;font-style:normal;font-size:13px;color:var(--ink-2)}
+.again{justify-self:start;font:inherit;font-weight:650;font-size:15px;padding:10px 16px;border-radius:999px;border:1.5px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+.again:hover{background:var(--code)}
+/* svg vocabulary */
+.vis text{fill:var(--ink);font-family:var(--sans);white-space:pre}
+.vis .m{font-family:var(--mono)}
+.vis .b{font-weight:700}
+.vis .mut{fill:var(--ink-2)}
+.vis .okc{fill:var(--ok)}.vis .badc{fill:var(--bad)}.vis .warnc{fill:var(--warn)}.vis .webc{fill:var(--web)}.vis .dbc{fill:var(--db)}.vis .clc{fill:var(--client-ink)}.vis .volc{fill:var(--vol)}.vis .tealc{fill:var(--teal)}.vis .wht{fill:#fff}.vis .inv{fill:var(--paper)}
+.f10{font-size:10px}.f11{font-size:11px}.f12{font-size:12px}.f13{font-size:13px}.f14{font-size:14px}.f15{font-size:15px}.f16{font-size:16px}.f17{font-size:17px}.f18{font-size:18px}.f20{font-size:20px}.f22{font-size:22px}.f30{font-size:30px}.f44{font-size:44px}
+.vis .cname{fill:var(--fg);font-size:15px;font-weight:750}
+.vis .csub{fill:var(--fg);font-family:var(--mono);font-size:10.5px;opacity:.85}
+.vis .ridge{stroke:rgba(255,255,255,.2);stroke-width:2;fill:none}
+.vis .capline{stroke:rgba(0,0,0,.14);stroke-width:2}
+.vis .eye{fill:#fff}.vis .pupil{fill:#18203F}
+.vis .mouth,.vis .lid{fill:none;stroke:var(--fg);stroke-width:3;stroke-linecap:round}
+.vis .ghost{fill-opacity:.12;stroke-width:2.5;stroke-dasharray:7 5}
+.vis .ghostf .eye{stroke:var(--fg);stroke-width:2}
+.vis .paper{fill:var(--surface);stroke:var(--ink);stroke-width:2}
+.vis .paperfold{fill:none;stroke:var(--ink);stroke-width:2}
+.vis .panel{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+.vis .codebg{fill:var(--code)}
+.vis .sep{stroke:var(--line);stroke-width:1.5}
+.vis .net{fill:var(--net);stroke:var(--ink-2);stroke-width:2;stroke-dasharray:9 7}
+.vis .hostbox{fill:none;stroke:var(--line);stroke-width:2.5}
+.vis .aline{fill:none;stroke-linecap:round}
+.vis .draw{stroke-dasharray:1 1;stroke-linecap:butt}
+.vis .dashy{stroke-dasharray:6 6}
+.vis .ahead{fill:none;stroke-linecap:round;stroke-linejoin:round}
+.vis .bub{fill:var(--surface);stroke-width:2;stroke-linejoin:round}
+.vis .note rect{fill:var(--note)}
+.vis .note text{fill:var(--note-ink);font-family:var(--mono);font-size:11.5px}
+.vis .hlbox{fill:var(--hl)}
+.vis .hlrow{fill:var(--hl)}
+.vis .badhl{fill:var(--bad);fill-opacity:.12}
+.vis .zz{fill:var(--ink-2);font-weight:800;font-size:15px}
+.vis .trackl{stroke:var(--line);stroke-width:6;stroke-linecap:round}
+.vis .post{fill:var(--ink-2)}
+.vis .okf{fill:var(--ok)}.vis .badf{fill:var(--bad)}.vis .warnf{fill:var(--warn)}.vis .mutf{fill:var(--ink-2)}.vis .inkf{fill:var(--ink)}
+.vis .ring{fill:none;stroke:var(--ink-2);stroke-width:2}
+.vis .axis{stroke:var(--ink-2);stroke-width:2;fill:none}
+.vis .playhead{stroke:var(--ink);stroke-width:2.5}
+.vis .pipe{fill:none;stroke:var(--vol);stroke-width:10;stroke-opacity:.6}
+.vis .spot{fill:none;stroke:var(--bad);stroke-width:2;stroke-dasharray:4 4}
+.vis .steth{fill:none;stroke:var(--ink);stroke-width:4;stroke-linecap:round}
+.vis .stampbox{fill:var(--surface);stroke:var(--bad);stroke-width:3}
+.vis .pill{fill:var(--surface);stroke-width:1.5}
+.vis .rowchip{fill:var(--note)}
+.vis .dim{fill:var(--paper);fill-opacity:.62}
+.vis .armstripe{stroke:var(--ink);stroke-width:12;stroke-dasharray:12 12}
+.vis .outline{fill:none;stroke:var(--ink);stroke-width:2.5}
+.vis .outline-bad{fill:none;stroke:var(--bad);stroke-width:2.5}
+.vis .glass{stroke-width:3;fill-opacity:.08}
+.vis .ic-ok-o{fill:var(--surface);stroke:var(--ok);stroke-width:2.5}
+.vis .ic-ok-s{fill:none;stroke:var(--ok);stroke-width:2.8;stroke-linecap:round;stroke-linejoin:round}
+.vis .ic-w{fill:none;stroke:#fff;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}
+.vis .ic-wf{fill:#fff}
+.vis .caret{fill:var(--ink)}
+.vis .folder{fill:var(--note);stroke:var(--note-ink);stroke-width:1.5}
+/* motion */
+.vis :is(.pop,.popout,.popoof,.drop,.poof,.shake,.wiggle,.pulse,.stamp,.fly,.slide,.bounce,.move,.travel,.press){transform-box:fill-box;transform-origin:center}
+.vis :is(.grow-x,.growshrink,.lift,.typing){transform-box:fill-box;transform-origin:left center}
+.vis .liftr{transform-box:fill-box;transform-origin:right center}
+@keyframes k-fade{from{opacity:0}to{opacity:1}}
+@keyframes k-out{from{opacity:1}to{opacity:0}}
+@keyframes k-up{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+@keyframes k-pop{0%{opacity:0;transform:scale(.45)}60%{opacity:1;transform:scale(1.07)}100%{opacity:1;transform:scale(1)}}
+@keyframes k-poof{0%{opacity:1;transform:scale(1)}35%{opacity:1;transform:scale(1.12)}100%{opacity:0;transform:scale(.15)}}
+@keyframes k-drop{0%{opacity:0;transform:translateY(-140px)}55%{opacity:1;transform:translateY(6px)}75%{transform:translateY(-6px)}100%{opacity:1;transform:none}}
+@keyframes k-draw{from{opacity:1;stroke-dashoffset:1}to{opacity:1;stroke-dashoffset:0}}
+@keyframes k-flow{to{stroke-dashoffset:-24}}
+@keyframes k-travel{0%{opacity:0;transform:translate(0,0)}12%{opacity:1}88%{opacity:1}100%{opacity:0;transform:translate(var(--tx),var(--ty))}}
+@keyframes k-move{from{transform:translate(0,0)}to{transform:translate(var(--tx,0px),var(--ty,0px))}}
+@keyframes k-fly{from{opacity:1;transform:translate(0,0) scale(1)}to{opacity:0;transform:translate(var(--tx),var(--ty)) scale(.35)}}
+@keyframes k-slide{from{opacity:0;transform:translate(var(--dx,0px),var(--dy,0px))}to{opacity:1;transform:none}}
+@keyframes k-shake{0%,100%{transform:translateX(0)}15%,55%{transform:translateX(-7px)}35%,75%{transform:translateX(7px)}}
+@keyframes k-wiggle{0%,100%{transform:rotate(0)}20%,60%{transform:rotate(-5deg)}40%,80%{transform:rotate(5deg)}}
+@keyframes k-float{0%{opacity:0;transform:translate(0,0)}25%{opacity:1}100%{opacity:0;transform:translate(8px,-22px)}}
+@keyframes k-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.2)}}
+@keyframes k-blink{0%,49%{opacity:1}50%,100%{opacity:0}}
+@keyframes k-blip{0%{opacity:0}18%{opacity:1}70%{opacity:1}100%{opacity:0}}
+@keyframes k-growx{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes k-shrinkx{from{transform:scaleX(1)}to{transform:scaleX(0)}}
+@keyframes k-stamp{0%{opacity:0;transform:scale(1.7) rotate(-3deg)}70%{opacity:1;transform:scale(.96) rotate(-3deg)}100%{opacity:1;transform:scale(1) rotate(-3deg)}}
+@keyframes k-lift{from{transform:rotate(0)}to{transform:rotate(-72deg)}}
+@keyframes k-liftr{from{transform:rotate(0)}to{transform:rotate(72deg)}}
+@keyframes k-press{0%{transform:translateY(0)}45%,60%{transform:translateY(var(--ty))}100%{transform:translateY(0)}}
+@keyframes k-bounce{0%{opacity:0;transform:translate(0,0)}10%{opacity:1}60%{opacity:1;transform:translate(var(--tx),var(--ty))}100%{opacity:0;transform:translate(calc(var(--tx) - 70px),calc(var(--ty) + 40px)) rotate(-25deg)}}
+@keyframes k-type{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+.on .fade{animation:k-fade .5s ease var(--d,0s) both}
+.on .out{animation:k-out .35s ease var(--o,0s) forwards}
+.on .inout{animation:k-fade .45s ease var(--d,0s) both,k-out .35s ease var(--o,9s) forwards}
+.on .up{animation:k-up .6s cubic-bezier(.2,.8,.2,1) var(--d,0s) both}
+.on .pop{animation:k-pop .55s cubic-bezier(.3,1.3,.5,1) var(--d,0s) both}
+.on .popout{animation:k-pop .5s cubic-bezier(.3,1.3,.5,1) var(--d,0s) both,k-out .35s ease var(--o,9s) forwards}
+.on .popoof{animation:k-pop .5s cubic-bezier(.3,1.3,.5,1) var(--d,0s) both,k-poof .55s ease-in var(--o,9s) forwards}
+.on .poof{animation:k-poof .55s ease-in var(--o,0s) forwards}
+.on .drop{animation:k-drop .85s ease-out var(--d,0s) both}
+.on .draw{animation:k-draw var(--dur,.7s) ease-in-out var(--d,0s) both}
+.on .drawout{animation:k-draw var(--dur,.7s) ease-in-out var(--d,0s) both,k-out .3s ease var(--o,9s) forwards}
+.on .dashy.fade{animation:k-fade .5s ease var(--d,0s) both,k-flow 1.1s linear var(--d,0s) infinite}
+.on .travel{animation:k-travel var(--dur,.9s) ease-in-out var(--d,0s) var(--n,1) both}
+.on .move{animation:k-move var(--dur,1s) var(--ease,cubic-bezier(.45,0,.25,1)) var(--d,0s) forwards}
+.on .fly{animation:k-fly var(--dur,.7s) cubic-bezier(.5,0,.3,1) var(--d,0s) forwards}
+.on .slide{animation:k-slide .7s cubic-bezier(.2,.8,.2,1) var(--d,0s) both}
+.on .shake{animation:k-shake .5s ease var(--d,0s) 1}
+.on .wiggle{animation:k-wiggle .8s ease var(--d,0s) 1}
+.on .zz{animation:k-float 2.4s ease-out var(--d,0s) infinite both}
+.on .pulse{animation:k-pulse 1.1s ease-in-out var(--d,0s) infinite}
+.on .blink{animation:k-blink 1s steps(1) var(--d,0s) infinite}
+.on .blip{animation:k-blip var(--dur,.9s) ease var(--d,0s) both}
+.on .grow-x{animation:k-growx var(--dur,.9s) var(--ease,cubic-bezier(.2,.8,.2,1)) var(--d,0s) both}
+.on .growshrink{animation:k-growx var(--dur,.9s) cubic-bezier(.2,.8,.2,1) var(--d,0s) both,k-shrinkx .45s ease-in var(--o,9s) forwards}
+.on .stamp{animation:k-stamp .45s cubic-bezier(.3,1.2,.5,1) var(--d,0s) both}
+.on .lift{animation:k-lift .7s cubic-bezier(.3,1.3,.5,1) var(--d,0s) forwards}
+.on .liftr{animation:k-liftr .7s cubic-bezier(.3,1.3,.5,1) var(--d,0s) forwards}
+.on .press{animation:k-press var(--dur,1.2s) ease-in-out var(--d,0s) 1}
+.on .bounce{animation:k-bounce var(--dur,1.4s) ease-in-out var(--d,0s) both}
+.on .typing{animation:k-type var(--dur,1s) var(--d,0s) both}
+.scene:not(.on) :is(.fade,.inout,.up,.pop,.popout,.popoof,.drop,.draw,.drawout,.travel,.slide,.zz,.blip,.stamp,.bounce,.grow-x,.growshrink){opacity:0}
+.scene:not(.on) .typing{transform:scaleX(0)}
+@media (max-width:820px),(max-aspect-ratio:1/1){
+  .scene{grid-template-columns:1fr;grid-template-rows:auto auto;align-items:start;align-content:start;overflow-y:auto;gap:10px;padding-top:4px}
+  .copy{max-width:62ch}
+  .copy h2{font-size:clamp(24px,6.2vw,36px);margin-bottom:.35em}
+  .copy p{font-size:15px;margin-bottom:.5em}
+  .copy pre.yaml{max-height:30vh}
+  .vis{height:auto}
+  .vis>svg{height:auto;max-height:64vh}
+}
+@media (max-width:600px) and (orientation:portrait){.rotate-hint{display:block}.cards{grid-template-columns:1fr}.card{min-height:130px}}
+@media (max-width:480px){.count{display:none}.btn{width:40px;height:40px}.btn.play{width:46px;height:46px}.brand span{font-size:14px}.where{font-size:13px}}
+@media (prefers-reduced-motion:reduce){
+  .scene,.scene.past,.scene.active{transform:none!important}
+  .scene{transition:opacity .25s ease,visibility 0s linear .25s}
+  .scene.active{transition:opacity .25s ease,visibility 0s}
+  .scene.on *{animation-duration:1ms!important;animation-iteration-count:1!important}
+  .card-inner{transition:none}
+}
+
+.vis .podseam{fill:none;stroke:rgba(255,255,255,.32);stroke-width:2.5;stroke-linecap:round}
+.vis .tagb{fill:var(--surface);stroke-width:2}
+.vis .deskbody{fill:var(--surface);stroke:var(--ink);stroke-width:2}
+.vis .clippaper{fill:var(--surface)}
+.vis .clipclip{fill:var(--ink-2)}
+.vis .lbl{fill:var(--note)}
+.vis .lbltxt{fill:var(--note-ink)}
+.vis .nodebox{fill:var(--net);stroke:var(--ink);stroke-width:2.5}
+.vis .door{fill:var(--client);stroke:var(--ink);stroke-width:2}
+.vis .road{fill:none;stroke:var(--line);stroke-width:22;stroke-linecap:round}
+.vis .roadmid{fill:none;stroke:var(--surface);stroke-width:2.5;stroke-dasharray:10 10}
+.vis .rope{fill:none;stroke:var(--bad);stroke-width:7;stroke-linecap:round}
+.vis .stanchion{fill:var(--ink-2)}
+.vis .pipe2{fill:none;stroke:var(--teal);stroke-width:14;stroke-linecap:round;stroke-linejoin:round;stroke-opacity:.28}
+.vis .flow{fill:none;stroke:var(--teal);stroke-width:4;stroke-dasharray:6 10;stroke-linecap:round}
+.vis .stop{fill:var(--surface);stroke:var(--ink-2);stroke-width:2.5}
+.vis .cniband{fill:var(--teal);fill-opacity:.1;stroke:var(--teal);stroke-width:2}
+.vis .valve{fill:var(--surface);stroke:var(--ink);stroke-width:2.5}
+.vis .brk{fill:none;stroke-width:2}
+@keyframes k-flow16{to{stroke-dashoffset:-32}}
+.on .flow.fade{animation:k-fade .5s ease var(--d,0s) both,k-flow16 .9s linear var(--d,0s) infinite}
+.on .flow.inout{animation:k-fade .5s ease var(--d,0s) both,k-out .35s ease var(--o,9s) forwards,k-flow16 .9s linear var(--d,0s) infinite}
+.take{gap:clamp(8px,1.5vh,18px)}
+.take svg{max-height:52px}
+.copy h1.long{font-size:clamp(36px,4.2vw,64px)}
+@keyframes k-unwind{from{stroke-dashoffset:0}to{stroke-dashoffset:1}}
+.on .unwind{animation:k-unwind var(--dur,3s) linear var(--d,0s) both}
+@keyframes k-spin{to{transform:rotate(360deg)}}
+.vis .spin{transform-box:fill-box;transform-origin:center}
+.on .spin{animation:k-spin 2.4s linear var(--d,0s) infinite}
+@keyframes k-ring{0%,100%{transform:rotate(0)}25%{transform:rotate(-12deg)}75%{transform:rotate(12deg)}}
+.vis .ringy{transform-box:fill-box;transform-origin:center}
+.on .ringy{animation:k-ring .22s linear var(--d,0s) 6}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand"><svg viewBox="0 0 30 22" aria-hidden="true"><path d="M4 21V8L15 2L26 8V21" fill="none" stroke="var(--teal)" stroke-width="2.4" stroke-linejoin="round"/><rect x="11" y="12" width="8" height="9" rx="1.5" fill="var(--teal)"/></svg><span>GPU node scheduling, explained</span></div>
+    <div class="where" id="chap"></div>
+  </header>
+  <main class="stage" id="stage"></main>
+  <nav class="controls" aria-label="Explainer controls">
+    <button class="btn" id="prev" aria-label="Previous scene"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
+    <button class="btn play" id="play" aria-label="Start auto-play" aria-pressed="false"></button>
+    <button class="btn" id="next" aria-label="Next scene"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></button>
+    <div class="track" id="track"></div>
+    <span class="count" id="count"></span>
+    <button class="btn" id="replay" aria-label="Replay this scene"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4.5h4.5"/></svg></button>
+  </nav>
+  <div class="sr" aria-live="polite" id="live"></div>
+</div>
+<script>
+const I=n=>'\u00A0'.repeat(n);
+const S=o=>{const p=[];for(const k in o){const v=o[k];if(v==null)continue;const sec=['d','o','dur'].includes(k),px=['tx','ty','dx','dy'].includes(k);p.push(`--${k}:${v}${sec?'s':px?'px':''}`)}return p.length?`style="${p.join(';')}"`:''};
+const G=(inner,o={})=>{const{x,y,an,...v}=o;let g=an?`<g class="${an}" ${S(v)}>${inner}</g>`:inner;if(x!=null||y!=null)g=`<g transform="translate(${x||0} ${y||0})">${g}</g>`;return g};
+const T=(x,y,s,o={})=>{const{c='',a,an='fade',d=0,o:oo}=o;return `<text x="${x}" y="${y}"${a?` text-anchor="${a}"`:''} class="${c} ${an}" ${an?S({d,o:oo}):''}>${s}</text>`};
+const svg=(inner,label)=>`<svg viewBox="0 0 800 500" role="img" aria-label="${label}" xml:space="preserve">${inner}</svg>`;
+let UID=0;
+
+function face(m,w,h){
+  const a=w*.36,b=w*.64,ey=h*.56,mx=w/2,my=h*.75;
+  if(m==='sleepy')return `<path class="lid" d="M${a-7} ${ey}q7 5 14 0M${b-7} ${ey}q7 5 14 0"/><path class="mouth" d="M${mx-5} ${my}h10"/>`;
+  const eyes=`<circle cx="${a}" cy="${ey}" r="8" class="eye"/><circle cx="${a+1}" cy="${ey+1}" r="3.8" class="pupil"/><circle cx="${b}" cy="${ey}" r="8" class="eye"/><circle cx="${b+1}" cy="${ey+1}" r="3.8" class="pupil"/>`;
+  const M={happy:`<path class="mouth" d="M${mx-11} ${my-3}q11 10 22 0"/>`,sad:`<path class="mouth" d="M${mx-10} ${my+4}q10 -9 20 0"/>`,flat:`<path class="mouth" d="M${mx-8} ${my}h16"/>`,worried:`<path class="mouth" d="M${mx-11} ${my+2}q5.5 -5 11 0q5.5 5 11 0"/>`,wow:`<ellipse class="mouth" cx="${mx}" cy="${my}" rx="5" ry="6"/>`};
+  return eyes+(M[m]||M.happy);
+}
+const ZZ=w=>`<text x="${w-26}" y="14" class="zz" style="--d:0s">z</text><text x="${w-14}" y="4" class="zz" style="--d:.8s">z</text><text x="${w-2}" y="-6" class="zz" style="--d:1.6s">Z</text>`;
+
+function crate({x=0,y=0,w=140,h=96,k='web',name='',sub='',mood='happy',m2,t2,m3,t3,an='',v={},s=1,ghost=false,extra=''}={}){
+  const fg=ghost?(k==='client'?'var(--client-ink)':`var(--${k})`):(k==='client'?'var(--on-client)':'#fff');
+  let r='';for(let i=16;i<w-8;i+=16)r+=`M${i} 30V${h-8}`;
+  const seq=[[mood,0]];if(m2)seq.push([m2,t2]);if(m3)seq.push([m3,t3]);
+  let faces='';
+  seq.forEach(([m,t],i)=>{const nx=seq[i+1];let cls='',st={};
+    if(i>0){cls='fade';st.d=t}
+    if(nx){cls=cls?'inout':'out';st.o=nx[1]}
+    faces+=`<g${cls?` class="${cls}" ${S(st)}`:''}>${face(m,w,h)}${m==='sleepy'?ZZ(w):''}</g>`;});
+  const body=ghost?`<rect width="${w}" height="${h}" rx="14" class="ghost" style="stroke:var(--${k});fill:var(--${k})"/>`
+    :`<rect width="${w}" height="${h}" rx="14" style="fill:var(--${k})"/><path d="${r}" class="ridge"/><path d="M8 27H${w-8}" class="capline"/>`;
+  let g=`<g class="${ghost?'ghostf':''}" style="--fg:${fg}">${body}${name?`<text x="12" y="19" class="cname">${name}</text>`:''}${sub?`<text x="${w-10}" y="18" text-anchor="end" class="csub">${sub}</text>`:''}${faces}${extra}</g>`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})${s!==1?` scale(${s})`:''}">${g}</g>`;
+}
+
+function drum({x=0,y=0,w=130,h=110,label='postgres_data',an='',v={},fs=12,ring=.5,extra=''}={}){
+  const rx=w/2,ry=13,ry2=Math.round(h*ring);
+  let g=`<path d="M0 ${ry}V${h-ry}A${rx} ${ry} 0 0 0 ${w} ${h-ry}V${ry}" style="fill:var(--vol)"/><ellipse cx="${rx}" cy="${ry}" rx="${rx}" ry="${ry}" style="fill:var(--vol)"/><ellipse cx="${rx}" cy="${ry}" rx="${rx}" ry="${ry}" fill="#fff" fill-opacity=".28"/><path d="M0 ${ry2}A${rx} ${ry} 0 0 0 ${w} ${ry2}" fill="none" stroke="#fff" stroke-opacity=".35" stroke-width="2"/>${label?`<text x="${rx}" y="${h-12}" text-anchor="middle" class="m b wht" style="font-size:${fs}px">${label}</text>`:''}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+
+function bubPath(W,H,tail,tp){
+  const top=tail==='tl'?`H${tp}L${tp+4} -12L${tp+14} 0H${W-12}`:`H${W-12}`;
+  const bot=tail==='bl'?`H${tp+14}L${tp+4} ${H+12}L${tp} ${H}H12`:`H12`;
+  return `M12 0${top}Q${W} 0 ${W} 12V${H-12}Q${W} ${H} ${W-12} ${H}${bot}Q0 ${H} 0 ${H-12}V12Q0 0 12 0Z`;
+}
+function bubble(x,y,txt,{w,c='var(--ink)',fs=14,mono=true,tail='bl',tp=16,an='pop',d=0,o}={}){
+  const plain=txt.replace(/<[^>]+>/g,'').replace(/&[a-z#0-9]+;/g,'x');
+  const W=w||Math.round(plain.length*fs*(mono?.6:.56)+26),H=fs+18;
+  const inner=`<path d="${bubPath(W,H,tail,tp)}" class="bub" style="stroke:${c}"/><text x="13" y="${(H/2+fs*.36).toFixed(1)}" class="${mono?'m ':''}b" style="fill:${c};font-size:${fs}px">${txt}</text>`;
+  let a=an;if(o!=null)a=an==='pop'?'popout':an==='fade'?'inout':an;
+  return G(inner,{x,y,an:a,d,o});
+}
+
+function arrow(p,{c='var(--ink)',d=0,dur=.7,w=2.5,dash=false}={}){
+  let path,fx,fy;const{x1,y1,x2,y2,q,c1,c2,poly}=p;let ex=x2,ey=y2;
+  if(poly){path='M'+poly.map(pt=>pt.join(' ')).join('L');const n=poly.length;[ex,ey]=poly[n-1];[fx,fy]=poly[n-2]}
+  else if(c1){path=`M${x1} ${y1}C${c1[0]} ${c1[1]} ${c2[0]} ${c2[1]} ${x2} ${y2}`;[fx,fy]=c2}
+  else if(q){path=`M${x1} ${y1}Q${q[0]} ${q[1]} ${x2} ${y2}`;[fx,fy]=q}
+  else{path=`M${x1} ${y1}L${x2} ${y2}`;fx=x1;fy=y1}
+  const ang=Math.atan2(ey-fy,ex-fx),L=12;
+  const h1=[ex+L*Math.cos(ang+2.55),ey+L*Math.sin(ang+2.55)],h2=[ex+L*Math.cos(ang-2.55),ey+L*Math.sin(ang-2.55)];
+  const head=`<path d="M${h1[0].toFixed(1)} ${h1[1].toFixed(1)}L${ex} ${ey}L${h2[0].toFixed(1)} ${h2[1].toFixed(1)}" class="ahead fade" style="stroke:${c};stroke-width:${w};--d:${(d+dur*.8).toFixed(2)}s"/>`;
+  const line=dash?`<path d="${path}" class="aline dashy fade" style="stroke:${c};stroke-width:${w};--d:${d}s"/>`
+    :`<path d="${path}" pathLength="1" class="aline draw" style="stroke:${c};stroke-width:${w};--d:${d}s;--dur:${dur}s"/>`;
+  return `<g>${line}${head}</g>`;
+}
+const packet=(x1,y1,x2,y2,{d=0,dur=.8,c='var(--web)',r=7}={})=>`<circle cx="${x1}" cy="${y1}" r="${r}" class="travel" style="fill:${c};--d:${d}s;--dur:${dur}s;--tx:${x2-x1}px;--ty:${y2-y1}px"/>`;
+
+function icon(t,x,y,{d=0,o,r=14,an='pop'}={}){
+  const s=r/14;
+  const sym={
+    kept:`<circle r="14" class="ic-ok-o"/><path d="M-6 0l4 4 8-8" class="ic-ok-s"/>`,
+    yes:`<circle r="14" class="okf"/><path d="M-6 0l4 4 8-8" class="ic-w"/>`,
+    no:`<circle r="14" class="badf"/><path d="M-5 -5l10 10M5 -5l-10 10" class="ic-w"/>`,
+    stop:`<circle r="14" class="mutf"/><path d="M-3.5 -5v10M3.5 -5v10" class="ic-w"/>`,
+    play:`<circle r="14" class="okf"/><path d="M-3.5 -6L6 0L-3.5 6Z" class="ic-wf"/>`,
+    restart:`<circle r="14" style="fill:var(--web)"/><path d="M6 1.5A6.2 6.2 0 1 1 3.6 -5" class="ic-w"/><path d="M4.5 -9.5L4 -4.6L-0.8 -5.6" class="ic-w"/>`,
+    plus:`<circle r="14" class="okf"/><path d="M0 -6V6M-6 0H6" class="ic-w"/>`,
+    warn:`<circle r="14" class="warnf"/><path d="M0 -6.5V1.5" class="ic-w"/><circle cy="6" r="1.7" class="ic-wf"/>`
+  }[t];
+  const a=o!=null?(an==='pop'?'popout':an):an;
+  return `<g transform="translate(${x} ${y})${s!==1?` scale(${s})`:''}"><g class="${a}" ${S({d,o})}>${sym}</g></g>`;
+}
+function typed(x,y,str,{fs=15,d=0,dur=1,c=''}={}){
+  const id='clip'+(UID++),w=str.length*fs*.6+6;
+  return `<clipPath id="${id}"><rect x="${x-2}" y="${y-fs}" width="${w}" height="${fs*1.5}" class="typing" style="--d:${d}s;--dur:${dur}s;animation-timing-function:steps(${str.length},end)"/></clipPath><text x="${x}" y="${y}" class="m ${c}" clip-path="url(#${id})" style="font-size:${fs}px">${str}</text>`;
+}
+function browser(x,y,w,h,addr,o={}){
+  return G(`<rect width="${w}" height="${h}" rx="10" class="panel"/><path d="M0 22H${w}" class="sep"/><circle cx="12" cy="11" r="3.5" class="badf"/><circle cx="24" cy="11" r="3.5" class="warnf"/><circle cx="36" cy="11" r="3.5" class="okf"/><rect x="8" y="32" width="${w-16}" height="24" rx="6" class="codebg"/><text x="16" y="49" class="m f12">${addr}</text>`,{x,y,...o});
+}
+const glass=(x,y,w,h,k,label,o={})=>G(`<rect width="${w}" height="${h}" rx="16" class="glass" style="stroke:var(--${k});fill:var(--${k})"/><path d="M0 16Q0 0 16 0H${label.length*8.2+30}V28H0Z" style="fill:var(--${k})"/><text x="14" y="19" class="f14 b" style="fill:${k==='client'?'var(--on-client)':'#fff'}">${label}</text>`,{x,y,...o});
+const codeLine=(x,y,s,c='')=>`<text x="${x}" y="${y}" class="m ${c}">${s}</text>`;
+// ---------- Day 10 helpers ----------
+function faceSeq(seq,w,h){let f='';seq.forEach(([m,t],i)=>{const nx=seq[i+1];let cls='',st={};if(i>0){cls='fade';st.d=t}if(nx){cls=cls?'inout':'out';st.o=nx[1]}f+=`<g${cls?` class="${cls}" ${S(st)}`:''}>${face(m,w,h)}${m==='sleepy'?ZZ(w):''}</g>`});return f}
+function pod({x=0,y=0,w=104,h=74,k='web',ip='',mood='happy',m2,t2,m3,t3,an='',v={},s=1,ghost=false,extra='',under=''}={}){
+  const fg=ghost?(k==='client'?'var(--client-ink)':`var(--${k})`):(k==='client'?'var(--on-client)':'#fff');
+  const r=Math.min(h/2,34),seq=[[mood,0]];if(m2)seq.push([m2,t2]);if(m3)seq.push([m3,t3]);
+  const body=ghost?`<rect width="${w}" height="${h}" rx="${r}" class="ghost" style="stroke:var(--${k});fill:var(--${k})"/>`
+    :`<rect width="${w}" height="${h}" rx="${r}" style="fill:var(--${k})"/><path d="M${(r*.75).toFixed(1)} 12Q${w/2} 2 ${(w-r*.75).toFixed(1)} 12" class="podseam"/>`;
+  let g=`<g class="${ghost?'ghostf':''}" style="--fg:${fg}">${body}${faceSeq(seq,w,h)}${extra}</g>${ip?`<text x="${w/2}" y="${h+17}" text-anchor="middle" class="m f12 mut">${ip}</text>`:''}${under}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})${s!==1?` scale(${s})`:''}">${g}</g>`;
+}
+const tagW=t=>Math.round(t.length*7.2+26);
+const tagD=w=>`M0 12L9.5 1.5Q11 0 13 0H${w-5}Q${w} 0 ${w} 5V19Q${w} 24 ${w-5} 24H13Q11 24 9.5 22.5Z`;
+const tagRaw=(t,k='ink-2')=>`<path d="${tagD(tagW(t))}" class="tagb" style="stroke:var(--${k})"/><circle cx="11" cy="12" r="2.5" style="fill:var(--${k})"/><text x="19" y="16.5" class="m f12">${t}</text>`;
+const tag=(x,y,t,{k='ink-2',an='fade',d=0,o}={})=>G(tagRaw(t,k),{x,y,an:o!=null?'inout':an,d,o});
+const tagHL=(x,y,t,ok,{d=0,o}={})=>{const c=ok?'ok':'bad';return `<path transform="translate(${x} ${y})" d="${tagD(tagW(t))}" class="${o!=null?'inout':'fade'}" style="fill:var(--${c});fill-opacity:.18;stroke:var(--${c});stroke-width:3;--d:${d}s${o!=null?`;--o:${o}s`:''}"/>`};
+function desk({x=0,y=0,w=170,name='Service: web',ip='',sub='',an='',v={},s=1,extra=''}={}){
+  let g=`<path d="M30 28V46M${w-30} 28V46" style="stroke:var(--ink-2);stroke-width:3"/><rect x="6" width="${w-12}" height="30" rx="8" class="inkf"/><text x="${w/2}" y="20" text-anchor="middle" class="f14 b inv">${name}</text><path d="M${w-64} 46a11 11 0 0 1 22 0Z" style="fill:var(--client)"/><circle cx="${w-53}" cy="33" r="2.6" style="fill:var(--client)"/><rect y="45" width="${w}" height="11" rx="4" class="inkf"/><rect x="8" y="56" width="${w-16}" height="58" rx="6" class="deskbody"/>${ip?`<text x="${w/2}" y="${sub?81:90}" text-anchor="middle" class="m f14 b">${ip}</text>`:''}${sub?`<text x="${w/2}" y="${ip?101:90}" text-anchor="middle" class="f12 mut">${sub}</text>`:''}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})${s!==1?` scale(${s})`:''}">${g}</g>`;
+}
+function clip({x=0,y=0,w=210,h=160,title='EndpointSlice',an='',v={},extra=''}={}){
+  let g=`<rect width="${w}" height="${h}" rx="10" class="inkf"/><rect x="8" y="12" width="${w-16}" height="${h-20}" rx="4" class="clippaper"/><rect x="${w/2-28}" y="-7" width="56" height="18" rx="5" class="clipclip"/><text x="20" y="38" class="f13 b">${title}</text><path d="M20 48H${w-20}" class="sep"/>${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function book({x=0,y=0,w=160,h=96,title='CoreDNS',sub='10.96.0.10',an='',v={},extra=''}={}){
+  let g=`<rect x="7" y="7" width="${w}" height="${h}" rx="8" style="fill:var(--note)"/><rect width="${w}" height="${h}" rx="8" class="inkf"/><path d="M18 6V${h-6}" style="stroke:var(--paper);stroke-opacity:.3;stroke-width:3"/><text x="30" y="${h/2-3}" class="f17 b inv">${title}</text>${sub?`<text x="30" y="${h/2+19}" class="m f12 inv" opacity=".78">${sub}</text>`:''}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function letterG(label=''){const w=Math.round(label.length*7.2+16);
+  return `<rect x="-14" y="-10" width="28" height="20" rx="3" class="paper"/><path d="M-14 -9L0 2L14 -9" class="paperfold"/>${label?`<rect x="${-w/2}" y="-40" width="${w}" height="22" rx="6" class="lbl"/><text x="0" y="-25" text-anchor="middle" class="m f12 b lbltxt">${label}</text>`:''}`}
+const sendL=(x1,y1,x2,y2,{d=0,dur=.8,label=''}={})=>`<g transform="translate(${x1} ${y1})"><g class="travel" ${S({d,dur,tx:x2-x1,ty:y2-y1})}>${letterG(label)}</g></g>`;
+const svcChip=(x,y,name,{w=170,an='pop',d=0}={})=>G(`<rect width="${w}" height="44" rx="12" class="deskbody"/><path d="M13 30a10 10 0 0 1 20 0Z" style="fill:var(--client)"/><rect x="10" y="29" width="26" height="4" rx="2" class="inkf"/><text x="44" y="28" class="f14 b">${name}</text>`,{x,y,an,d});
+const shieldP=`<path d="M0 -17L14 -11V0C14 9 7 15 0 18C-7 15 -14 9 -14 0V-11Z" class="inkf"/><path d="M-6 0l4 4 8-8" style="fill:none;stroke:var(--paper);stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round"/>`;
+const shield=(x,y,{s=1,an='pop',d=0}={})=>`<g transform="translate(${x} ${y}) scale(${s})"><g class="${an}" ${S({d})}>${shieldP}</g></g>`;
+const pill=(x,y,txt,{c='ok',an='pop',d=0}={})=>{const w=Math.round(txt.length*7.6+30);return G(`<rect width="${w}" height="24" rx="12" class="pill" style="stroke:var(--${c})"/><circle cx="13" cy="12" r="4.5" style="fill:var(--${c})"/><text x="23" y="16.5" class="f13 b">${txt}</text>`,{x,y,an,d})};
+const chipT=(t,w)=>`<rect x="${-w/2}" y="-12" width="${w}" height="24" rx="12" class="lbl"/><text x="0" y="5" text-anchor="middle" class="m f12 b lbltxt">${t}</text>`;
+const flyChip=(x1,y1,x2,y2,t,{d=0,dur=.8}={})=>`<g transform="translate(${x1} ${y1})"><g class="travel" ${S({d,dur,tx:x2-x1,ty:y2-y1})}>${chipT(t,Math.round(t.length*7.2+22))}</g></g>`;
+// ---------- Day 11 helpers ----------
+function ticket({x=0,y=0,w=170,h=96,title='PVC',lines=[],an='',v={},extra='',k='client'}={}){
+  const n=9,m=h/2;
+  const d=`M10 0H${w-10}Q${w} 0 ${w} 10V${m-n}A${n} ${n} 0 0 0 ${w} ${m+n}V${h-10}Q${w} ${h} ${w-10} ${h}H10Q0 ${h} 0 ${h-10}V${m+n}A${n} ${n} 0 0 0 0 ${m-n}V10Q0 0 10 0Z`;
+  let g=`<path d="${d}" class="paper"/><path d="M10 1H${w-10}Q${w-1} 1 ${w-1} 10V12H1V10Q1 1 10 1Z" style="fill:var(--${k})"/><text x="14" y="${m-9}" class="m f13 b">${title}</text><path d="M${n+5} ${m}H${w-n-5}" class="sep" style="stroke-dasharray:4 4"/>${lines.map((l,i)=>`<text x="14" y="${m+22+i*18}" class="m f12">${l}</text>`).join('')}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function pad({x=0,y=0,w=120,h=86,title='emptyDir',lines=[],an='',v={},extra=''}={}){
+  let rings='';for(let i=14;i<=w-20;i+=22)rings+=`<rect x="${i}" y="-6" width="6" height="14" rx="3" class="inkf"/>`;
+  let g=`<rect width="${w}" height="${h}" rx="8" style="fill:var(--note)"/>${rings}<text x="12" y="28" class="m f12 b lbltxt">${title}</text>${lines.map((l,i)=>`<text x="12" y="${50+i*18}" class="m f12 lbltxt">${l}</text>`).join('')}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function rack({x=0,y=0,w=110,h=90,label='backing storage',an='',v={}}={}){
+  const sh=(h-20)/3;let g=`<rect width="${w}" height="${h}" rx="10" style="fill:var(--ink-2)"/>`;
+  for(let i=0;i<3;i++){const yy=10+i*sh;g+=`<rect x="10" y="${yy}" width="${w-20}" height="${sh-6}" rx="4" fill="#fff" fill-opacity=".16"/><circle cx="${w-22}" cy="${yy+(sh-6)/2}" r="3.5" class="okf"/>`}
+  if(label)g+=`<text x="${w/2}" y="${h+18}" text-anchor="middle" class="f12 mut">${label}</text>`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function menuCard({x=0,y=0,w=200,h=150,title='StorageClass',rows='',an='',v={}}={}){
+  let g=`<rect width="${w}" height="${h}" rx="12" class="panel"/><path d="M12 0H${w-12}Q${w} 0 ${w} 12V32H0V12Q0 0 12 0Z" class="inkf"/><text x="14" y="21" class="f14 b inv">${title}</text>${rows}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+const HAT=w=>`<path d="M${w/2-36} -2Q${w/2-46} -20 ${w/2-28} -24Q${w/2-20} -40 ${w/2} -32Q${w/2+18} -42 ${w/2+28} -24Q${w/2+46} -20 ${w/2+36} -2Z" style="fill:#fff;stroke:var(--ink);stroke-width:2;stroke-linejoin:round"/>`;
+const nodeBox=(x,y,w,h,label,o={})=>G(`<rect width="${w}" height="${h}" rx="14" class="nodebox"/><text x="12" y="22" class="f13 b">${label}</text>`,{x,y,...o});
+const jersey=n=>`<circle cx="16" cy="16" r="12" class="stop"/><text x="16" y="21" text-anchor="middle" class="f13 b">${n}</text>`;
+const fileI=`<path d="M0 3Q0 0 3 0H12L18 6V21Q18 24 15 24H3Q0 24 0 21Z" class="paper"/><path d="M12 0.5V6H17.5" class="paperfold"/>`;
+const fileChip=(x,y,name,{an='fade',d=0,o,c=''}={})=>G(`${fileI}<text x="26" y="17" class="m f13 ${c}">${name}</text>`,{x,y,an:o!=null?'inout':an,d,o});
+const flyFile=(x1,y1,x2,y2,name='',{d=0,dur=.9}={})=>`<g transform="translate(${x1} ${y1})"><g class="travel" ${S({d,dur,tx:x2-x1,ty:y2-y1})}>${fileI}${name?`<text x="24" y="16" class="m f12 b">${name}</text>`:''}</g></g>`;
+const PENCIL=`<path d="M-7 7L-6 2L4 -8L8 -4L-2 6Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.8;stroke-linejoin:round"/>`;
+const EYE=`<path d="M-10 0Q0 -8 10 0Q0 8 -10 0Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.8"/><circle r="3" class="inkf"/>`;
+const LOCK=`<path d="M-6 -2V-7A6 6 0 0 1 6 -7V-2" style="fill:none;stroke:var(--ink);stroke-width:2.5"/><rect x="-9" y="-3" width="18" height="15" rx="3" class="inkf"/>`;
+const TRASH=`<rect x="-6" y="0" width="72" height="10" rx="3" class="inkf"/><rect x="22" y="-6" width="16" height="8" rx="2" class="inkf"/><path d="M2 14H58L54 76H6Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:2.5;stroke-linejoin:round"/><path d="M20 26V64M30 26V64M40 26V64" style="stroke:var(--ink-2);stroke-width:2.5"/>`;
+const sym=(g,x,y,{d=0,an='pop',s=1}={})=>`<g transform="translate(${x} ${y}) scale(${s})"><g class="${an}" ${S({d})}>${g}</g></g>`;
+const STAIRS=`<rect x="0" y="34" width="15" height="14" rx="3" style="fill:var(--web)"/><rect x="16" y="23" width="15" height="25" rx="3" style="fill:var(--teal)"/><rect x="32" y="12" width="15" height="36" rx="3" style="fill:var(--db)"/><rect x="48" y="1" width="15" height="47" rx="3" style="fill:var(--vol)"/>`;
+const term=(x,y,w,h,L,{fs=12,lh=24,top=26,d=0}={})=>G(`<rect width="${w}" height="${h}" rx="12" class="codebg"/>`+L.map(([t,c,dd],i)=>T(16,top+i*lh,t.replace(/ /g,'\u00A0'),{c:`m f${fs} ${c}`,d:dd})).join(''),{x,y,an:'fade',d});
+const chipsRow=(x,y,arr,{maxX=380,d=0,k='line'}={})=>{let s='',cx=x,cy=y;arr.forEach((t,i)=>{const w=Math.round(t.length*6.9+22);if(cx+w>maxX){cx=x;cy+=36}s+=G(`<rect width="${w}" height="28" rx="14" class="pill" style="stroke:var(--${k})"/><text x="${w/2}" y="19" text-anchor="middle" class="f13">${t}</text>`,{x:cx,y:cy,an:'pop',d:d+i*.15});cx+=w+8});return s};
+// ---------- Day 12 helpers ----------
+const LOCKW=`<path d="M-6 -2V-7A6 6 0 0 1 6 -7V-2" style="fill:none;stroke:#fff;stroke-width:2.5"/><rect x="-9" y="-3" width="18" height="15" rx="3" fill="#fff"/>`;
+function cfgCard({x=0,y=0,w=240,kind='cm',name='inference-config',rows=[],rh=24,an='',v={},extra=''}={}){
+  const k=kind==='cm'?'teal':'db',h=46+rows.length*rh;
+  let g=`<rect width="${w}" height="${h}" rx="12" class="panel"/><path d="M12 0H${w-12}Q${w} 0 ${w} 12V34H0V12Q0 0 12 0Z" style="fill:var(--${k})"/>${kind==='sec'?`<g transform="translate(${w-20} 18) scale(.75)">${LOCKW}</g>`:''}<text x="14" y="22" class="f13 b wht">${kind==='cm'?'ConfigMap':'Secret'}: ${name}</text>`;
+  rows.forEach(([kk,vv],i)=>{g+=`<text x="14" y="${58+i*rh}" class="m f12"><tspan class="b">${kk}</tspan><tspan class="mut">: </tspan>${vv}</text>`});
+  g+=extra;if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+const polaroid=(x,y,lines,{w=170,an='pop',d=0,o,label='photo at start'}={})=>{const h=40+lines.length*22+28;return G(`<rect width="${w}" height="${h}" rx="4" style="fill:#fff;stroke:var(--ink);stroke-width:2"/><rect x="10" y="10" width="${w-20}" height="${h-44}" rx="2" style="fill:#1F2449"/>${lines.map((l,i)=>`<text x="20" y="${36+i*22}" class="m f13 b" style="fill:#FFE38A">${l}</text>`).join('')}<text x="${w/2}" y="${h-12}" text-anchor="middle" class="f12" style="fill:#18203F">${label}</text>`,{x,y,an:an?(o!=null?'popout':an):'',d,o})};
+const liveWin=(x,y,w,h,title,o={})=>G(`<rect width="${w}" height="${h}" rx="10" class="panel"/><path d="M10 0H${w-10}Q${w} 0 ${w} 10V26H0V10Q0 0 10 0Z" class="codebg"/><circle cx="14" cy="13" r="4" class="badf"/><circle cx="28" cy="13" r="4" class="warnf"/><circle cx="42" cy="13" r="4" class="okf"/><text x="56" y="18" class="m f11 mut">${title}</text>`,{x,y,...o});
+const DISGUISE=`<circle cx="-15" cy="0" r="11" style="fill:var(--surface);fill-opacity:.2;stroke:var(--ink);stroke-width:3"/><circle cx="15" cy="0" r="11" style="fill:var(--surface);fill-opacity:.2;stroke:var(--ink);stroke-width:3"/><path d="M-4 0Q0 -4 4 0M-26 -2L-34 -6M26 -2L34 -6" style="fill:none;stroke:var(--ink);stroke-width:3;stroke-linecap:round"/><path d="M-22 20Q-11 12 0 18Q11 12 22 20Q11 26 0 22Q-11 26 -22 20Z" class="inkf"/>`;
+const room=(x,y,w,h,name,o={})=>{const tw=Math.round((11+name.length)*8.1+30);return G(`<rect width="${w}" height="${h}" rx="16" class="nodebox"/><path d="M16 0H${tw}V30H0V16Q0 0 16 0Z" class="inkf"/><text x="14" y="20" class="f13 b inv">namespace: ${name}</text>`,{x,y,...o})};
+const BOLT=`<path d="M8 0L0 18H8L4 34L20 12H11L16 0Z" style="fill:var(--warn);stroke:var(--ink);stroke-width:1.5;stroke-linejoin:round"/>`;
+const pillT=(x,y,t,{k='line',an='pop',d=0,o,c='f13'}={})=>{const w=Math.round(t.length*6.9+28);return G(`<rect width="${w}" height="32" rx="16" class="pill" style="stroke:var(--${k})"/><text x="14" y="21" class="${c}">${t}</text>`,{x,y,an:o!=null?'popout':an,d,o})};
+const valX=k=>14+(k.length+2)*7.2;
+// ---------- Day 13 helpers ----------
+function nodeCard({x=0,y=0,w=200,h=150,name='node',k='ink',an='',v={},extra=''}={}){
+  const head=k==='ink'?'class="inkf"':`style="fill:var(--${k})"`,tc=k==='ink'?'class="f13 b inv"':(k==='client'?'class="f13 b" style="fill:var(--on-client)"':'class="f13 b wht"');
+  let g=`<rect width="${w}" height="${h}" rx="14" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><path d="M14 0H${w-14}Q${w} 0 ${w} 14V30H0V14Q0 0 14 0Z" ${head}/><text x="14" y="21" ${tc}>${name}</text>${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function signRaw(t){const w=Math.round(t.length*7.2+24);let st='';for(let i=4;i<w-12;i+=12)st+=`M${i} 12L${i+8} 0`;return `<rect width="${w}" height="44" rx="6" style="fill:var(--surface);stroke:var(--ink);stroke-width:2"/><path d="M6 1H${w-6}Q${w-1} 1 ${w-1} 6V12H1V6Q1 1 6 1Z" style="fill:var(--warn)"/><path d="${st}" style="stroke:var(--ink);stroke-width:2.5"/><text x="12" y="33" class="m f12 b">${t}</text>`}
+const sign=(x,y,t,{an='pop',d=0,o}={})=>G(signRaw(t),{x,y,an:o!=null?'popout':an,d,o});
+function badgeRaw(t,k='ok'){const w=Math.round(t.length*6.6+44);return `<rect width="${w}" height="34" rx="8" style="fill:var(--surface);stroke:var(--${k});stroke-width:2.5"/><rect width="14" height="34" rx="6" style="fill:var(--${k})"/><circle cx="7" cy="9" r="2.5" style="fill:var(--surface)"/><text x="24" y="22" class="m f11 b">${t}</text>`}
+const badge=(x,y,t,{k='ok',an='pop',d=0,o}={})=>G(badgeRaw(t,k),{x,y,an:o!=null?'popout':an,d,o});
+function pizza(cx,cy,r,frac,{d=0}={}){let wedge;
+  if(frac>=1)wedge=`<circle cx="${cx}" cy="${cy}" r="${r-4}" style="fill:var(--warn)"/><circle cx="${cx-12}" cy="${cy-10}" r="5" class="badf"/><circle cx="${cx+14}" cy="${cy-4}" r="5" class="badf"/><circle cx="${cx-2}" cy="${cy+14}" r="5" class="badf"/>`;
+  else{const a=-Math.PI/2+frac*2*Math.PI,x2=cx+(r-4)*Math.cos(a),y2=cy+(r-4)*Math.sin(a),lg=frac>.5?1:0;wedge=`<path d="M${cx} ${cy}L${cx} ${cy-r+4}A${r-4} ${r-4} 0 ${lg} 1 ${x2.toFixed(1)} ${y2.toFixed(1)}Z" style="fill:var(--warn);stroke:var(--client-ink);stroke-width:2;stroke-linejoin:round"/>`}
+  return G(`<circle cx="${cx}" cy="${cy}" r="${r}" style="fill:none;stroke:var(--line);stroke-width:2;stroke-dasharray:5 5"/>${wedge}${frac>=1?`<circle cx="${cx}" cy="${cy}" r="${r-2}" style="fill:none;stroke:var(--client-ink);stroke-width:4"/>`:''}`,{an:'pop',d});}
+const BALLOON=`<ellipse cx="0" cy="0" rx="24" ry="30" style="fill:var(--vol)"/><ellipse cx="-8" cy="-10" rx="6" ry="9" fill="#fff" fill-opacity=".35"/><path d="M-4 29L4 29L0 35Z" style="fill:var(--vol)"/><path d="M0 35Q8 48 0 60" style="fill:none;stroke:var(--ink-2);stroke-width:2"/>`;
+const FUNNEL=`<path d="M0 0H60L38 26V46L22 54V26Z" style="fill:var(--teal)"/>`;
+const MAG=`<circle cx="20" cy="20" r="15" style="fill:var(--surface);stroke:var(--ink);stroke-width:5"/><path d="M31 31L46 46" style="stroke:var(--ink);stroke-width:7;stroke-linecap:round"/>`;
+const TARGET=`<circle r="16" style="fill:none;stroke:var(--web);stroke-width:4"/><circle r="8" style="fill:none;stroke:var(--web);stroke-width:4"/><circle r="3" style="fill:var(--web)"/>`;
+const miniPod=(x,y,k='web')=>`<g transform="translate(${x} ${y})"><rect width="32" height="24" rx="8" style="fill:var(--${k})"/><circle cx="11" cy="12" r="3" fill="#fff"/><circle cx="21" cy="12" r="3" fill="#fff"/></g>`;
+// ---------- Day 14 helpers ----------
+const ptick=(x,y,ok,{d=0,r=8}={})=>`<circle cx="${x}" cy="${y}" r="${r}" class="pop" style="fill:var(--${ok?'ok':'bad'});--d:${d}s"/>`;
+const CLOCK=`<circle r="10" class="warnf"/><path d="M0 -6V0L4 3" style="fill:none;stroke:#fff;stroke-width:2;stroke-linecap:round"/>`;
+const ptag=(x,y,name,k,{d=0,an='pop'}={})=>G(`<rect width="${Math.round(name.length*8.2+24)}" height="26" rx="13" style="fill:var(--${k})"/><text x="12" y="18" class="f13 b wht">${name}</text>`,{x,y,an,d});
+const spill=(x,y,txt,k='ok',{d=0,o,an}={})=>{const w=Math.round(txt.length*7.6+30);return G(`<rect width="${w}" height="24" rx="12" class="pill" style="stroke:var(--${k})"/><circle cx="13" cy="12" r="4.5" style="fill:var(--${k})"/><text x="23" y="16.5" class="f13 b">${txt}</text>`,{x,y,an:an||(o!=null?'inout':'pop'),d,o})};
+const pbox=(x,y,w,h,k,t,q,d)=>G(`<rect width="${w}" height="${h}" rx="14" class="panel" style="stroke:var(--${k});stroke-width:3"/><rect x="14" y="14" width="${Math.round(t.length*8.6+24)}" height="26" rx="13" style="fill:var(--${k})"/><text x="26" y="32" class="f14 b wht">${t}</text><text x="16" y="66" class="f14">${q}</text>`,{x,y,an:'pop',d});
+// ---------- Day 15 helpers ----------
+const crowd=(x,y,n,cols,{first=0,d0=.6,d1=1.8,gap=16,k='ink-2'}={})=>{let s='';for(let i=0;i<n;i++){const cx=x+(i%cols)*gap,cy=y+Math.floor(i/cols)*gap,d=i<first?d0:d1+(i-first)*.012;s+=`<circle cx="${cx}" cy="${cy}" r="5.5" class="pop" style="fill:var(--${k});--d:${d.toFixed(2)}s"/>`}return s};
+const meterCard=(x,y,w,h,title,val,frac,k,cap,{d=0,extra=''}={})=>G(`<rect width="${w}" height="${h}" rx="14" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><text x="16" y="30" class="f13 b mut">${title}</text>${val?`<text x="16" y="84" class="f30 b" style="fill:var(--${k})">${val}</text>`:''}<rect x="16" y="108" width="${w-32}" height="14" rx="7" style="fill:var(--line)"/><rect x="16" y="108" width="${Math.round((w-32)*frac)}" height="14" rx="7" class="grow-x" style="fill:var(--${k});--d:${d+.3}s"/><text x="16" y="150" class="f12">${cap}</text>${extra}`,{x,y,an:'pop',d});
+// ---------- Day 16 helpers ----------
+function house({x=0,y=0,w=150,h=140,name='inference-dev',k='teal',an='',v={},extra='',solar=false}={}){
+  const rh=Math.round(h*.38),bh=h-rh;
+  let g=`<path d="M${w/2} 0L${w} ${rh}H0Z" style="fill:var(--${k})"/>${solar?`<path d="M${w*.56} ${rh*.32}L${w*.86} ${rh*.82}L${w*.74} ${rh*.82}L${w*.48} ${rh*.42}Z" class="inkf" opacity=".75"/>`:''}<rect x="${w*.08}" y="${rh}" width="${w*.84}" height="${bh-24}" style="fill:var(--surface);stroke:var(--ink);stroke-width:2.5"/><rect x="${w/2-12}" y="${h-24-34}" width="24" height="34" rx="3" style="fill:var(--${k});fill-opacity:.6"/><rect x="${w*.18}" y="${rh+14}" width="22" height="18" rx="3" style="fill:var(--note)"/><rect x="${w*.82-22}" y="${rh+14}" width="22" height="18" rx="3" style="fill:var(--note)"/><rect y="${h-22}" width="${w}" height="22" rx="6" class="inkf"/><text x="${w/2}" y="${h-7}" text-anchor="middle" class="m f11 b inv">${name}</text>${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function blueprint({x=0,y=0,w=160,h=110,title='inference-chart',lines=[],an='',v={}}={}){
+  let grid='';for(let i=12;i<w;i+=16)grid+=`M${i} 0V${h}`;for(let j=12;j<h;j+=16)grid+=`M0 ${j}H${w}`;
+  let g=`<rect width="${w}" height="${h}" rx="8" style="fill:var(--web)"/><path d="${grid}" style="stroke:#fff;stroke-opacity:.14;stroke-width:1"/><path d="M${w-50} ${h-12}V${h-34}L${w-32} ${h-50}L${w-14} ${h-34}V${h-12}Z" style="fill:none;stroke:#fff;stroke-width:2;stroke-opacity:.75"/><text x="12" y="22" class="m f12 b wht">${title}</text>${lines.map((l,i)=>`<text x="12" y="${42+i*17}" class="m f11 wht">${l}</text>`).join('')}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function gears({x=0,y=0,w=150,h=120,label='helm render',an='',v={},d=0}={}){
+  const gear=(cx,cy,r,dd)=>{let t='';for(let i=0;i<8;i++)t+=`<rect x="${(cx-3.5).toFixed(1)}" y="${(cy-r-6).toFixed(1)}" width="7" height="10" rx="2" transform="rotate(${i*45} ${cx} ${cy})"/>`;return `<g class="spin" style="--d:${dd}s"><g style="fill:var(--ink-2)">${t}<circle cx="${cx}" cy="${cy}" r="${r}"/></g><circle cx="${cx}" cy="${cy}" r="${(r*.4).toFixed(1)}" style="fill:var(--surface)"/></g>`};
+  let g=`<rect width="${w}" height="${h}" rx="14" class="panel" style="stroke:var(--db);stroke-width:3"/>${gear(w*.36,h*.42,18,d)}${gear(w*.66,h*.58,13,d)}<text x="${w/2}" y="${h-12}" text-anchor="middle" class="m f12 b dbc">${label}</text>`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function docPaper({x=0,y=0,w=130,h=150,title='',lines=[],an='',v={},extra=''}={}){
+  let g=`<path d="M0 8Q0 0 8 0H${w-22}L${w} 22V${h-8}Q${w} ${h} ${w-8} ${h}H8Q0 ${h} 0 ${h-8}Z" class="paper"/><path d="M${w-22} 1V22H${w-1}" class="paperfold"/>${title?`<text x="12" y="22" class="m f11 b">${title}</text>`:''}${lines.map((l,i)=>`<text x="12" y="${46+i*18}" class="m f11">${l}</text>`).join('')}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+const PARCEL=w=>`<rect width="${w}" height="80" rx="6" style="fill:var(--warn);fill-opacity:.35;stroke:var(--ink);stroke-width:2.5"/><rect x="${w/2-9}" width="18" height="80" style="fill:var(--warn)"/><path d="M0 22H${w}" style="stroke:var(--ink);stroke-width:2"/>`;
+const bx2=(x,y,w,h,a,b,k,d)=>G(`<rect width="${w}" height="${h}" rx="12" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><text x="${w/2}" y="${b?h/2-3:h/2+5}" text-anchor="middle" class="f14 b">${a}</text>${b?`<text x="${w/2}" y="${h/2+15}" text-anchor="middle" class="f11 mut">${b}</text>`:''}`,{x,y,an:'pop',d});
+// ---------- Day 17 helpers ----------
+function idCard({x=0,y=0,w=150,h=80,name='model-sa',sub='ServiceAccount',k='teal',an='',v={}}={}){
+  const m=h/2+10;
+  let g=`<rect x="${w/2-14}" y="-10" width="28" height="16" rx="5" class="inkf"/><rect width="${w}" height="${h}" rx="10" style="fill:var(--surface);stroke:var(--${k});stroke-width:3"/><path d="M0 10Q0 0 10 0H${w-10}Q${w} 0 ${w} 10V18H0Z" style="fill:var(--${k})"/><circle cx="26" cy="${m}" r="14" style="fill:var(--${k});fill-opacity:.22"/><circle cx="26" cy="${m-4}" r="5" style="fill:var(--${k})"/><path d="M17 ${m+11}Q26 ${m+1} 35 ${m+11}Z" style="fill:var(--${k})"/><text x="48" y="${m-1}" class="m f12 b">${name}</text><text x="48" y="${m+15}" class="f11 mut">${sub}</text>`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function rdoor(x,y,label,{k='web',d=0,open=null,deny=null,w=64,h=96}={}){
+  let s=G(`<rect width="${w}" height="${h}" rx="4" style="fill:var(--line);stroke:var(--ink);stroke-width:2.5"/><rect x="6" y="6" width="${w-12}" height="${h-6}" rx="3" style="fill:var(--${k});fill-opacity:.55"/><circle cx="${w-14}" cy="${h/2+6}" r="3.5" class="inkf"/>${label?`<text x="${w/2}" y="${h+18}" text-anchor="middle" class="f12 b">${label}</text>`:''}`,{x,y,an:'pop',d});
+  s+=`<circle cx="${x+w/2}" cy="${y-10}" r="6" class="${open!=null?'inout':'pop'}" style="fill:var(--bad);--d:${d}s${open!=null?`;--o:${open}s`:''}"/>`;
+  if(open!=null)s+=G(`<rect x="6" y="6" width="${w-12}" height="${h-6}" rx="3" class="inkf" opacity=".85"/><path d="M6 6L${Math.round(w*.32)} 14V${h-4}L6 ${h}Z" style="fill:var(--${k})"/><circle cx="${w/2}" cy="-10" r="6" style="fill:var(--ok)"/>`,{x,y,an:'fade',d:open});
+  if(deny!=null)s+=icon('no',x+w/2,y+h/2,{r:13,d:deny});
+  return s;
+}
+const keyI=(x,y,{s=1,d=0,o,an='pop',k='warn'}={})=>G(`<g transform="scale(${s})"><circle cx="12" cy="15" r="10" style="fill:none;stroke:var(--${k});stroke-width:6"/><rect x="21" y="12" width="40" height="7" rx="3" style="fill:var(--${k})"/><rect x="47" y="18" width="6" height="9" rx="2" style="fill:var(--${k})"/><rect x="55" y="18" width="6" height="12" rx="2" style="fill:var(--${k})"/></g>`,{x,y,an:o!=null?'inout':an,d,o});
+const bindBand=(x,y,w,h,a,b,{d=0,k='vol'}={})=>G(`<rect width="${w}" height="${h}" rx="${h/2}" style="fill:var(--${k});fill-opacity:.18;stroke:var(--${k});stroke-width:3"/><g transform="translate(14 ${h/2-8})" style="fill:none;stroke:var(--${k});stroke-width:3"><rect width="16" height="10" rx="5"/><rect x="10" y="6" width="16" height="10" rx="5"/></g><text x="${w/2+14}" y="${b?h/2-2:h/2+5}" text-anchor="middle" class="f13 b">${a}</text>${b?`<text x="${w/2+14}" y="${h/2+14}" text-anchor="middle" class="f11 mut">${b}</text>`:''}`,{x,y,an:'pop',d});
+const mchip=(x,y,t,k,{d=0,o}={})=>{const w=Math.round(t.length*7.2+20);return G(`<rect width="${w}" height="24" rx="12" style="fill:var(--${k});fill-opacity:.18;stroke:var(--${k});stroke-width:2"/><text x="${w/2}" y="17" text-anchor="middle" class="m f12 b">${t}</text>`,{x,y,an:o!=null?'inout':'pop',d,o})};
+const hlr=(x,y,w,h,k,d)=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="4" class="fade" style="fill:var(--${k});fill-opacity:.22;stroke:var(--${k});stroke-width:1.5;--d:${d}s"/>`;
+// ---------- Day 18 helpers ----------
+function alarmClock(x,y,{s=1,an='pop',d=0,ring=null,k='warn'}={}){
+  const face=`<circle cx="9" cy="10" r="8" style="fill:var(--${k})"/><circle cx="51" cy="10" r="8" style="fill:var(--${k})"/><path d="M14 58L8 66M46 58L52 66" style="stroke:var(--ink);stroke-width:4;stroke-linecap:round"/><circle cx="30" cy="36" r="26" style="fill:var(--surface);stroke:var(--ink);stroke-width:4"/><path d="M30 20V36L41 42" style="fill:none;stroke:var(--ink);stroke-width:3.5;stroke-linecap:round"/><circle cx="30" cy="36" r="3" class="inkf"/>`;
+  const inner=ring!=null?`<g class="ringy" style="--d:${ring}s">${face}</g>`:face;
+  return G(`<g transform="scale(${s})">${inner}</g>`,{x,y,an,d});
+}
+function clipb({x=0,y=0,w=90,h=100,title='Job',k='db',an='pop',v={},extra=''}={}){
+  let g=`<rect width="${w}" height="${h}" rx="8" style="fill:var(--surface);stroke:var(--${k});stroke-width:3"/><rect x="${w/2-18}" y="-8" width="36" height="16" rx="5" style="fill:var(--${k})"/><text x="${w/2}" y="30" text-anchor="middle" class="f13 b">${title}</text><path d="M14 46H${w-14}M14 62H${w-14}M14 78H${w-30}" style="stroke:var(--line);stroke-width:4;stroke-linecap:round"/>${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+const gbar=(x,y,w,h,k,d,label='',{dur=.8,lc='wht',op=1}={})=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="5" class="grow-x" style="fill:var(--${k});fill-opacity:${op};--d:${d}s;--dur:${dur}s"/>`+(label?T(x+8,y+h/2+4.5,label,{c:`f12 b ${lc}`,d:d+dur*.6}):'');
+const vline=(x,y1,y2,k,d,dash=true)=>`<path d="M${x} ${y1}V${y2}" class="fade" style="stroke:var(--${k});stroke-width:2.5;${dash?'stroke-dasharray:6 5;':''}--d:${d}s"/>`;
+// ---------- Day 19 helpers ----------
+const evCard=(x,y,w,h,lines,{d=0,k='warn',an='pop',rot=0}={})=>G(`<g transform="rotate(${rot} ${w/2} ${h/2})"><rect width="${w}" height="${h}" rx="6" style="fill:var(--note);stroke:var(--ink);stroke-width:1.5"/><circle cx="${w/2}" cy="8" r="6" style="fill:var(--${k});stroke:var(--ink);stroke-width:1.5"/>${lines.map(([t,c],i)=>`<text x="14" y="${34+i*20}" class="${c||'f12'} lbltxt">${t}</text>`).join('')}</g>`,{x,y,an,d});
+const chip=(x,y,w,t,k,{d=0,o,mono=false,h=30}={})=>G(`<rect width="${w}" height="${h}" rx="${h/2}" style="fill:var(--${k});fill-opacity:.16;stroke:var(--${k});stroke-width:2"/><text x="${w/2}" y="${h/2+4.5}" text-anchor="middle" class="${mono?'m ':''}f12 b">${t}</text>`,{x,y,an:o!=null?'inout':'pop',d,o});
+const stepsChain=(items,y,{x0=20,gap=14,d0=0,step=.4,h=34}={})=>{let s='',x=x0;items.forEach(([t,w,k],i)=>{s+=chip(x,y,w,t,k,{d:d0+i*step,h});if(i<items.length-1)s+=arrow({x1:x+w+2,y1:y+h/2,x2:x+w+gap-2,y2:y+h/2},{d:d0+i*step+.2,dur:.15,c:'var(--ink-2)',w:2});x+=w+gap});return s};
+// ---------- Day 21 helpers ----------
+const cgrid=(x,y,cols,rows,cell,gap,k,{d0=0,step=.01,op=1,an='pop',rnd=false}={})=>{let s='';for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){const i=r*cols+c,d=d0+(rnd?((i*37)%97)/97*step*cols*rows:i*step);s+=`<rect x="${x+c*(cell+gap)}" y="${y+r*(cell+gap)}" width="${cell}" height="${cell}" rx="${Math.max(2,cell/5)}" class="${an}" style="fill:var(--${k});fill-opacity:${op};--d:${d.toFixed(2)}s"/>`}return s};
+const progRing=(cx,cy,r,frac,k,d,{w=12}={})=>{const a=-Math.PI/2+frac*2*Math.PI,x=cx+r*Math.cos(a),y=cy+r*Math.sin(a),big=frac>.5?1:0;return `<circle cx="${cx}" cy="${cy}" r="${r}" class="fade" style="fill:none;stroke:var(--line);stroke-width:${w};--d:${d}s"/><path d="M${cx} ${cy-r}A${r} ${r} 0 ${big} 1 ${x.toFixed(1)} ${y.toFixed(1)}" pathLength="1" class="aline draw" style="stroke:var(--${k});stroke-width:${w};stroke-linecap:round;--d:${d}s;--dur:1.2s"/>`};
+const hbar=(x,y,w,h,k,d,{dur=.8,op=1,label='',lc='wht'}={})=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="4" class="grow-x" style="fill:var(--${k});fill-opacity:${op};--d:${d}s;--dur:${dur}s"/>`+(label?T(x+8,y+h/2+4.5,label,{c:`f12 b ${lc}`,d:d+dur*.6}):'');
+const vbar=(x,base,w,h,k,d,{op=1}={})=>`<rect x="${x}" y="${base-h}" width="${w}" height="${h}" rx="3" class="up" style="fill:var(--${k});fill-opacity:${op};--d:${d}s"/>`;
+const zbox=(x,y,w,h,a,b,{k='ink',d=0,inv=false,an='pop',o}={})=>G(inv?`<rect width="${w}" height="${h}" rx="10" class="inkf"/><text x="${w/2}" y="${b?h/2-2:h/2+5}" text-anchor="middle" class="f13 b inv">${a}</text>${b?`<text x="${w/2}" y="${h/2+15}" text-anchor="middle" class="m f11 inv" opacity=".8">${b}</text>`:''}`:`<rect width="${w}" height="${h}" rx="10" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><text x="${w/2}" y="${b?h/2-2:h/2+5}" text-anchor="middle" class="f13 b">${a}</text>${b?`<text x="${w/2}" y="${h/2+15}" text-anchor="middle" class="m f11 mut">${b}</text>`:''}`,{x,y,an:o!=null?'inout':an,d,o});
+// ---------- Day 22 helpers ----------
+const STK=[['Application','Python / C++ / model serving','ink'],['Framework','PyTorch / TensorFlow','vol'],['CUDA runtime + libraries','libcudart.so · cuBLAS · cuDNN · NCCL','teal'],['CUDA Driver API','libcuda.so','db'],['NVIDIA host driver','user-space + kernel modules','web'],['Physical GPU','','ok']];
+const stackL=(x,y,w,L,{h=44,gap=10,d0=0,step=.2,rev=false,an='pop'}={})=>L.map(([n,sub,k],i)=>{const yy=y+i*(h+gap),d=d0+(rev?(L.length-1-i):i)*step;return G(`<rect width="${w}" height="${h}" rx="10" style="fill:var(--${k})"/><text x="16" y="${sub?h/2-2:h/2+5}" class="f14 b wht">${n}</text>${sub?`<text x="16" y="${h/2+15}" class="m f11 wht" opacity=".88">${sub}</text>`:''}`,{x,y:yy,an,d})}).join('');
+const vtag=(x,y,w,h,k,d,inner)=>G(`<path d="M24 0H${w-8}Q${w} 0 ${w} 8V${h-8}Q${w} ${h} ${w-8} ${h}H24L0 ${h/2}Z" style="fill:var(--surface);stroke:var(--${k});stroke-width:3;stroke-linejoin:round"/><circle cx="22" cy="${h/2}" r="6" style="fill:var(--paper);stroke:var(--${k});stroke-width:2.5"/>${inner}`,{x,y,an:'pop',d});
+// ---------- Day 23 helpers ----------
+const halfGauge=(cx,cy,r,frac,k,d,{w=12}={})=>{const a=Math.PI+Math.max(.001,Math.min(1,frac))*Math.PI,x=cx+r*Math.cos(a),y=cy+r*Math.sin(a);return `<path d="M${cx-r} ${cy}A${r} ${r} 0 0 1 ${cx+r} ${cy}" class="fade" style="fill:none;stroke:var(--line);stroke-width:${w};stroke-linecap:round;--d:${d}s"/><path d="M${cx-r} ${cy}A${r} ${r} 0 0 1 ${x.toFixed(1)} ${y.toFixed(1)}" pathLength="1" class="aline draw" style="stroke:var(--${k});stroke-width:${w};stroke-linecap:round;--d:${d}s;--dur:1.2s"/>`};
+const thermo=(x,y,frac,k,d)=>G(`<rect x="8" y="0" width="16" height="80" rx="8" style="fill:var(--surface);stroke:var(--ink);stroke-width:2.5"/><circle cx="16" cy="92" r="14" style="fill:var(--${k});stroke:var(--ink);stroke-width:2.5"/>`,{x,y,an:'pop',d})+`<rect x="${x+12}" y="${y+80-70*frac}" width="8" height="${70*frac+12}" rx="4" class="up" style="fill:var(--${k});--d:${d+.3}s"/>`;
+const lineP=(pts,k,d,{w=3.5,dash=false,dur=2}={})=>`<path d="M${pts.map(p=>p.join(' ')).join('L')}" pathLength="1" class="aline draw" style="stroke:var(--${k});stroke-width:${w};${dash?'stroke-dasharray:1 1;':''}--d:${d}s;--dur:${dur}s"/>`;
+// ---------- Day 24 helpers ----------
+const vramBar=(x,y,w,h,segs,{d0=0,step=.3,total=null,lab=true}={})=>{const tot=total||segs.reduce((a,s)=>a+s[0],0);let cx=x,s='';segs.forEach(([v,k,l,hat],i)=>{const sw=Math.round(v/tot*w),d=d0+i*step;s+=`<rect x="${cx}" y="${y}" width="${Math.max(sw,1)}" height="${h}" rx="3" class="grow-x" style="fill:var(--${k});fill-opacity:${hat?.25:1};${hat?`stroke:var(--${k});stroke-width:2;stroke-dasharray:5 4;`:''}--d:${d}s;--dur:.5s"/>`;if(lab&&l&&sw>l.length*6.6+12)s+=T(cx+sw/2,y+h/2+4,l,{c:`f11 b ${hat||k==='line'?'':'wht'}`,a:'middle',d:d+.3});cx+=sw});return s};
+const brk=(x1,x2,y,label,k,d,{up=false,c='f12 b'}={})=>{const t=up?-8:8;return `<path d="M${x1} ${y}V${y+t}H${x2}V${y}" class="fade" style="fill:none;stroke:var(--${k});stroke-width:2.5;--d:${d}s"/>`+T((x1+x2)/2,y+(up?-14:24),label,{c:`${c}`,a:'middle',d})};
+const lot=(x,y,slots,{w=40,h=56,gap=6,d0=0,step=.08}={})=>slots.split('').map((ch,i)=>{const sx=x+i*(w+gap),d=d0+i*step;let g=`<rect x="${sx}" y="${y}" width="${w}" height="${h}" rx="5" class="fade" style="fill:none;stroke:var(--line);stroke-width:2;stroke-dasharray:4 3;--d:${d0}s"/>`;if(ch==='L')g+=G(`<rect x="4" y="8" width="${w-8}" height="${h-16}" rx="8" style="fill:var(--teal)"/><rect x="9" y="14" width="${w-18}" height="10" rx="3" style="fill:#fff;opacity:.55"/>`,{x:sx,y,an:'drop',d});if(ch==='C')g+=G(`<path d="M${w/2} 12L${w/2+10} ${h-12}H${w/2-10}Z" style="fill:var(--db)"/><rect x="${w/2-13}" y="${h-14}" width="26" height="5" rx="2" style="fill:var(--db)"/>`,{x:sx,y,an:'pop',d});if(ch==='X')g+=G(`<rect x="4" y="8" width="${w-8}" height="${h-16}" rx="6" style="fill:var(--ink-2)"/>`,{x:sx,y,an:'pop',d});return g}).join('');
+// ---------- Day 25 helpers ----------
+const laneL=(x,y,t,d,{w=680,c='f12 b'}={})=>T(x,y+18,t,{c,d})+`<path d="M${x+60} ${y+28}H${x+60+w}" class="fade" style="stroke:var(--line);stroke-width:1.5;--d:${d}s"/>`;
+const blk=(x,y,w,k,d,label='',{h=28,op=1,dash=false,lc='wht',dur=.4}={})=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="5" class="grow-x" style="fill:var(--${k});fill-opacity:${op};${dash?`stroke:var(--${k});stroke-width:2;stroke-dasharray:5 4;`:''}--d:${d}s;--dur:${dur}s"/>`+(label?T(x+w/2,y+h/2+4.5,label,{c:`f11 b ${lc}`,a:'middle',d:d+dur*.7}):'');
+const tkt=(x,y,t,k,d,{an='drop'}={})=>G(`<path d="M0 0H44V46L38 52L32 46L26 52L20 46L14 52L8 46L2 52L0 50Z" style="fill:var(--surface);stroke:var(--${k});stroke-width:2.5"/><text x="22" y="30" text-anchor="middle" class="m f15 b" style="fill:var(--${k})">${t}</text>`,{x,y,an,d});
+// ---------- Day 26 helpers ----------
+const lockI=(x,y,{d=0,k='bad',s=1,an='pop',o}={})=>G(`<g transform="scale(${s})"><path d="M6 14V9A8 8 0 0 1 22 9V14" style="fill:none;stroke:var(--${k});stroke-width:3.5"/><rect x="1" y="14" width="26" height="20" rx="4" style="fill:var(--${k})"/><circle cx="14" cy="23" r="3" style="fill:#fff"/></g>`,{x,y,an:o!=null?'inout':an,d,o});
+const gpuChip=(x,y,w,h,label,{d=0,k='ok',an='pop'}={})=>G(`<rect width="${w}" height="${h}" rx="8" style="fill:var(--${k})"/><rect x="8" y="8" width="${w-16}" height="${h-16}" rx="4" style="fill:none;stroke:#fff;stroke-width:1.5;opacity:.6"/>`+[0,1,2,3].map(i=>`<path d="M${10+i*(w-20)/3} ${h}V${h+5}M${10+i*(w-20)/3} -5V0" style="stroke:var(--${k});stroke-width:2"/>`).join('')+`<text x="${w/2}" y="${h/2+5}" text-anchor="middle" class="f12 b wht">${label}</text>`,{x,y,an,d});
+const nbox=(x,y,w,h,lines,k,d,{an='pop',fill=.12,first='f13 b',rest='f12',lh=19,top=26}={})=>G(`<rect width="${w}" height="${h}" rx="12" style="fill:var(--${k});fill-opacity:${fill};stroke:var(--${k});stroke-width:2"/>`+lines.map((l,i)=>`<text x="14" y="${top+i*lh}" class="${i===0?first:rest}">${l}</text>`).join(''),{x,y,an,d});
+// ---------- Day 29 visuals 0-8 ----------
+const guard=(x,y,d,{k='bad'}={})=>G(`<path d="M0 6L22 0L44 6V28C44 44 22 54 22 54C22 54 0 44 0 28Z" style="fill:var(--${k});fill-opacity:.18;stroke:var(--${k});stroke-width:3"/><path d="M14 26L20 32L32 18" style="fill:none;stroke:var(--${k});stroke-width:3.5;stroke-linecap:round"/>`,{x,y,an:'pop',d});
+const counter=(x,y,d)=>G(`<rect y="34" width="120" height="30" rx="6" style="fill:var(--ink-2)"/><rect x="8" y="64" width="10" height="20" style="fill:var(--ink-2)"/><rect x="102" y="64" width="10" height="20" style="fill:var(--ink-2)"/>`,{x,y,an:'pop',d});
+function V0(){
+  let s=T(400,40,'Where may it run? Is it allowed? Does it get a GPU?',{c:'f16 b',a:'middle',d:.1});
+  const S=[['1 · Placement','door sign','vol'],['2 · Permission','security guard','bad'],['3 · Allocation','checkout counter','ok']];
+  S.forEach(([t,sub,k],i)=>{const x=40+i*250,d=.3+i*.3;s+=G(`<rect width="220" height="200" rx="16" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><text x="16" y="30" class="f15 b" style="fill:var(--${k})">${t}</text><text x="16" y="50" class="f12 mut">${sub}</text>`,{x,y:70,an:'up',d})});
+  s+=vtag(70,150,170,44,'vol',.8,`<text x="40" y="27" class="m f12 b">accelerator=gpu</text>`)+guard(380,128,1.0)+T(402,208,'dedicated=gpu',{c:'m f11 b',a:'middle',d:1.1})+T(402,224,':NoSchedule',{c:'m f11 b',a:'middle',d:1.1})+counter(590,134,1.2)+gpuChip(615,130,70,34,'GPU',{d:1.3})+T(650,244,'nvidia.com/gpu: 1',{c:'m f11 b',a:'middle',d:1.4});
+  [[110,1.8,2.6],[360,2.6,3.4],[610,3.4,4.2]].forEach(([x,d,o],i)=>{s+=pod({x,y:300,s:.8,k:'teal',mood:i<2?'flat':'happy',an:'inout',v:{d,o}})+icon('yes',x+80,300,{r:11,d:d+.4,o})});
+  s+=pod({x:610,y:300,s:.8,k:'teal',mood:'happy',an:'pop',v:{d:4.2}})+icon('yes',690,300,{r:11,d:4.5});
+  s+=T(400,452,'Three separate checks, and any one of them can stop a GPU Pod.',{c:'f15 b',a:'middle',d:4.8});
+  return svg(s,'A GPU Pod passes three stations in a GPU building: placement, a door sign reading accelerator=gpu; permission, a security guard enforcing dedicated=gpu:NoSchedule; and allocation, a checkout counter handing over the GPU for nvidia.com/gpu: 1. The Pod collects a check at each station. Any one of the three can stop a GPU Pod.');
+}
+
+function V1(){
+  let s='';
+  [['1','Placement','labels + nodeSelector','“Which nodes are candidates?”','vol'],['2','Permission','taints + tolerations','“Am I allowed there?”','bad'],['3','Allocation','nvidia.com/gpu: 1','“Do I receive a GPU?”','ok']].forEach(([n,t,m,q,k],i)=>{const x=20+i*257,d=.2+i*.4;s+=G(`<rect width="245" height="220" rx="16" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><circle cx="30" cy="34" r="17" style="fill:var(--${k})"/><text x="30" y="40" text-anchor="middle" class="f16 b wht">${n}</text><text x="58" y="41" class="f17 b">${t}</text><rect x="16" y="76" width="213" height="32" rx="8" class="codebg"/><text x="28" y="97" class="m f12 b">${m}</text><text x="18" y="152" class="f13 b">${q}</text>`,{x,y:16,an:'up',d})});
+  s+=G(`<rect width="760" height="218" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="18" y="32" class="f14 b">When a GPU Pod won’t run, ask in this order</text>`,{x:20,y:252,an:'up',d:1.6});
+  [['Where may this Pod run?','vol'],['Is it allowed there?','bad'],['Is a GPU requested and available?','ok'],['Can kubelet + the device plugin allocate it?','teal']].forEach(([q,k],i)=>{const y=318+i*36,d=1.8+i*.3;s+=`<circle cx="46" cy="${y-5}" r="12" class="pop" style="fill:var(--${k});--d:${d}s"/>`+T(46,y,String(i+1),{c:'f12 b wht',a:'middle',d})+T(68,y,q,{c:'f14 b',d})});
+  s+=T(560,440,'not memorizing YAML:',{c:'f12 mut',d:3.2})+T(560,458,'a layered question list',{c:'f12 b',d:3.2});
+  return svg(s,'Three controls, not one: placement uses labels and nodeSelector to answer which nodes are candidates; permission uses taints and tolerations to answer whether the Pod is allowed there; allocation uses an nvidia.com/gpu request to answer whether it receives a GPU. When a GPU Pod won’t run, ask in order: where may it run, is it allowed, is a GPU requested and available, and can kubelet and the device plugin allocate it.');
+}
+
+function V2(){
+  let s=term(20,16,470,120,[['$ kubectl label node gpu-lab accelerator=gpu','',.2],['$ kubectl label node gpu-lab workload=inference','',.4]],{fs:12,lh:30,top:46,d:.1});
+  s+=term(510,16,270,120,[['# in the Pod spec','mut',.6],['nodeSelector:','vol b',.6],['  accelerator: gpu','vol b',.6]],{fs:13,lh:28,top:36,d:.5});
+  s+=G(`<rect width="760" height="180" rx="16" class="panel"/><text x="16" y="26" class="f12 b mut">nodeSelector keeps nodes whose labels match every entry (other nodes illustrative)</text>`,{x:20,y:152,an:'fade',d:.8});
+  [['gpu-lab',['accelerator=gpu','workload=inference'],1],['cpu-node-1',['workload=web'],0],['cpu-node-2',[],0]].forEach(([n,L,ok],i)=>{const x=40+i*250,d=1.0+i*.3;s+=G(`<rect width="230" height="120" rx="12" class="nodebox"/><text x="14" y="24" class="m f13 b">${n}</text>`+L.map((l,j)=>`<rect x="14" y="${38+j*34}" width="${l.length*7.4+20}" height="26" rx="13" style="fill:var(--vol);fill-opacity:.15;stroke:var(--vol);stroke-width:1.5"/><text x="24" y="${56+j*34}" class="m f11 b">${l}</text>`).join('')+(L.length?'':`<text x="14" y="60" class="f12 mut">no matching labels</text>`),{x,y:190,an:'pop',d})+icon(ok?'yes':'no',x+210,206,{r:12,d:d+1.0})+(ok?'':`<rect x="${x}" y="190" width="230" height="120" rx="12" class="fade" style="fill:var(--surface);fill-opacity:.55;--d:${d+1.0}s"/>`)});
+  s+=G(`<rect width="760" height="122" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/>`,{x:20,y:348,an:'up',d:2.6});
+  s+=G(`<rect width="70" height="96" rx="6" style="fill:var(--ink-2);fill-opacity:.15;stroke:var(--ink);stroke-width:2.5"/><circle cx="58" cy="52" r="4" class="inkf"/>`,{x:44,y:362,an:'pop',d:2.8})+vtag(126,374,170,40,'vol',3.0,`<text x="38" y="25" class="m f12 b">accelerator=gpu</text>`);
+  s+=T(320,386,'A label is a sign on the door.',{c:'f14 b',d:3.2})+T(320,410,'It helps a workload find the right room.',{c:'f13',d:3.4})+T(320,432,'It doesn’t prove the equipment inside',{c:'f13',d:3.6})+T(320,452,'is powered on or available.',{c:'f13',d:3.6});
+  return svg(s,'Placement: the GPU node gets labels with kubectl label node gpu-lab accelerator=gpu and workload=inference, and a Pod declares nodeSelector accelerator: gpu. The scheduler keeps only nodes whose labels match every entry, so gpu-lab qualifies and illustrative CPU nodes don’t. A label is like a sign on a door: it helps a workload find the room, but doesn’t prove the equipment inside works.');
+}
+
+function V3(){
+  let s=G(`<rect width="470" height="150" rx="16" class="panel"/><text x="16" y="28" class="f13 b mut">a taint, on the node</text>`,{x:20,y:16,an:'fade',d:.1});
+  s+=G(`<text x="40" y="92" class="m f22 b"><tspan style="fill:var(--vol)">dedicated</tspan>=<tspan style="fill:var(--teal)">gpu</tspan>:<tspan style="fill:var(--bad)">NoSchedule</tspan></text>`,{an:'fade',d:.3});
+  s+=brk(40,148,100,'key','vol',.7,{c:'f12 b'})+brk(162,200,100,'value','teal',.9,{c:'f12 b'})+brk(214,346,100,'effect','bad',1.1,{c:'f12 b'});
+  s+=term(510,16,270,150,[['tolerations:','b',1.4],['- key: dedicated','',1.4],['  operator: Equal','',1.4],['  value: gpu','',1.4],['  effect: NoSchedule','',1.4]],{fs:12,lh:24,top:32,d:1.3});
+  s+=G(`<rect width="760" height="122" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/>`,{x:20,y:182,an:'up',d:1.8});
+  s+=guard(60,206,2.0,{k:'bad'})+pod({x:130,y:200,s:.62,k:'teal',mood:'happy',an:'pop',v:{d:2.2}})+chip(120,268,96,'toleration','ok',{d:2.4,h:24});
+  s+=T(260,224,'A toleration gets you past the guard.',{c:'f14 b',d:2.6})+T(260,248,'It doesn’t walk you in: selection still comes from',{c:'f13',d:2.8})+T(260,268,'labels, affinity, free resources and the scheduler.',{c:'f13',d:2.8});
+  s+=G(`<rect width="760" height="150" rx="16" class="panel"/>`,{x:20,y:320,an:'fade',d:3.0});
+  [['NoSchedule','new non-tolerating Pods','are blocked; existing Pods stay','bad'],['PreferNoSchedule','the scheduler tries to avoid','the node: a soft rule','warn'],['NoExecute','blocked, and existing','non-tolerating Pods may be evicted','vol']].forEach(([e,a,b,k],i)=>{const x=36+i*248,d=3.2+i*.3;s+=chip(x,336,180,e,k,{d,mono:true,h:28})+T(x,394,a,{c:'f12',d})+T(x,412,b,{c:'f12',d})});
+  return svg(s,'Permission: a taint like dedicated=gpu:NoSchedule has a key, a value and an effect, and a Pod needs a matching toleration with key dedicated, operator Equal, value gpu and effect NoSchedule. A toleration gets a Pod past the guard but doesn’t walk it in. Effects: NoSchedule blocks new non-tolerating Pods but leaves existing ones; PreferNoSchedule is a soft avoid; NoExecute also may evict existing Pods.');
+}
+
+function V4(){
+  let s=term(20,16,300,140,[['resources:','',.2],['  limits:','warnc b',.2],['    nvidia.com/gpu: 1','warnc b',.2]],{fs:13,lh:30,top:44,d:.1});
+  s+=G(`<rect width="440" height="140" rx="16" class="panel"/><text x="16" y="32" class="f14 b">The equipment checkout</text><text x="16" y="60" class="f13">Integer units, advertised by the device plugin.</text><text x="16" y="82" class="f13">A limit alone is enough: the request takes</text><text x="16" y="104" class="f13">the same value for this resource class.</text>`,{x:340,y:16,an:'up',d:.6});
+  s+=G(`<rect width="760" height="298" rx="16" class="nodebox"/><text x="18" y="30" class="f14 b">gpu-lab</text>`,{x:20,y:172,an:'fade',d:1.0});
+  s+=gpuChip(330,260,140,80,'RTX 3070',{d:1.2});
+  s+=pod({x:70,y:240,s:.85,k:'warn',mood:'flat',an:'pop',v:{d:1.6}})+T(110,354,'Pod X',{c:'f13 b',a:'middle',d:1.6})+T(110,374,'selector ✓ toleration ✓',{c:'f11',a:'middle',d:1.8})+T(110,392,'no GPU request',{c:'f11 b badc',a:'middle',d:1.8})+`<path d="M162 290H326" class="fade" style="stroke:var(--line);stroke-width:3;stroke-dasharray:6 5;--d:2.0s"/>`+icon('no',244,290,{r:11,d:2.2});
+  s+=pod({x:600,y:240,s:.85,k:'ok',mood:'happy',an:'pop',v:{d:2.6}})+T(640,354,'Pod Y',{c:'f13 b',a:'middle',d:2.6})+T(640,374,'nvidia.com/gpu: 1',{c:'m f11 b',a:'middle',d:2.8})+`<path d="M474 300H596" class="fade" style="stroke:var(--ok);stroke-width:4;--d:3.0s"/>`+icon('yes',536,300,{r:11,d:3.2});
+  s+=T(400,440,'Running on a GPU node is not the same as being allocated a GPU.',{c:'f14 b',a:'middle',d:3.6});
+  return svg(s,'Allocation: only a resources limit of nvidia.com/gpu: 1 checks out a GPU; it’s an integer resource advertised by the device plugin, and the request takes the same value. On the gpu-lab node, Pod X matches the selector and tolerates the taint but requests no GPU, so it isn’t linked to the RTX 3070. Pod Y requests one and gets it. Running on a GPU node isn’t the same as being allocated a GPU.');
+}
+
+function V5(){
+  const C=[['physical NVIDIA GPU','RTX 3070','ok'],['NVIDIA driver +','container runtime support','ink-2'],['NVIDIA Device Plugin','DaemonSet','warn'],['kubelet','device-plugin API','teal'],['node advertises','nvidia.com/gpu: 1','vol']];
+  let s=G(`<rect width="300" height="454" rx="16" class="panel"/>`,{x:20,y:16,an:'fade',d:.1});
+  C.forEach(([a,b,k],i)=>{const y=34+i*86,d=.2+i*.3;s+=nbox(36,y,268,62,[a,b],k,d,{first:'f13 b',rest:'m f11',top:26,lh:20});if(i<4)s+=arrow({x1:170,y1:y+64,x2:170,y2:y+84},{d:d+.15,dur:.12,c:'var(--ink-2)',w:2})});
+  s+=term(340,16,440,156,[['minikube start -p gpu-lab \\','',1.6],['  --driver=docker --container-runtime=docker \\','',1.6],['  --gpus=all \\','warnc b',1.6],['  --cpus=4 --memory=6144','',1.6]],{fs:11,lh:26,top:36,d:1.5});
+  s+=term(340,188,440,130,[['$ kubectl get nodes -o custom-columns=…','',2.0],['NODE      GPU-CAPACITY   GPU-ALLOCATABLE','mut',2.2],['gpu-lab   1              1','okc b',2.4]],{fs:11,lh:28,top:34,d:1.9});
+  s+=G(`<rect width="440" height="136" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="18" y="32" class="f14 b">Exam tip</text><text x="18" y="60" class="f13">nvidia-smi working on the host doesn’t mean</text><text x="18" y="80" class="f13">Kubernetes can allocate the GPU. The plugin can</text><text x="18" y="100" class="f13">be absent, mis-scheduled, or unable to register</text><text x="18" y="120" class="f13">with kubelet.</text>`,{x:340,y:334,an:'up',d:2.8});
+  return svg(s,'How Kubernetes learns a GPU exists: the physical RTX 3070, the NVIDIA driver and container runtime support, the NVIDIA Device Plugin DaemonSet, kubelet’s device-plugin API, and finally the node advertising nvidia.com/gpu: 1. The lab profile was started with minikube start -p gpu-lab and --gpus=all, 4 CPUs and 6144 MB, and the node showed GPU capacity 1 and allocatable 1. nvidia-smi on the host alone doesn’t prove Kubernetes can allocate it.');
+}
+
+function V6(){
+  let s=term(20,16,330,300,[['apiVersion: v1','',.2],['kind: Pod','',.2],['metadata:','',.2],['  name: gpu-placement-blocked','',.2],['spec:','',.2],['  nodeSelector:','vol b',.2],['    accelerator: gpu','vol b',.2],['  containers:','',.2],['  - name: test','',.2],['    image: busybox:1.36','',.2],['    command: ["sh","-c","sleep 3600"]','',.2],['# no toleration!','badc b',.6]],{fs:11,lh:22,top:30,d:.1});
+  s+=G(`<rect width="410" height="300" rx="16" class="panel"/>`,{x:370,y:16,an:'fade',d:.4});
+  s+=pod({x:390,y:110,s:.7,k:'teal',mood:'flat',an:'pop',v:{d:.6}})+T(432,210,'Pod',{c:'f12 b',a:'middle',d:.6})+arrow({x1:476,y1:150,x2:510,y2:150},{d:.9,dur:.15})+vtag(514,96,120,36,'vol',1.0,`<text x="34" y="23" class="m f11 b">accel=gpu</text>`)+icon('yes',574,150,{r:12,d:1.4})+T(574,180,'label matches',{c:'f11 b okc',a:'middle',d:1.4});
+  s+=arrow({x1:640,y1:150,x2:666,y2:150},{d:1.6,dur:.15})+guard(670,118,1.8)+icon('no',692,196,{r:12,d:2.2})+T(692,226,'taint not',{c:'f11 b badc',a:'middle',d:2.2})+T(692,240,'tolerated',{c:'f11 b badc',a:'middle',d:2.2});
+  s+=spill(400,262,'Pending · NODE &lt;none&gt;','warn',{d:2.6});
+  s+=term(20,332,760,64,[['0/1 nodes are available: 1 node(s) had untolerated taint(s).','badc b',3.0]],{fs:13,lh:24,top:38,d:2.9});
+  s+=G(`<rect width="760" height="60" rx="14" style="fill:var(--warn);fill-opacity:.12;stroke:var(--warn);stroke-width:2"/><text x="18" y="26" class="f13 b">The selector asks “right type of node?” The taint check asks “allowed in?”</text><text x="18" y="46" class="f13">Both must pass before scheduling can proceed.</text>`,{x:20,y:410,an:'up',d:3.4});
+  return svg(s,'Lab 1: the gpu-placement-blocked Pod has nodeSelector accelerator: gpu but no toleration. The label check passes, but the taint dedicated=gpu:NoSchedule isn’t tolerated, so the Pod stays Pending with no node, and the scheduler reports 0/1 nodes are available: 1 node(s) had untolerated taint(s). Placement and permission must both pass.');
+}
+
+function V7(){
+  let s=term(20,16,330,300,[['metadata:','',.2],['  name: gpu-placement-allowed','',.2],['spec:','',.2],['  nodeSelector:','',.2],['    accelerator: gpu','',.2],['  tolerations:','okc b',.5],['  - key: dedicated','okc b',.5],['    operator: Equal','okc b',.5],['    value: gpu','okc b',.5],['    effect: NoSchedule','okc b',.5],['  # containers: busybox, as in Lab 1','mut',.2],['  # no nvidia.com/gpu request','warnc b',.8]],{fs:11,lh:22,top:30,d:.1});
+  s+=term(370,16,410,92,[['NAME                   READY  STATUS   NODE','mut',1.0],['gpu-placement-allowed  1/1    Running  gpu-lab','okc b',1.2]],{fs:11,lh:26,top:36,d:.9});
+  s+=G(`<rect width="410" height="194" rx="16" class="nodebox"/><text x="16" y="26" class="f13 b">inside the “GPU building”</text>`,{x:370,y:122,an:'fade',d:1.4});
+  s+=pod({x:400,y:170,s:.75,k:'teal',mood:'happy',an:'pop',v:{d:1.6}})+icon('yes',470,170,{r:10,d:1.8})+T(440,280,'in the building ✓',{c:'f11 b okc',a:'middle',d:1.8});
+  s+=G(`<rect width="150" height="110" rx="10" style="fill:var(--ink-2);fill-opacity:.12;stroke:var(--ink-2);stroke-width:2.5"/><text x="75" y="100" text-anchor="middle" class="f11 b mut">GPU locker</text>`,{x:600,y:160,an:'pop',d:2.0})+gpuChip(630,182,90,44,'GPU',{d:2.1,k:'ink-2'})+lockI(724,190,{d:2.4,s:.55,k:'warn'});
+  s+=T(674,304,'not checked out',{c:'f11 b warnc',a:'middle',d:2.6});
+  s+=G(`<rect width="760" height="138" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="18" y="34" class="f14 b">Seat reserved in the GPU building, but no equipment</text><text x="18" y="62" class="f13">The selector found the building and the toleration got the Pod past security.</text><text x="18" y="84" class="f13">Neither checks out the GPU: the resource request is the checkout.</text><text x="18" y="114" class="f12 mut">Valid, but it may waste scarce GPU-node CPU and memory if done by accident.</text>`,{x:20,y:332,an:'up',d:2.8});
+  return svg(s,'Lab 2: the gpu-placement-allowed Pod adds the matching toleration but requests no nvidia.com/gpu. It runs 1/1 on gpu-lab, but the GPU stays locked in its locker: nothing was checked out. The selector found the building and the toleration got past security, but only a resource request checks out the GPU. That’s valid, but may waste scarce GPU-node resources.');
+}
+
+function V8(){
+  let s=term(20,16,330,300,[['metadata:','',.2],['  name: real-gpu-pod','',.2],['spec:','',.2],['  # nodeSelector + tolerations','mut',.2],['  # exactly as in Lab 2','mut',.2],['  containers:','',.2],['  - name: gpu-test','',.2],['    image: nvidia/cuda:12.4.1-base-…','',.2],['    command: ["bash", "-c",','',.2],['      "nvidia-smi && sleep 3600"]','',.2],['    resources:','okc b',.5],['      limits:','okc b',.5],['        nvidia.com/gpu: 1','okc b',.5]],{fs:11,lh:22,top:30,d:.1});
+  const P=[['Pod requests nvidia.com/gpu: 1','vol'],['scheduler: matching policy + free GPU','db'],['kubelet admits the Pod','teal'],['device plugin allocates the device','warn'],['container receives GPU access','ok']];
+  s+=G(`<rect width="410" height="300" rx="16" class="panel"/>`,{x:370,y:16,an:'fade',d:.6});
+  P.forEach(([t,k],i)=>{const y=34+i*56,d=.8+i*.35;s+=G(`<rect width="374" height="42" rx="10" style="fill:var(--${k});fill-opacity:.14;stroke:var(--${k});stroke-width:2"/><circle cx="22" cy="21" r="12" style="fill:var(--${k})"/><text x="22" y="26" text-anchor="middle" class="f12 b wht">${i+1}</text><text x="44" y="26" class="f13 b">${t}</text>`,{x:388,y,an:'pop',d});if(i<4)s+=arrow({x1:575,y1:y+44,x2:575,y2:y+54},{d:d+.2,dur:.1,c:'var(--ink-2)',w:2})});
+  s+=term(20,332,760,138,[['$ kubectl logs real-gpu-pod','',3.0],['NVIDIA GeForce RTX 3070   Driver Version: 580.178.04','okc b',3.3],['Memory: 8192 MiB   (nvidia-smi from inside the container)','',3.6],['# stronger than nvidia-smi on the node: the container itself got the GPU','mut',4.0]],{fs:12,lh:26,top:32,d:2.9});
+  return svg(s,'Lab 3: real-gpu-pod adds nvidia.com/gpu: 1 under limits and runs nvidia-smi in an nvidia/cuda image. The request travels five steps: the Pod requests a GPU, the scheduler finds matching policy and a free GPU, kubelet admits the Pod, the device plugin allocates the device, and the container receives GPU access. kubectl logs showed the RTX 3070, driver 580.178.04 and 8192 MiB from inside the container: end-to-end proof.');
+}
+// ---------- Day 29 visuals 9-20 ----------
+function V9(){
+  let s=term(20,16,760,130,[['Events:','',.2],['  Normal  Scheduled  Successfully assigned default/real-gpu-pod to gpu-lab','okc b',.4],['  Reason:  UnexpectedAdmissionError','badc b',.8],['  Message: Pod was rejected: Allocate failed due to no healthy devices','',1.0],['           present; cannot allocate unhealthy devices nvidia.com/gpu','',1.0]],{fs:11,lh:21,top:28,d:.1});
+  s+=G(`<rect width="370" height="308" rx="16" class="panel"/><text x="16" y="30" class="f14 b">Move down the stack</text>`,{x:20,y:162,an:'fade',d:1.4});
+  [['scheduler: done','ok',1],['kubelet admission','teal',0],['device-plugin health','warn',0],['runtime integration','web',0],['GPU / driver state','ink-2',0]].forEach(([t,k,done],i)=>{const y=206+i*48,d=1.6+i*.25;s+=G(`<rect width="250" height="38" rx="10" style="fill:var(--${k});fill-opacity:${done?.08:.16};stroke:var(--${k});stroke-width:2${done?';stroke-dasharray:6 4':''}"/><text x="14" y="25" class="f13 b${done?' mut':''}">${t}</text>`,{x:40,y,an:'pop',d})+(done?icon('yes',270,y+19,{r:10,d:d+.2}):'')});
+  s+=arrow({x1:320,y1:214,x2:320,y2:430},{d:2.8,c:'var(--bad)',w:3})+T(330,330,'look',{c:'f11 b badc',d:3.0})+T(330,344,'here',{c:'f11 b badc',d:3.0});
+  s+=G(`<rect width="370" height="308" rx="16" class="panel"/><text x="16" y="30" class="f14 b">Meanwhile, the GPU looked fine</text>`,{x:410,y:162,an:'fade',d:3.2});
+  [['minikube ssh -p gpu-lab -- nvidia-smi','still shows the RTX 3070'],['kernel messages','NVIDIA module loads, no Xid'],['node status at one point','capacity 1 · allocatable 1']].forEach(([a,b],i)=>{const y=222+i*62,d=3.4+i*.3;s+=icon('yes',438,y-5,{r:9,d})+T(456,y,a,{c:'m f11 b',d})+T(456,y+18,b,{c:'f12',d})});
+  s+=T(426,420,'So the physical device and driver weren’t',{c:'f12 b warnc',d:4.4})+T(426,438,'the only layers worth inspecting.',{c:'f12 b warnc',d:4.4});
+  return svg(s,'Case study symptom: the events show Successfully assigned default/real-gpu-pod to gpu-lab, then UnexpectedAdmissionError: Allocate failed due to no healthy devices present. The scheduler had finished, so look further down: kubelet admission, device-plugin health, runtime integration and GPU state. Meanwhile nvidia-smi inside the Minikube node still showed the RTX 3070, the kernel module loaded without Xid errors, and the node at one point still reported capacity 1, allocatable 1.');
+}
+
+function V10(){
+  let s=term(20,16,470,100,[['$ kubectl rollout restart -n kube-system \\','',.2],['    daemonset/nvidia-device-plugin-daemonset','',.2]],{fs:12,lh:28,top:40,d:.1});
+  s+=G(`<rect width="470" height="212" rx="16" class="panel"/>`,{x:20,y:132,an:'fade',d:.6});
+  const big=(x,y,from,to,lab,d)=>T(x,y,from,{c:'f30 b okc',a:'middle',an:'inout',d,o:d+1.2})+T(x,y,to,{c:'f30 b badc',a:'middle',d:d+1.2})+T(x,y+22,lab,{c:'f11 b mut',a:'middle',d});
+  s+=T(40,166,'device-plugin DaemonSet',{c:'f13 b',d:.8})+big(90,214,'1','0','DESIRED',.8)+big(190,214,'1','0','CURRENT',.8)+big(290,214,'1','0','READY',.8);
+  s+=T(40,272,'node gpu-lab · nvidia.com/gpu',{c:'f13 b',d:2.0})+big(110,312,'1','0','CAPACITY',2.4)+big(260,312,'1','0','ALLOCATABLE',2.4);
+  s+=G(`<rect width="270" height="316" rx="16" class="panel"/><text x="16" y="30" class="f14 b">Two views, two answers</text>`,{x:510,y:16,an:'fade',d:3.0});
+  s+=gpuChip(560,70,170,70,'RTX 3070',{d:3.2})+T(645,166,'nvidia-smi: still fine',{c:'f12 b okc',a:'middle',d:3.4})+icon('yes',645,186,{r:10,d:3.4});
+  s+=G(`<rect width="170" height="70" rx="8" style="fill:none;stroke:var(--line);stroke-width:2.5;stroke-dasharray:7 5"/><text x="85" y="42" text-anchor="middle" class="m f12 mut">nvidia.com/gpu: ?</text>`,{x:560,y:222,an:'pop',d:3.8})+T(645,314,'Kubernetes: gone',{c:'f12 b badc',a:'middle',d:4.0});
+  s+=G(`<rect width="760" height="110" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="18" y="34" class="f16 b">The puzzle</text><text x="18" y="64" class="f14">Why would restarting a DaemonSet make the GPU vanish from Kubernetes</text><text x="18" y="88" class="f14">while nvidia-smi still works on the node?</text>`,{x:20,y:360,an:'up',d:4.4});
+  return svg(s,'The restart that made it worse: after kubectl rollout restart of the device-plugin DaemonSet, its DESIRED, CURRENT and READY counts all dropped from 1 to 0, and the node’s nvidia.com/gpu capacity and allocatable dropped from 1 to 0. Yet nvidia-smi still showed the RTX 3070. The puzzle: why would a restart make the GPU vanish from Kubernetes while the hardware still works?');
+}
+
+function V11(){
+  const S=[['plugin already running','its Pod is on the node','ok'],['add the custom taint','dedicated=gpu:NoSchedule','bad'],['existing plugin survives','NoSchedule doesn’t evict','ok'],['restart the DaemonSet','old plugin Pod is deleted','warn'],['new plugin lacks the toleration','it can’t be scheduled','bad'],['no plugin registration','nvidia.com/gpu disappears','bad']];
+  let s=G(`<rect width="470" height="454" rx="16" class="panel"/>`,{x:20,y:16,an:'fade',d:.1})+`<path d="M58 44V430" class="fade" style="stroke:var(--line);stroke-width:3;--d:.1s"/>`;
+  S.forEach(([a,b,k],i)=>{const y=36+i*68,d=.3+i*.55;s+=`<circle cx="58" cy="${y+22}" r="13" class="pop" style="fill:var(--${k});--d:${d}s"/>`+T(58,y+27,String(i+1),{c:'f12 b wht',a:'middle',d})+G(`<rect width="390" height="52" rx="10" style="fill:var(--${k});fill-opacity:.1;stroke:var(--${k});stroke-width:2"/><text x="14" y="22" class="f13 b">${a}</text><text x="14" y="41" class="${i===1?'m ':''}f12">${b}</text>`,{x:84,y,an:'up',d})});
+  s+=G(`<rect width="270" height="250" rx="16" class="panel"/><text x="16" y="30" class="f14 b">Tolerations didn’t match</text>`,{x:510,y:16,an:'fade',d:1.0});
+  s+=T(526,66,'node taint',{c:'f11 b mut',d:1.2})+chip(526,74,236,'dedicated=gpu:NoSchedule','bad',{d:1.2,mono:true,h:26})+T(526,130,'plugin tolerated only',{c:'f11 b mut',d:1.6})+chip(526,138,210,'nvidia.com/gpu:NoSchedule','teal',{d:1.6,mono:true,h:26})+T(526,180,'(op=Exists)',{c:'m f11 mut',d:1.6})+icon('no',752,151,{r:10,d:2.0})+T(526,210,'a different key, so the custom',{c:'f12',d:2.2})+T(526,228,'taint still repelled the new Pod',{c:'f12',d:2.2});
+  s+=G(`<rect width="270" height="190" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="16" y="32" class="f14 b">The decisive clue</text><rect x="16" y="46" width="160" height="30" rx="6" class="codebg"/><text x="26" y="66" class="m f13 b badc">DESIRED = 0</text><text x="16" y="104" class="f12">Not a crashed container:</text><text x="16" y="122" class="f12">the controller found no</text><text x="16" y="140" class="f12">eligible node for the Pod</text><text x="16" y="158" class="f12">template at all.</text>`,{x:510,y:280,an:'up',d:3.6});
+  return svg(s,'Root cause, step by step: the plugin was already running; the custom taint dedicated=gpu:NoSchedule was added; the existing plugin survived because NoSchedule doesn’t evict; restarting the DaemonSet deleted the old plugin Pod; the new Pod lacked the custom toleration and couldn’t be scheduled; with no plugin registration, nvidia.com/gpu disappeared. The plugin only tolerated nvidia.com/gpu:NoSchedule. DESIRED=0 meant no eligible node, not a crash.');
+}
+
+function V12(){
+  let s=term(20,16,470,300,[['$ kubectl patch daemonset nvidia-device-plugin-daemonset \\','',.2],['    -n kube-system --type=\'json\' -p=\'[','',.2],['  {','',.2],['    "op": "add",','',.2],['    "path": "/spec/template/spec/tolerations/-",','okc b',.2],['    "value": {','',.2],['      "key": "dedicated",','okc b',.2],['      "operator": "Equal",','okc b',.2],['      "value": "gpu",','okc b',.2],['      "effect": "NoSchedule"','okc b',.2],['    }','',.2],['  }','',.2],[']\'','',.2]],{fs:11,lh:20,top:28,d:.1});
+  s+=G(`<rect width="270" height="300" rx="16" class="panel" style="stroke:var(--ok);stroke-width:2.5"/><text x="16" y="30" class="f14 b">After the patch</text>`,{x:510,y:16,an:'fade',d:1.0});
+  [['DESIRED',1.4],['CURRENT',1.6],['READY',1.8]].forEach(([l,d],i)=>{s+=T(560+i*80,110,'1',{c:'f30 b okc',a:'middle',d})+T(560+i*80,130,l,{c:'f11 b mut',a:'middle',d})});
+  [['CAPACITY',2.2],['ALLOCATABLE',2.4]].forEach(([l,d],i)=>{s+=T(590+i*110,200,'1',{c:'f30 b okc',a:'middle',d})+T(590+i*110,220,l,{c:'f11 b mut',a:'middle',d})});
+  s+=icon('yes',538,272,{r:10,d:2.8})+T(556,277,'real-gpu-pod sees the RTX 3070',{c:'f12 b',d:2.8});
+  s+=G(`<rect width="760" height="138" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="18" y="32" class="f14 b">Custom taints affect more than your apps</text><text x="18" y="54" class="f12 mut">which node agents must keep running on this specialized node?</text>`,{x:20,y:332,an:'up',d:3.2});
+  s+=chipsRow(36,402,['device plugins','monitoring agents','log collectors','networking agents','storage agents','security tooling'],{maxX:772,d:3.4});
+  return svg(s,'The repair: kubectl patch adds a toleration to the nvidia-device-plugin DaemonSet template for key dedicated, operator Equal, value gpu, effect NoSchedule. Afterwards the DaemonSet shows DESIRED, CURRENT and READY of 1, the node shows nvidia.com/gpu capacity and allocatable of 1, and real-gpu-pod sees the RTX 3070. Custom taints affect device plugins, monitoring, logging, networking, storage and security agents too.');
+}
+
+function V13(){
+  let s=stepsChain([['node advertises 1 GPU',170,'teal'],['Pod A requests 1',140,'ok'],['remaining = 0',120,'ink-2'],['Pod B requests 1',140,'warn'],['Pending',90,'bad']],60,{x0:28,gap:20,d0:.2,step:.45,h:40});
+  s+=G(`<rect width="760" height="230" rx="16" class="nodebox"/><text x="18" y="30" class="f14 b">gpu-lab · 1 allocatable GPU</text>`,{x:20,y:120,an:'fade',d:.4});
+  s+=gpuChip(330,210,140,70,'RTX 3070',{d:.6})+pod({x:90,y:196,s:.8,k:'ok',mood:'happy',an:'pop',v:{d:1.0}})+T(130,310,'real-gpu-pod (A)',{c:'f12 b',a:'middle',d:1.0})+`<path d="M174 244H326" class="fade" style="stroke:var(--ok);stroke-width:4;--d:1.2s"/>`;
+  s+=pod({x:600,y:196,s:.8,k:'warn',mood:'flat',an:'pop',v:{d:2.2}})+T(640,310,'Pod B',{c:'f12 b',a:'middle',d:2.2})+spill(584,326,'Pending','warn',{d:2.4})+icon('no',540,240,{r:12,d:2.6});
+  s+=term(20,366,470,104,[['0/1 nodes are available:','',3.0],['  1 Insufficient nvidia.com/gpu.','badc b',3.0]],{fs:13,lh:28,top:40,d:2.9});
+  s+=G(`<rect width="270" height="104" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="16" y="30" class="f13 b">Capacity, not policy.</text><text x="16" y="54" class="f12">No overcommit by default, unless</text><text x="16" y="72" class="f12">time-slicing or MIG is deliberately</text><text x="16" y="90" class="f12">configured.</text>`,{x:510,y:366,an:'up',d:3.4});
+  return svg(s,'Lab 4: the node advertises one GPU, real-gpu-pod already requests it, leaving zero, and a second Pod requesting one GPU stays Pending with 0/1 nodes are available: 1 Insufficient nvidia.com/gpu. That’s a capacity failure, not policy: device resources aren’t overcommitted unless a sharing mechanism like time-slicing or MIG is deliberately configured.');
+}
+
+function V14(){
+  let s=zbox(300,10,200,38,'GPU Pod not running','',{k:'ink',d:.2})+arrow({x1:400,y1:50,x2:400,y2:64},{d:.3,dur:.1})+zbox(290,68,220,44,'assigned to a node?','',{k:'db',d:.4});
+  s+=arrow({x1:288,y1:90,x2:190,y2:138},{d:.6,dur:.2,c:'var(--bad)'})+T(230,106,'no',{c:'f11 b badc',d:.6})+arrow({x1:512,y1:90,x2:610,y2:138},{d:.6,dur:.2,c:'var(--ok)'})+T(560,106,'yes',{c:'f11 b okc',d:.6});
+  s+=nbox(40,140,300,48,['inspect scheduler events'],'bad',.8,{first:'f13 b',top:30});
+  [['untolerated taint?','bad'],['selector / affinity mismatch?','vol'],['Insufficient nvidia.com/gpu?','warn']].forEach(([t,k],i)=>{s+=arrow({x1:70,y1:190+i*48,x2:84,y2:212+i*48},{d:1.0+i*.2,dur:.1,c:'var(--ink-2)',w:1.8})+chip(88,200+i*48,250,t,k,{d:1.0+i*.2,h:30})});
+  s+=nbox(460,140,300,48,['scheduler phase succeeded'],'ok',1.4,{first:'f13 b',top:30})+arrow({x1:610,y1:190,x2:610,y2:204},{d:1.6,dur:.1,c:'var(--ink-2)',w:2})+nbox(460,206,300,48,['inspect kubelet / admission events'],'teal',1.7,{first:'f13 b',top:30})+arrow({x1:610,y1:256,x2:610,y2:270},{d:1.9,dur:.1,c:'var(--ink-2)',w:2})+nbox(460,272,300,48,['allocation / unhealthy-device error?'],'warn',2.0,{first:'f13 b',top:30})+arrow({x1:610,y1:322,x2:610,y2:336},{d:2.2,dur:.1,c:'var(--ink-2)',w:2})+nbox(460,338,300,48,['plugin, runtime, driver, GPU health'],'web',2.3,{first:'f13 b',top:30});
+  s+=G(`<rect width="760" height="66" rx="14" class="panel"/><text x="16" y="24" class="f12 b mut">high-value commands</text>`,{x:20,y:404,an:'up',d:2.8})+chipsRow(36,434,['get pods -o wide','describe pod','describe ds …device-plugin','minikube ssh … nvidia-smi'],{maxX:772,d:3.0});
+  return svg(s,'A decision tree for a GPU Pod that isn’t running. First: was it assigned to a node? If not, inspect scheduler events for an untolerated taint, a selector or affinity mismatch, or Insufficient nvidia.com/gpu. If so, the scheduler succeeded: inspect kubelet and admission events, and for allocation or unhealthy-device errors check the device plugin, runtime, driver and GPU health. Useful commands are listed below.');
+}
+
+function V15(){
+  const R=[['Policy / permission','untolerated taint(s)',['Pod tolerations and','node taints'],'bad'],['Placement','no nodes match selector / affinity',['node labels, nodeSelector,','node affinity'],'vol'],['Capacity','Insufficient nvidia.com/gpu',['existing GPU allocations,','allocatable GPU count'],'warn'],['Admission / allocation','UnexpectedAdmissionError, Allocate failed',['kubelet, device plugin,','runtime, device health'],'teal'],['Plugin missing','GPU capacity → 0, host GPU fine',['plugin DaemonSet','scheduling + registration'],'db']];
+  let s=G(`<rect width="760" height="380" rx="16" class="panel"/><text x="36" y="34" class="f12 b mut">failure class</text><text x="220" y="34" class="f12 b mut">typical message</text><text x="520" y="34" class="f12 b mut">first place to look</text>`,{x:20,y:16,an:'fade',d:.1});
+  R.forEach(([a,m,f,k],i)=>{const y=92+i*66,d=.3+i*.4;s+=`<path d="M36 ${y-34}H764" class="sep fade" style="--d:${d}s"/><rect x="36" y="${y-22}" width="6" height="36" rx="2" class="fade" style="fill:var(--${k});--d:${d}s"/>`+T(52,y,a,{c:'f13 b',d})+G(`<rect width="${Math.round(m.length*6.6+20)}" height="28" rx="6" class="codebg"/><text x="10" y="19" class="m f11 b">${m}</text>`,{x:230,y:y-19,an:'fade',d:d+.1})+f.map((l,j)=>T(536,y-6+j*18,l,{c:'f12',d:d+.2})).join('')});
+  s+=G(`<rect width="760" height="66" rx="14" style="fill:var(--warn);fill-opacity:.12;stroke:var(--warn);stroke-width:2"/><text x="18" y="28" class="f14 b">“GPU problem” is too broad to be useful.</text><text x="18" y="50" class="f13">Name the failing layer, then use evidence to rule out the others.</text>`,{x:20,y:404,an:'up',d:2.6});
+  return svg(s,'Failure signatures to learn: policy or permission failures say untolerated taint(s), so check tolerations and taints; placement failures say no nodes match the selector or affinity, so check labels and selectors; capacity failures say Insufficient nvidia.com/gpu, so check existing allocations; admission failures say UnexpectedAdmissionError or Allocate failed, so check kubelet and the plugin; and a missing plugin shows GPU capacity falling to 0 while the host GPU is fine.');
+}
+
+function V16(){
+  let s=G(`<rect width="370" height="300" rx="16" class="panel" style="stroke:var(--vol);stroke-width:2.5"/><text x="18" y="32" class="f15 b" style="fill:var(--vol)">nodeSelector</text><text x="18" y="54" class="f12 mut">simple and exact</text>`,{x:20,y:16,an:'up',d:.2});
+  s+=term(36,92,338,80,[['nodeSelector:','',.4],['  accelerator: gpu','',.4]],{fs:12,lh:26,top:30,d:.3})+T(36,208,'every key/value pair must match',{c:'f13',d:.6})+T(36,240,'enough for one class of hardware',{c:'f13',d:.8});
+  s+=G(`<rect width="370" height="300" rx="16" class="panel" style="stroke:var(--teal);stroke-width:2.5"/><text x="18" y="32" class="f15 b tealc">node affinity</text><text x="18" y="54" class="f12 mut">more expressive</text>`,{x:410,y:16,an:'up',d:.6});
+  s+=term(426,82,338,150,[['affinity:','',.8],['  nodeAffinity:','',.8],['    requiredDuringScheduling…:','',.8],['      nodeSelectorTerms:','',.8],['      - matchExpressions:','',.8],['        - key: accelerator','',.8],['          operator: In','tealc b',.8],['          values: ["a100","h100"]','tealc b',.8]],{fs:11,lh:16,top:22,d:.7});
+  s+=chipsRow(426,248,['In','NotIn','Exists','Gt','Lt'],{maxX:770,d:1.4})+T(426,304,'required or preferred · several GPU classes',{c:'f11 mut',d:1.6});
+  s+=G(`<rect width="760" height="154" rx="16" class="panel"/><text x="18" y="30" class="f13 b">operator: In ["a100", "h100"] over three GPU node classes (illustrative)</text>`,{x:20,y:332,an:'fade',d:2.0});
+  [['a100',1],['h100',1],['t4',0]].forEach(([n,ok],i)=>{const x=60+i*240,d=2.2+i*.3;s+=G(`<rect width="180" height="64" rx="12" class="nodebox"/><text x="16" y="28" class="f13 b">node</text>`,{x,y:376,an:'pop',d})+vtag(x+70,388,100,34,'vol',d+.1,`<text x="30" y="22" class="m f11 b">${n}</text>`)+icon(ok?'yes':'no',x+180,376,{r:11,d:d+.5})});
+  return svg(s,'nodeSelector is simple and exact: every key/value pair must match, which suits a single class of hardware. Node affinity is more expressive: requiredDuringScheduling rules with matchExpressions such as key accelerator, operator In, values a100 and h100; operators In, NotIn, Exists, Gt and Lt; and required or preferred rules. With In a100 or h100, a100 and h100 nodes qualify and a t4 node doesn’t.');
+}
+
+function V17(){
+  let s=G(`<rect width="370" height="454" rx="16" class="panel"/><text x="18" y="32" class="f14 b">Before tainting a GPU pool,</text><text x="18" y="52" class="f14 b">inventory the node agents</text>`,{x:20,y:16,an:'fade',d:.1});
+  s+=chipsRow(36,74,['NVIDIA Device Plugin','GPU / node feature discovery','CNI networking agents','log collectors','security agents','DCGM exporter','storage / CSI node plugins'],{maxX:384,d:.3});
+  s+=T(36,262,'Then prove each layer with evidence:',{c:'f13 b',d:1.4});
+  ['labels / taints','scheduler events','node GPU status','plugin status / logs','GPU visible in Pod (nvidia-smi)'].forEach((t,i)=>{const y=278+i*36,d=1.6+i*.2;s+=G(`<rect width="300" height="28" rx="14" style="fill:var(--ok);fill-opacity:${.08+i*.04};stroke:var(--ok);stroke-width:1.5"/><text x="14" y="19" class="f12 b">${t}</text>`,{x:52,y,an:'pop',d});if(i<4)s+=arrow({x1:44,y1:y+14,x2:44,y2:y+42},{d:d+.1,dur:.1,c:'var(--ok)',w:1.5})});
+  s+=G(`<rect width="370" height="454" rx="16" class="panel" style="stroke:var(--ok);stroke-width:2.5"/><text x="18" y="32" class="f14 b">A safe change process</text>`,{x:410,y:16,an:'fade',d:1.0});
+  ['identify required node-level agents','check their tolerations','add or standardize the GPU taint','verify DESIRED / CURRENT / READY','verify GPU capacity + allocatable','launch a minimal GPU smoke test','only then deploy big workloads'].forEach((t,i)=>{const y=76+i*54,d=1.2+i*.3;s+=`<circle cx="446" cy="${y-5}" r="13" class="pop" style="fill:var(--ok);--d:${d}s"/>`+T(446,y,String(i+1),{c:'f12 b wht',a:'middle',d})+T(468,y,t,{c:'f13',d})});
+  return svg(s,'Production guidance: before tainting a GPU pool, inventory node agents such as the NVIDIA Device Plugin, feature discovery, CNI networking, log collectors, security agents, the DCGM exporter and CSI node plugins, then prove each layer with evidence from labels and taints to nvidia-smi in a Pod. A safe process: identify agents, check tolerations, add the taint, verify DaemonSet counts, verify GPU capacity, run a smoke test, then deploy.');
+}
+
+function V18(){
+  const C=[['A','Label ✓, toleration ✗',['Pod selects accelerator=gpu,','but doesn’t tolerate the taint.'],'Pending: untolerated taint','bad'],['B','Label ✓, toleration ✓, no request',['Pod runs on the GPU node,','but gets no GPU assigned.'],'valid, but may waste node CPU/RAM','warn'],['C','Policy ✓, GPU already taken',['Pod A holds the only GPU;','Pod B asks for one too.'],'Insufficient: capacity, not policy','vol'],['D','Assigned ✓, Allocate failed',['“Successfully assigned”, then','an allocation error.'],'look below: kubelet, plugin, device','teal']];
+  let s='';
+  C.forEach(([L,t,g,v,k],i)=>{const x=20+(i%2)*390,y=16+Math.floor(i/2)*230,d=.2+i*.5;s+=G(`<rect width="370" height="214" rx="16" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><path d="M0 16Q0 0 16 0H354Q370 0 370 16V48H0Z" style="fill:var(--${k})"/><text x="16" y="31" class="f14 b wht">${L} · ${t}</text><text x="16" y="78" class="f11 b mut">given</text>`+g.map((l,j)=>`<text x="16" y="${100+j*20}" class="f13">${l}</text>`).join('')+`<text x="16" y="164" class="f11 b okc">reasoning</text>`,{x,y,an:'up',d})+chip(x+16,y+174,338,v,k,{d:d+.4,h:28})});
+  return svg(s,'Four reasoning scenarios. A: the label matches but the Pod doesn’t tolerate the taint, so it’s Pending on an untolerated taint. B: label and toleration match but there’s no GPU request, so the Pod runs without a GPU, which may waste node resources. C: policy matches but the only GPU is taken, so it’s Insufficient: capacity, not policy. D: the Pod was assigned but allocation failed, so look below the scheduler.');
+}
+
+const miniSvg=(inner,vb)=>`<svg viewBox="${vb}" aria-hidden="true">${inner}</svg>`;
+function V19(){
+  const TC=`<circle cx="9" cy="16" r="8" style="fill:var(--vol)"/><circle cx="29" cy="16" r="8" style="fill:var(--bad)"/><circle cx="49" cy="16" r="8" style="fill:var(--ok)"/>`;
+  const TO=`<path d="M10 6L20 2L30 6V18C30 26 20 30 20 30C20 30 10 26 10 18Z" style="fill:var(--bad);fill-opacity:.2;stroke:var(--bad);stroke-width:2.5"/><path d="M38 16H54" style="stroke:var(--ink-2);stroke-width:2.5;stroke-dasharray:3 3"/>`;
+  const NG=`<rect width="56" height="30" rx="5" class="nodebox"/><circle cx="16" cy="15" r="7" style="fill:var(--teal)"/><rect x="30" y="7" width="20" height="16" rx="3" style="fill:none;stroke:var(--ink-2);stroke-width:2;stroke-dasharray:3 2"/>`;
+  const WD=`<text x="0" y="12" class="m f11 b badc">taint</text><text x="0" y="26" class="m f11 b warnc">Insuff.</text><text x="0" y="40" class="m f11 b tealc">Alloc</text>`;
+  const DN=`<rect width="56" height="12" rx="3" style="fill:var(--db);fill-opacity:.3"/><rect y="16" width="56" height="12" rx="3" style="fill:var(--teal)"/><rect y="32" width="56" height="12" rx="3" style="fill:var(--warn)"/><path d="M50 2V40" style="stroke:var(--bad);stroke-width:2.5"/>`;
+  const DS=`<path d="M10 4L20 0L30 4V14C30 20 20 24 20 24C20 24 10 20 10 14Z" style="fill:var(--bad);fill-opacity:.2;stroke:var(--bad);stroke-width:2"/><rect x="36" y="2" width="20" height="20" rx="4" style="fill:var(--warn)"/><path d="M40 12L45 17L52 7" style="fill:none;stroke:#fff;stroke-width:2.5"/>`;
+  const items=[[miniSvg(TC,'0 0 58 32'),'<b>Three controls, three questions.</b> Placement (labels), permission (taints and tolerations), allocation (<code>nvidia.com/gpu</code>).'],
+    [miniSvg(TO,'8 0 50 32'),'<b>A toleration permits; it doesn’t select.</b> Selection comes from labels, affinity and free resources.'],
+    [miniSvg(NG,'-2 -2 60 34'),'<b>On a GPU node ≠ owning a GPU.</b> Only an <code>nvidia.com/gpu</code> request checks out the device.'],
+    [miniSvg(WD,'0 0 56 44'),'<b>Read the wording.</b> Untolerated taint = policy; Insufficient = capacity; Allocate failed = kubelet/plugin.'],
+    [miniSvg(DN,'-2 -2 60 48'),'<b>“Successfully assigned” means look lower.</b> The scheduler is done: check kubelet, plugin, runtime, GPU.'],
+    [miniSvg(DS,'8 0 50 26'),'<b>Custom taints hit DaemonSets too.</b> Give the device plugin and other node agents matching tolerations.']];
+  return `<ul class="take">${items.map(([ic,t],i)=>`<li class="up" style="--d:${.3+i*.3}s">${ic}<div>${t}</div></li>`).join('')}</ul>`;
+}
+function V20(){
+  const Q=[['teal','What does nodeSelector solve that a toleration doesn’t?','It narrows which nodes are candidates. A toleration only lets a Pod stay eligible despite a matching taint.'],
+    ['warn','Why can a Pod run on a GPU node yet have no GPU assigned?','GPU allocation needs an explicit extended-resource request such as nvidia.com/gpu: 1.'],
+    ['db','Why did the device plugin disappear after its DaemonSet restarted?','The replacement Pod didn’t tolerate dedicated=gpu:NoSchedule, so after the old Pod was deleted, none could run.'],
+    ['vol','A Pod was assigned to a node, then failed during GPU allocation. Where do you look first?','kubelet and device-plugin allocation. Node assignment proves the scheduler already finished.']];
+  return `<div class="quiz"><div class="cards">${Q.map(([k,q,a],i)=>`<button class="card up" style="--k:var(--${k});--d:${.3+i*.15}s" aria-pressed="false"><span class="card-inner"><span class="face front"><small>Question ${i+1}</small><span class="q">${q}</span><em>Tap to flip</em></span><span class="face back" aria-hidden="true"><small>Answer</small><span class="q">${a}</span></span></span></button>`).join('')}</div><button class="again up" style="--d:1s" data-action="restart">Watch again from the start</button></div>`;
+}
+// ---------- Scenes ----------
+const CH=['Intro','Three controls','Labs','Case study','Diagnosis','Wrap-up'];
+const P=(t,d)=>`<p class="up" style="--d:${d}s">${t}</p>`;
+const R=(t,d)=>`<p class="rule up" style="--d:${d}s"><span>${t}</span></p>`;
+const SC=[
+ {ch:0,dur:10,title:'GPU Node Scheduling',vis:V0(),copy:`<p class="course up" style="--d:.05s">AI Infrastructure &amp; ML Systems, Day 29</p><h1 class="long up" style="--d:.15s">GPU Node Scheduling</h1><p class="lede up" style="--d:.3s">When a GPU Pod won’t run: is it placement, permission, capacity, or device allocation?</p><button class="start up" style="--d:.45s" data-action="start"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15l12-7.5z"/></svg>Start the explainer</button><p class="hint up" style="--d:.6s">About 4 minutes. Use ← → or swipe to go at your own pace.</p><p class="hint rotate-hint up" style="--d:.7s">Tip: turn your phone sideways for bigger diagrams.</p>`},
+ {ch:1,dur:11,title:'Three controls, not one',vis:V1(),body:P('“GPU scheduling” is really three separate mechanisms.',.2)+P('Ask in order: where may it run, is it allowed, is a GPU requested, and can the hardware be allocated?',.35)},
+ {ch:1,dur:11.5,title:'Placement: labels and nodeSelector',vis:V2(),body:P('Labels describe nodes; nodeSelector keeps only nodes whose labels match every entry.',.2)+R('A sign on the door doesn’t prove the equipment works.',.35)},
+ {ch:1,dur:12,title:'Permission: taints and tolerations',vis:V3(),body:P('A taint repels Pods; a matching toleration lets a Pod stay eligible.',.2)+R('A toleration permits; it never forces.',.35)},
+ {ch:1,dur:11,title:'Allocation: asking for the GPU',vis:V4(),body:P('Only an <code>nvidia.com/gpu</code> request checks out a GPU.',.2)+R('Running on a GPU node isn’t the same as owning a GPU.',.35)},
+ {ch:1,dur:11.5,title:'How Kubernetes learns about the GPU',vis:V5(),body:P('The device plugin registers the GPU with kubelet, and the node advertises it.',.2)+R('A working <code>nvidia-smi</code> doesn’t prove Kubernetes can allocate it.',.35)},
+ {ch:2,dur:11.5,title:'Lab 1: right node, no permission',vis:V6(),body:P('The selector matched, but the Pod didn’t tolerate the taint.',.2)+R('Both placement and permission must pass.',.35)},
+ {ch:2,dur:11.5,title:'Lab 2: allowed in, no GPU',vis:V7(),body:P('With the toleration added, the Pod ran on gpu-lab.',.2)+P('But it never asked for the GPU, so none was assigned.',.35)},
+ {ch:2,dur:12,title:'Lab 3: a real GPU',vis:V8(),body:P('Request <code>nvidia.com/gpu: 1</code> and check <code>nvidia-smi</code> from inside the container.',.2)+P('That’s end-to-end proof.',.35)},
+ {ch:3,dur:12,title:'Case study: assigned, then rejected',vis:V9(),body:P('The Pod was scheduled, then kubelet refused it: no healthy devices.',.2)+R('“Successfully assigned” means: look below the scheduler.',.35)},
+ {ch:3,dur:11.5,title:'The restart that made it worse',vis:V10(),body:P('Restarting the plugin DaemonSet dropped it to zero Pods, and the GPU vanished from Kubernetes.',.2)+P('Yet <code>nvidia-smi</code> still worked. Why?',.35)},
+ {ch:3,dur:12.5,title:'Root cause: the taint hit the plugin',vis:V11(),body:P('NoSchedule spared the old plugin Pod, but its replacement couldn’t tolerate the custom taint.',.2)+R('DESIRED=0 meant no eligible node, not a crash.',.35)},
+ {ch:3,dur:11.5,title:'The repair',vis:V12(),body:P('Add the custom toleration to the plugin DaemonSet, and the GPU comes back.',.2)+R('Custom taints apply to infrastructure DaemonSets too.',.35)},
+ {ch:4,dur:11,title:'Lab 4: not enough GPUs',vis:V13(),body:P('One GPU already allocated means a second exclusive request waits.',.2)+R('Capacity, not policy.',.35)},
+ {ch:4,dur:11.5,title:'A decision tree',vis:V14(),body:P('First ask: was the Pod assigned to a node?',.2)+P('That one answer tells you which half of the stack to search.',.35)},
+ {ch:4,dur:11.5,title:'Learn the wording',vis:V15(),body:P('Each layer leaves a different message.',.2)+R('Name the failing layer before you fix anything.',.35)},
+ {ch:4,dur:11,title:'nodeSelector vs node affinity',vis:V16(),body:P('Use nodeSelector for simple, exact rules; node affinity for alternatives and soft preferences.',.2)+P('Both decide placement only.',.35)},
+ {ch:4,dur:11.5,title:'Production guidance',vis:V17(),body:P('Before tainting a GPU pool, inventory the DaemonSets that must still run there.',.2)+R('Change carefully, then verify with evidence.',.35)},
+ {ch:4,dur:11.5,title:'Four reasoning scenarios',vis:V18(),body:P('Each scenario fails at a different control.',.2)+P('Name the layer before you touch anything.',.35)},
+ {ch:5,dur:12,title:'What to remember',vis:V19(),body:P('Six ideas carry the whole lesson.',.2)+P('Next, check yourself with four quick questions.',.35)},
+ {ch:5,dur:10,title:'Check yourself',vis:V20(),body:P('Answer in your head first, then tap a card to flip it.',.2)+P('Want another look at a scene? Tap its segment in the progress bar.',.35)}
+];
+// ---------- Player ----------
+const stage=document.getElementById('stage'),track=document.getElementById('track'),chap=document.getElementById('chap'),count=document.getElementById('count'),live=document.getElementById('live');
+const btnPrev=document.getElementById('prev'),btnNext=document.getElementById('next'),btnPlay=document.getElementById('play'),btnReplay=document.getElementById('replay');
+const strip=s=>s.replace(/<[^>]+>/g,'').replace(/&amp;/g,'&');
+const els=[],fills=[],segs=[];
+SC.forEach((s,i)=>{
+  const sec=document.createElement('section');sec.className='scene';
+  sec.setAttribute('aria-label',`Scene ${i+1} of ${SC.length}: ${strip(s.title)}`);
+  sec.innerHTML=`<div class="copy">${s.copy||`<h2 class="up" style="--d:.05s">${s.title}</h2>${s.body}`}</div><div class="vis">${s.vis}</div>`;
+  stage.appendChild(sec);els.push(sec);
+  const b=document.createElement('button');b.className='seg'+(i>0&&SC[i-1].ch!==s.ch?' chstart':'');
+  b.setAttribute('aria-label',`Go to scene ${i+1}: ${strip(s.title)}`);b.innerHTML='<i><b></b></i>';
+  b.addEventListener('click',()=>go(i));track.appendChild(b);segs.push(b);fills.push(b.querySelector('b'));
+});
+const ICON_PLAY='<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',ICON_PAUSE='<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6.5" y="5" width="4" height="14" rx="1"/><rect x="13.5" y="5" width="4" height="14" rx="1"/></svg>';
+let cur=-1,auto=false,t0=performance.now(),onTimer=null;
+function setAuto(v){
+  auto=v;btnPlay.innerHTML=v?ICON_PAUSE:ICON_PLAY;btnPlay.setAttribute('aria-label',v?'Pause auto-play':'Start auto-play');btnPlay.setAttribute('aria-pressed',String(v));
+  if(v&&cur>=0){const dur=SC[cur].dur*1000,el=performance.now()-t0;if(el>dur-1200)t0=performance.now()-(dur-1200)}
+}
+function go(i,{replay=false}={}){
+  i=Math.max(0,Math.min(SC.length-1,i));
+  if(i===cur&&!replay)return;
+  const prev=cur;
+  els.forEach((el,j)=>{el.classList.toggle('active',j===i);el.classList.toggle('past',j<i);
+    if(j===i){el.inert=false;el.removeAttribute('aria-hidden')}else{el.inert=true;el.setAttribute('aria-hidden','true')}});
+  if(prev>=0&&prev!==i){const p=prev;setTimeout(()=>{if(cur!==p)els[p].classList.remove('on')},750)}
+  const el=els[i];el.classList.remove('on');void el.getBoundingClientRect();
+  clearTimeout(onTimer);const delay=(prev===i)?40:260;
+  onTimer=setTimeout(()=>{el.classList.add('on');t0=performance.now()},delay);
+  t0=performance.now()+delay;cur=i;el.scrollTop=0;
+  const s=SC[i];
+  chap.innerHTML=s.ch===0?'<b>Intro</b>':`Chapter ${s.ch} of ${CH.length-1}: <b>${CH[s.ch]}</b>`;
+  count.textContent=`${i+1} / ${SC.length}`;
+  live.textContent=`Scene ${i+1} of ${SC.length}: ${strip(s.title)}`;
+  btnPrev.disabled=i===0;btnNext.disabled=i===SC.length-1;
+  fills.forEach((f,j)=>{f.style.width=j<i?'100%':'0%'});
+  segs.forEach((b,j)=>{if(j===i)b.setAttribute('aria-current','step');else b.removeAttribute('aria-current')});
+}
+function tick(now){
+  if(cur>=0){const dur=SC[cur].dur*1000,el=Math.max(0,now-t0);fills[cur].style.width=(Math.min(1,el/dur)*100).toFixed(2)+'%';
+    if(auto&&el>=dur){if(cur<SC.length-1)go(cur+1);else setAuto(false)}}
+  requestAnimationFrame(tick);
+}
+btnPrev.addEventListener('click',()=>go(cur-1));
+btnNext.addEventListener('click',()=>go(cur+1));
+btnPlay.addEventListener('click',()=>{if(!auto&&cur===SC.length-1){go(0)}setAuto(!auto);if(auto&&cur===0)go(1)});
+btnReplay.addEventListener('click',()=>go(cur,{replay:true}));
+stage.addEventListener('click',e=>{
+  const a=e.target.closest('[data-action]');
+  if(a){if(a.dataset.action==='start'){setAuto(true);go(1)}else if(a.dataset.action==='restart'){setAuto(true);go(1)}return}
+  const c=e.target.closest('.card');
+  if(c){const f=c.classList.toggle('flipped');c.setAttribute('aria-pressed',String(f));c.querySelector('.front').setAttribute('aria-hidden',String(f));c.querySelector('.back').setAttribute('aria-hidden',String(!f))}
+});
+document.addEventListener('keydown',e=>{
+  if(e.altKey||e.ctrlKey||e.metaKey)return;
+  const onBtn=e.target.closest&&e.target.closest('button');
+  if(e.key==='ArrowRight'||e.key==='PageDown'){e.preventDefault();go(cur+1)}
+  else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();go(cur-1)}
+  else if(e.key===' '&&!onBtn){e.preventDefault();btnPlay.click()}
+  else if(e.key==='r'||e.key==='R'){go(cur,{replay:true})}
+  else if(e.key==='Home'){go(0)}else if(e.key==='End'){go(SC.length-1)}
+});
+let sx=null,sy=null;
+stage.addEventListener('touchstart',e=>{const t=e.touches[0];sx=t.clientX;sy=t.clientY},{passive:true});
+stage.addEventListener('touchend',e=>{if(sx==null)return;const t=e.changedTouches[0],dx=t.clientX-sx,dy=t.clientY-sy;if(Math.abs(dx)>55&&Math.abs(dx)>Math.abs(dy)*1.4)go(cur+(dx<0?1:-1));sx=null},{passive:true});
+setAuto(false);go(0);requestAnimationFrame(tick);
+
+// Deterministic export hooks for html_to_mp4.py.
+window.__total=SC.reduce((sum,s)=>sum+s.dur,0);
+window.__seek=seconds=>{
+  let ms=Math.max(0,Math.min(window.__total*1000,seconds*1000)),i=0;
+  while(i<SC.length-1&&ms>=SC[i].dur*1000)ms-=SC[i++].dur*1000;
+  if(cur!==i)go(i,{replay:true});
+  setAuto(false);
+  clearTimeout(onTimer);
+  const local=ms;
+  t0=performance.now()-local;
+  const el=els[i];el.classList.add('on','active');
+  fills.forEach((f,k)=>{f.style.width=k<i?'100%':k===i?`${Math.min(100,local/(SC[k].dur*10))}%`:'0%'});
+  void el.offsetWidth;
+  el.getAnimations({subtree:true}).forEach(animation=>{animation.currentTime=local});
+};
+</script>
+</body>
+</html>

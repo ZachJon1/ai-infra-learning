@@ -1,0 +1,1762 @@
+[
+  {
+    "day": 1,
+    "phase": 1,
+    "phase_title": "Systems Foundation",
+    "topic": "Linux fundamentals, shell, processes",
+    "lab_directory": "day1-linux",
+    "interactive_published": true
+  },
+  {
+    "day": 2,
+    "phase": 1,
+    "phase_title": "Systems Foundation",
+    "topic": "GPU benchmarking, PyTorch CUDA, synchronization, utilization, VRAM",
+    "lab_directory": "day2-gpu-benchmarking",
+    "interactive_published": true
+  },
+  {
+    "day": 3,
+    "phase": 1,
+    "phase_title": "Systems Foundation",
+    "topic": "Processes, signals, jobs, `ps`, `kill`, `nohup`, `nice`, zombies",
+    "lab_directory": "day3-processes",
+    "interactive_published": true
+  },
+  {
+    "day": 4,
+    "phase": 1,
+    "phase_title": "Systems Foundation",
+    "topic": "`systemd`, services, restart policies, cgroups, CPU/memory limits",
+    "lab_directory": "day4-systemd",
+    "interactive_published": true
+  },
+  {
+    "day": 5,
+    "phase": 1,
+    "phase_title": "Systems Foundation",
+    "topic": "Networking: interfaces, IPs, routing, sockets, DNS, ports, CIDR",
+    "lab_directory": "day5-networking",
+    "interactive_published": true
+  },
+  {
+    "day": 6,
+    "phase": 1,
+    "phase_title": "Systems Foundation",
+    "topic": "Storage & I/O: filesystems, mounts, inodes, `iostat`, I/O bottlenecks",
+    "lab_directory": "day6-storage-io",
+    "interactive_published": true
+  },
+  {
+    "day": 7,
+    "phase": 1,
+    "phase_title": "Systems Foundation",
+    "topic": "Docker fundamentals: images, containers, networking, volumes, GPU containers",
+    "lab_directory": "day7-docker",
+    "interactive_published": true
+  },
+  {
+    "day": 8,
+    "phase": 1,
+    "phase_title": "Systems Foundation",
+    "topic": "Docker Compose: multi-service applications, networks, volumes, health checks",
+    "lab_directory": "day8-compose",
+    "interactive_published": true
+  },
+  {
+    "day": 9,
+    "phase": 1,
+    "phase_title": "Systems Foundation",
+    "topic": "Kubernetes fundamentals: Pods, ReplicaSets, Deployments, scheduler, kubelet",
+    "lab_directory": "day9-kubernetes",
+    "interactive_published": true
+  },
+  {
+    "day": 10,
+    "phase": 1,
+    "phase_title": "Systems Foundation",
+    "topic": "Kubernetes networking: Services, EndpointSlices, DNS, Ingress",
+    "lab_directory": "day10-kubernetes-networking",
+    "interactive_published": true
+  },
+  {
+    "day": 11,
+    "phase": 1,
+    "phase_title": "Systems Foundation",
+    "topic": "Kubernetes storage: `emptyDir`, PVs, PVCs, StorageClasses, StatefulSets",
+    "lab_directory": "day11-kubernetes-storage",
+    "interactive_published": true
+  },
+  {
+    "day": 12,
+    "phase": 1,
+    "phase_title": "Systems Foundation",
+    "topic": "ConfigMaps, Secrets, environment configuration, configuration rollouts",
+    "lab_directory": "day12-kubernetes-config",
+    "interactive_published": true
+  },
+  {
+    "day": 13,
+    "phase": 1,
+    "phase_title": "Systems Foundation",
+    "topic": "Scheduling & resource management: requests, limits, selectors, affinity, taints/tolerations",
+    "lab_directory": "day13-k8s-scheduling",
+    "interactive_published": true
+  },
+  {
+    "day": 14,
+    "phase": 1,
+    "phase_title": "Systems Foundation",
+    "topic": "Kubernetes health: liveness, readiness & startup probes",
+    "lab_directory": "day14-probes",
+    "interactive_published": true
+  },
+  {
+    "day": 15,
+    "phase": 1,
+    "phase_title": "Systems Foundation",
+    "topic": "Kubernetes autoscaling: HPA, VPA, cluster autoscaling, stabilization and queue-based scaling",
+    "lab_directory": "day15-autoscaling",
+    "interactive_published": true
+  },
+  {
+    "day": 16,
+    "phase": 1,
+    "phase_title": "Systems Foundation",
+    "topic": "Helm fundamentals, charts, values, templates, releases, upgrades and rollbacks",
+    "lab_directory": "day16-helm",
+    "interactive_published": true
+  },
+  {
+    "day": 17,
+    "phase": 1,
+    "phase_title": "Systems Foundation",
+    "topic": "Kubernetes RBAC, ServiceAccounts & basic security",
+    "lab_directory": "day17-rbac",
+    "interactive_published": true
+  },
+  {
+    "day": 18,
+    "phase": 1,
+    "phase_title": "Systems Foundation",
+    "topic": "Jobs, CronJobs, init containers & workload lifecycle",
+    "lab_directory": "day18-workloads",
+    "interactive_published": true
+  },
+  {
+    "day": 19,
+    "phase": 1,
+    "phase_title": "Systems Foundation",
+    "topic": "Kubernetes observability, debugging & failure diagnosis",
+    "lab_directory": "day19-observability",
+    "interactive_published": true
+  },
+  {
+    "day": 20,
+    "phase": 1,
+    "phase_title": "Systems Foundation",
+    "topic": "Kubernetes capstone: deploy and troubleshoot a realistic AI service",
+    "lab_directory": "day20-k8s-capstone",
+    "interactive_published": true
+  },
+  {
+    "day": 21,
+    "phase": 2,
+    "phase_title": "GPU Infrastructure",
+    "topic": "GPU architecture refresher: SMs, CUDA cores, Tensor Cores, VRAM",
+    "lab_directory": "day21-gpu-architure",
+    "interactive_published": true
+  },
+  {
+    "day": 22,
+    "phase": 2,
+    "phase_title": "GPU Infrastructure",
+    "topic": "CUDA runtime, drivers, toolkit & compatibility",
+    "lab_directory": "day22-cuda",
+    "interactive_published": true
+  },
+  {
+    "day": 23,
+    "phase": 2,
+    "phase_title": "GPU Infrastructure",
+    "topic": "GPU monitoring with `nvidia-smi`",
+    "lab_directory": "day23-gpu-monitoring",
+    "interactive_published": true
+  },
+  {
+    "day": 24,
+    "phase": 2,
+    "phase_title": "GPU Infrastructure",
+    "topic": "GPU memory allocation and OOM diagnosis",
+    "lab_directory": "day24-gpu-memory",
+    "interactive_published": true
+  },
+  {
+    "day": 25,
+    "phase": 2,
+    "phase_title": "GPU Infrastructure",
+    "topic": "PyTorch GPU profiling",
+    "lab_directory": "day25-gpu-profiling",
+    "interactive_published": true
+  },
+  {
+    "day": 26,
+    "phase": 2,
+    "phase_title": "GPU Infrastructure",
+    "topic": "NVIDIA Container Toolkit",
+    "lab_directory": "day26-nvidia-container-toolkit",
+    "interactive_published": true
+  },
+  {
+    "day": 27,
+    "phase": 2,
+    "phase_title": "GPU Infrastructure",
+    "topic": "Kubernetes NVIDIA Device Plugin",
+    "lab_directory": "day27-gpu-plugin",
+    "interactive_published": true
+  },
+  {
+    "day": 28,
+    "phase": 2,
+    "phase_title": "GPU Infrastructure",
+    "topic": "Scheduling GPU workloads in Kubernetes",
+    "lab_directory": "day28-gpu-scheduling",
+    "interactive_published": true
+  },
+  {
+    "day": 29,
+    "phase": 2,
+    "phase_title": "GPU Infrastructure",
+    "topic": "GPU node labels, taints and tolerations",
+    "lab_directory": "day29-gpu-node-placement",
+    "interactive_published": true
+  },
+  {
+    "day": 30,
+    "phase": 2,
+    "phase_title": "GPU Infrastructure",
+    "topic": "Multi-GPU fundamentals",
+    "lab_directory": "day30-multip-gpu-fundamentals",
+    "interactive_published": true
+  },
+  {
+    "day": 31,
+    "phase": 2,
+    "phase_title": "GPU Infrastructure",
+    "topic": "Data parallelism",
+    "lab_directory": "day31-data-parallelism",
+    "interactive_published": true
+  },
+  {
+    "day": 32,
+    "phase": 2,
+    "phase_title": "GPU Infrastructure",
+    "topic": "Model parallelism / tensor parallelism",
+    "lab_directory": "day32-tensor-parallelism",
+    "interactive_published": true
+  },
+  {
+    "day": 33,
+    "phase": 2,
+    "phase_title": "GPU Infrastructure",
+    "topic": "GPU utilization troubleshooting",
+    "lab_directory": "day33-gpu-troubleshooting",
+    "interactive_published": true
+  },
+  {
+    "day": 34,
+    "phase": 2,
+    "phase_title": "GPU Infrastructure",
+    "topic": "MIG and GPU partitioning",
+    "lab_directory": "day34-mig-partitioning",
+    "interactive_published": true
+  },
+  {
+    "day": 35,
+    "phase": 2,
+    "phase_title": "GPU Infrastructure",
+    "topic": "GPU infrastructure capstone",
+    "lab_directory": "day35-gpu-capstone",
+    "interactive_published": true
+  },
+  {
+    "day": 36,
+    "phase": 3,
+    "phase_title": "Model Serving / Inference",
+    "topic": "Production model-serving fundamentals",
+    "lab_directory": "day36-model-serving",
+    "interactive_published": true
+  },
+  {
+    "day": 37,
+    "phase": 3,
+    "phase_title": "Model Serving / Inference",
+    "topic": "FastAPI inference service",
+    "lab_directory": "day37-fastapi-inference",
+    "interactive_published": true
+  },
+  {
+    "day": 38,
+    "phase": 3,
+    "phase_title": "Model Serving / Inference",
+    "topic": "Dockerized inference server",
+    "lab_directory": "day38-dockerized-inference-lab",
+    "interactive_published": true
+  },
+  {
+    "day": 39,
+    "phase": 3,
+    "phase_title": "Model Serving / Inference",
+    "topic": "GPU-backed inference",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 40,
+    "phase": 3,
+    "phase_title": "Model Serving / Inference",
+    "topic": "Batching",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 41,
+    "phase": 3,
+    "phase_title": "Model Serving / Inference",
+    "topic": "Dynamic batching",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 42,
+    "phase": 3,
+    "phase_title": "Model Serving / Inference",
+    "topic": "Latency vs throughput",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 43,
+    "phase": 3,
+    "phase_title": "Model Serving / Inference",
+    "topic": "Model warmup and cold starts",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 44,
+    "phase": 3,
+    "phase_title": "Model Serving / Inference",
+    "topic": "Model loading / caching",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 45,
+    "phase": 3,
+    "phase_title": "Model Serving / Inference",
+    "topic": "NVIDIA Triton Inference Server",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 46,
+    "phase": 3,
+    "phase_title": "Model Serving / Inference",
+    "topic": "Triton model repository",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 47,
+    "phase": 3,
+    "phase_title": "Model Serving / Inference",
+    "topic": "Triton batching and concurrency",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 48,
+    "phase": 3,
+    "phase_title": "Model Serving / Inference",
+    "topic": "vLLM fundamentals",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 49,
+    "phase": 3,
+    "phase_title": "Model Serving / Inference",
+    "topic": "LLM serving with vLLM",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 50,
+    "phase": 3,
+    "phase_title": "Model Serving / Inference",
+    "topic": "Continuous batching",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 51,
+    "phase": 3,
+    "phase_title": "Model Serving / Inference",
+    "topic": "KV cache",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 52,
+    "phase": 3,
+    "phase_title": "Model Serving / Inference",
+    "topic": "Quantization concepts",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 53,
+    "phase": 3,
+    "phase_title": "Model Serving / Inference",
+    "topic": "Load testing inference systems",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 54,
+    "phase": 3,
+    "phase_title": "Model Serving / Inference",
+    "topic": "Autoscaling inference services",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 55,
+    "phase": 3,
+    "phase_title": "Model Serving / Inference",
+    "topic": "Model-serving capstone project",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 56,
+    "phase": 4,
+    "phase_title": "Observability",
+    "topic": "Monitoring fundamentals",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 57,
+    "phase": 4,
+    "phase_title": "Observability",
+    "topic": "Prometheus",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 58,
+    "phase": 4,
+    "phase_title": "Observability",
+    "topic": "Kubernetes metrics",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 59,
+    "phase": 4,
+    "phase_title": "Observability",
+    "topic": "GPU metrics / DCGM",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 60,
+    "phase": 4,
+    "phase_title": "Observability",
+    "topic": "Grafana",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 61,
+    "phase": 4,
+    "phase_title": "Observability",
+    "topic": "Application metrics",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 62,
+    "phase": 4,
+    "phase_title": "Observability",
+    "topic": "Inference latency metrics",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 63,
+    "phase": 4,
+    "phase_title": "Observability",
+    "topic": "Throughput / request rate",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 64,
+    "phase": 4,
+    "phase_title": "Observability",
+    "topic": "GPU utilization dashboards",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 65,
+    "phase": 4,
+    "phase_title": "Observability",
+    "topic": "Logging architecture",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 66,
+    "phase": 4,
+    "phase_title": "Observability",
+    "topic": "Loki / centralized logging",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 67,
+    "phase": 4,
+    "phase_title": "Observability",
+    "topic": "Distributed tracing",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 68,
+    "phase": 4,
+    "phase_title": "Observability",
+    "topic": "Alerting",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 69,
+    "phase": 4,
+    "phase_title": "Observability",
+    "topic": "SLI/SLO concepts",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 70,
+    "phase": 4,
+    "phase_title": "Observability",
+    "topic": "Observability capstone",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 71,
+    "phase": 5,
+    "phase_title": "Cloud & Infrastructure as Code",
+    "topic": "Cloud architecture fundamentals",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 72,
+    "phase": 5,
+    "phase_title": "Cloud & Infrastructure as Code",
+    "topic": "AWS/GCP networking concepts",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 73,
+    "phase": 5,
+    "phase_title": "Cloud & Infrastructure as Code",
+    "topic": "Compute instances",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 74,
+    "phase": 5,
+    "phase_title": "Cloud & Infrastructure as Code",
+    "topic": "GPU instances",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 75,
+    "phase": 5,
+    "phase_title": "Cloud & Infrastructure as Code",
+    "topic": "Object storage",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 76,
+    "phase": 5,
+    "phase_title": "Cloud & Infrastructure as Code",
+    "topic": "IAM",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 77,
+    "phase": 5,
+    "phase_title": "Cloud & Infrastructure as Code",
+    "topic": "VPCs / subnets",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 78,
+    "phase": 5,
+    "phase_title": "Cloud & Infrastructure as Code",
+    "topic": "Load balancers",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 79,
+    "phase": 5,
+    "phase_title": "Cloud & Infrastructure as Code",
+    "topic": "Managed Kubernetes",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 80,
+    "phase": 5,
+    "phase_title": "Cloud & Infrastructure as Code",
+    "topic": "Terraform fundamentals",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 81,
+    "phase": 5,
+    "phase_title": "Cloud & Infrastructure as Code",
+    "topic": "Terraform state",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 82,
+    "phase": 5,
+    "phase_title": "Cloud & Infrastructure as Code",
+    "topic": "Modules",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 83,
+    "phase": 5,
+    "phase_title": "Cloud & Infrastructure as Code",
+    "topic": "Provisioning cloud infrastructure",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 84,
+    "phase": 5,
+    "phase_title": "Cloud & Infrastructure as Code",
+    "topic": "Provisioning Kubernetes",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 85,
+    "phase": 5,
+    "phase_title": "Cloud & Infrastructure as Code",
+    "topic": "Cloud AI-infra capstone",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 86,
+    "phase": 6,
+    "phase_title": "CI/CD & Production Engineering",
+    "topic": "Git workflows",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 87,
+    "phase": 6,
+    "phase_title": "CI/CD & Production Engineering",
+    "topic": "CI fundamentals",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 88,
+    "phase": 6,
+    "phase_title": "CI/CD & Production Engineering",
+    "topic": "GitHub Actions",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 89,
+    "phase": 6,
+    "phase_title": "CI/CD & Production Engineering",
+    "topic": "Container build pipelines",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 90,
+    "phase": 6,
+    "phase_title": "CI/CD & Production Engineering",
+    "topic": "Image registries",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 91,
+    "phase": 6,
+    "phase_title": "CI/CD & Production Engineering",
+    "topic": "Kubernetes deployment pipelines",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 92,
+    "phase": 6,
+    "phase_title": "CI/CD & Production Engineering",
+    "topic": "Helm in CI/CD",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 93,
+    "phase": 6,
+    "phase_title": "CI/CD & Production Engineering",
+    "topic": "Rolling deployments",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 94,
+    "phase": 6,
+    "phase_title": "CI/CD & Production Engineering",
+    "topic": "Blue/green deployments",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 95,
+    "phase": 6,
+    "phase_title": "CI/CD & Production Engineering",
+    "topic": "Canary deployments",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 96,
+    "phase": 6,
+    "phase_title": "CI/CD & Production Engineering",
+    "topic": "Model versioning",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 97,
+    "phase": 6,
+    "phase_title": "CI/CD & Production Engineering",
+    "topic": "Rollback strategies",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 98,
+    "phase": 6,
+    "phase_title": "CI/CD & Production Engineering",
+    "topic": "Secrets in CI/CD",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 99,
+    "phase": 6,
+    "phase_title": "CI/CD & Production Engineering",
+    "topic": "Supply-chain/security basics",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 100,
+    "phase": 6,
+    "phase_title": "CI/CD & Production Engineering",
+    "topic": "Production deployment capstone",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 101,
+    "phase": 7,
+    "phase_title": "Distributed Systems",
+    "topic": "Distributed-systems fundamentals",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 102,
+    "phase": 7,
+    "phase_title": "Distributed Systems",
+    "topic": "Consistency and availability",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 103,
+    "phase": 7,
+    "phase_title": "Distributed Systems",
+    "topic": "CAP theorem",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 104,
+    "phase": 7,
+    "phase_title": "Distributed Systems",
+    "topic": "Replication",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 105,
+    "phase": 7,
+    "phase_title": "Distributed Systems",
+    "topic": "Partitioning / sharding",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 106,
+    "phase": 7,
+    "phase_title": "Distributed Systems",
+    "topic": "Leader election",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 107,
+    "phase": 7,
+    "phase_title": "Distributed Systems",
+    "topic": "Queues",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 108,
+    "phase": 7,
+    "phase_title": "Distributed Systems",
+    "topic": "Kafka fundamentals",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 109,
+    "phase": 7,
+    "phase_title": "Distributed Systems",
+    "topic": "Backpressure",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 110,
+    "phase": 7,
+    "phase_title": "Distributed Systems",
+    "topic": "Caching",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 111,
+    "phase": 7,
+    "phase_title": "Distributed Systems",
+    "topic": "Redis",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 112,
+    "phase": 7,
+    "phase_title": "Distributed Systems",
+    "topic": "Fault tolerance",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 113,
+    "phase": 7,
+    "phase_title": "Distributed Systems",
+    "topic": "Retries / exponential backoff",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 114,
+    "phase": 7,
+    "phase_title": "Distributed Systems",
+    "topic": "Idempotency",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 115,
+    "phase": 7,
+    "phase_title": "Distributed Systems",
+    "topic": "Distributed-systems capstone",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 116,
+    "phase": 8,
+    "phase_title": "Distributed ML Training",
+    "topic": "Distributed-training fundamentals",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 117,
+    "phase": 8,
+    "phase_title": "Distributed ML Training",
+    "topic": "PyTorch Distributed",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 118,
+    "phase": 8,
+    "phase_title": "Distributed ML Training",
+    "topic": "DDP",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 119,
+    "phase": 8,
+    "phase_title": "Distributed ML Training",
+    "topic": "NCCL",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 120,
+    "phase": 8,
+    "phase_title": "Distributed ML Training",
+    "topic": "Collective communication",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 121,
+    "phase": 8,
+    "phase_title": "Distributed ML Training",
+    "topic": "AllReduce",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 122,
+    "phase": 8,
+    "phase_title": "Distributed ML Training",
+    "topic": "Multi-GPU training",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 123,
+    "phase": 8,
+    "phase_title": "Distributed ML Training",
+    "topic": "Multi-node training",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 124,
+    "phase": 8,
+    "phase_title": "Distributed ML Training",
+    "topic": "Network bottlenecks",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 125,
+    "phase": 8,
+    "phase_title": "Distributed ML Training",
+    "topic": "Checkpointing",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 126,
+    "phase": 8,
+    "phase_title": "Distributed ML Training",
+    "topic": "Failure recovery",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 127,
+    "phase": 8,
+    "phase_title": "Distributed ML Training",
+    "topic": "DeepSpeed",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 128,
+    "phase": 8,
+    "phase_title": "Distributed ML Training",
+    "topic": "ZeRO",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 129,
+    "phase": 8,
+    "phase_title": "Distributed ML Training",
+    "topic": "FSDP",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 130,
+    "phase": 8,
+    "phase_title": "Distributed ML Training",
+    "topic": "Distributed-training capstone",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 131,
+    "phase": 9,
+    "phase_title": "LLM Infrastructure",
+    "topic": "LLM infrastructure architecture",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 132,
+    "phase": 9,
+    "phase_title": "LLM Infrastructure",
+    "topic": "Tokenization / inference pipeline",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 133,
+    "phase": 9,
+    "phase_title": "LLM Infrastructure",
+    "topic": "Transformer compute characteristics",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 134,
+    "phase": 9,
+    "phase_title": "LLM Infrastructure",
+    "topic": "Prefill vs decode",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 135,
+    "phase": 9,
+    "phase_title": "LLM Infrastructure",
+    "topic": "KV-cache management",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 136,
+    "phase": 9,
+    "phase_title": "LLM Infrastructure",
+    "topic": "Continuous batching",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 137,
+    "phase": 9,
+    "phase_title": "LLM Infrastructure",
+    "topic": "Tensor parallelism",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 138,
+    "phase": 9,
+    "phase_title": "LLM Infrastructure",
+    "topic": "Pipeline parallelism",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 139,
+    "phase": 9,
+    "phase_title": "LLM Infrastructure",
+    "topic": "Quantization",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 140,
+    "phase": 9,
+    "phase_title": "LLM Infrastructure",
+    "topic": "Memory-efficient inference",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 141,
+    "phase": 9,
+    "phase_title": "LLM Infrastructure",
+    "topic": "vLLM internals",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 142,
+    "phase": 9,
+    "phase_title": "LLM Infrastructure",
+    "topic": "Serving multiple models",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 143,
+    "phase": 9,
+    "phase_title": "LLM Infrastructure",
+    "topic": "Request scheduling",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 144,
+    "phase": 9,
+    "phase_title": "LLM Infrastructure",
+    "topic": "LLM autoscaling",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 145,
+    "phase": 9,
+    "phase_title": "LLM Infrastructure",
+    "topic": "LLM-serving capstone",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 146,
+    "phase": 10,
+    "phase_title": "Reliability & Production Operations",
+    "topic": "SRE fundamentals",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 147,
+    "phase": 10,
+    "phase_title": "Reliability & Production Operations",
+    "topic": "SLIs, SLOs, SLAs",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 148,
+    "phase": 10,
+    "phase_title": "Reliability & Production Operations",
+    "topic": "Error budgets",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 149,
+    "phase": 10,
+    "phase_title": "Reliability & Production Operations",
+    "topic": "Incident management",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 150,
+    "phase": 10,
+    "phase_title": "Reliability & Production Operations",
+    "topic": "On-call operations",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 151,
+    "phase": 10,
+    "phase_title": "Reliability & Production Operations",
+    "topic": "Runbooks",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 152,
+    "phase": 10,
+    "phase_title": "Reliability & Production Operations",
+    "topic": "Capacity planning",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 153,
+    "phase": 10,
+    "phase_title": "Reliability & Production Operations",
+    "topic": "Load testing",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 154,
+    "phase": 10,
+    "phase_title": "Reliability & Production Operations",
+    "topic": "Failure injection",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 155,
+    "phase": 10,
+    "phase_title": "Reliability & Production Operations",
+    "topic": "Chaos engineering",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 156,
+    "phase": 10,
+    "phase_title": "Reliability & Production Operations",
+    "topic": "Disaster recovery",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 157,
+    "phase": 10,
+    "phase_title": "Reliability & Production Operations",
+    "topic": "Cost optimization",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 158,
+    "phase": 10,
+    "phase_title": "Reliability & Production Operations",
+    "topic": "GPU fleet efficiency",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 159,
+    "phase": 10,
+    "phase_title": "Reliability & Production Operations",
+    "topic": "Production troubleshooting",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 160,
+    "phase": 10,
+    "phase_title": "Reliability & Production Operations",
+    "topic": "Reliability capstone",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 161,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "General system-design fundamentals",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 162,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "General system-design fundamentals",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 163,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "General system-design fundamentals",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 164,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "General system-design fundamentals",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 165,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "General system-design fundamentals",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 166,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Design an inference platform",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 167,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Design an inference platform",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 168,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Design an inference platform",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 169,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Design an inference platform",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 170,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Design an inference platform",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 171,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Design a GPU cluster",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 172,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Design a GPU cluster",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 173,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Design a GPU cluster",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 174,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Design a GPU cluster",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 175,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Design a GPU cluster",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 176,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Design distributed training infrastructure",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 177,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Design distributed training infrastructure",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 178,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Design distributed training infrastructure",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 179,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Design distributed training infrastructure",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 180,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Design distributed training infrastructure",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 181,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Design an LLM serving platform",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 182,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Design an LLM serving platform",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 183,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Design an LLM serving platform",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 184,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Design an LLM serving platform",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 185,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Design an LLM serving platform",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 186,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Kubernetes troubleshooting interviews",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 187,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Kubernetes troubleshooting interviews",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 188,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Kubernetes troubleshooting interviews",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 189,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Kubernetes troubleshooting interviews",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 190,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Kubernetes troubleshooting interviews",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 191,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Linux/networking/storage troubleshooting",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 192,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Linux/networking/storage troubleshooting",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 193,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Linux/networking/storage troubleshooting",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 194,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Linux/networking/storage troubleshooting",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 195,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Linux/networking/storage troubleshooting",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 196,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "GPU/CUDA troubleshooting",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 197,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "GPU/CUDA troubleshooting",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 198,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "GPU/CUDA troubleshooting",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 199,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "GPU/CUDA troubleshooting",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 200,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "GPU/CUDA troubleshooting",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 201,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Distributed systems questions",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 202,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Distributed systems questions",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 203,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Distributed systems questions",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 204,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Distributed systems questions",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 205,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Distributed systems questions",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 206,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "ML systems questions",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 207,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "ML systems questions",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 208,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "ML systems questions",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 209,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "ML systems questions",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 210,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "ML systems questions",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 211,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Coding / scripting for infra interviews",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 212,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Coding / scripting for infra interviews",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 213,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Coding / scripting for infra interviews",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 214,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Coding / scripting for infra interviews",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 215,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Coding / scripting for infra interviews",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 216,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Mock interviews",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 217,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Mock interviews",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 218,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Mock interviews",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 219,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Mock interviews",
+    "lab_directory": null,
+    "interactive_published": false
+  },
+  {
+    "day": 220,
+    "phase": 11,
+    "phase_title": "System Design & Interviews",
+    "topic": "Mock interviews",
+    "lab_directory": null,
+    "interactive_published": false
+  }
+]
