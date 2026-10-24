@@ -72,3 +72,25 @@ code{font:.92em/1.7 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monos
 .lesson-pager .btn{white-space:nowrap}
 .pager-spacer{display:inline-block;min-width:65px}
 @media(max-width:680px){.lesson-pager{justify-content:center}.lesson-pager .btn{font-size:12px;min-height:40px;padding:8px 11px}}
+
+/* Homepage positioning and evidence cards */
+.identity-line{margin:-8px 0 12px;color:#365563;font-size:15px;font-weight:720}
+.hero-focus{display:flex;gap:9px 18px;flex-wrap:wrap;margin-top:24px;color:#496775;font-size:12px;font-weight:700}
+.hero-focus span{display:inline-flex;align-items:center;gap:7px}
+.hero-focus span::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--accent)}
+.text-link{display:inline-flex;align-items:center;padding:10px 4px;font-size:14px;font-weight:750}
+.evidence-section{padding-top:42px}
+.project-evidence-grid{align-items:stretch}
+.evidence-card{display:flex;flex-direction:column;align-items:flex-start}
+.evidence-card h3{margin-bottom:10px}
+.evidence-card p{flex:1}
+.evidence-result{width:100%;border-top:1px solid var(--line);padding:14px 0;margin:0 0 14px;display:grid;gap:4px;color:#405e6b;font-size:12px;line-height:1.55}
+.evidence-result strong{color:#176d64;font-size:10px;letter-spacing:.1em;text-transform:uppercase}
+.evidence-card>a{margin-top:auto}
+.evidence-caveat{color:var(--muted);font-size:12px;margin:16px 0 0}
+.approach-callout h2{font-size:clamp(24px,3vw,36px)}
+.learning-section{padding-top:38px}
+.day-one-feature{margin-top:34px}
+.supporting-section{padding-top:30px}
+a:focus-visible,button:focus-visible{outline:3px solid #087b70;outline-offset:3px;border-radius:4px}
+@media(max-width:680px){.identity-line{font-size:13px}.hero-focus{display:grid;gap:7px}.evidence-section{padding-top:24px}.text-link{padding-left:0}.day-one-feature{margin-top:24px}}

@@ -30,3 +30,4 @@ venv/
 *.tgz
 generate_day_readmes.py
 MAINTAINERS.local.md
+UPGRADE.local.md
