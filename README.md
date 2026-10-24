@@ -9,7 +9,7 @@ The goal is not only to learn tools, but to develop the ability to **deploy, ope
 ---
 
 ## Current Progress
-Roadmap progress: Day 31
+Roadmap progress: Day 39
 
 ### Learning Path
 
