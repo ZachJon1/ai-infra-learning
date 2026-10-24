@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 import os
+
 import torch
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import (
@@ -11,36 +12,33 @@ from pydantic import (
 
 from model import TinyRegressionModel
 
-
-# @asynccontextmanager
-# async def lifespan(app: FastAPI):
-#     # Load once per application worker
-#     app.state.model = TinyRegressionModel()
-#     app.state.model.eval()
-
-#     print("PyTorch model loaded successfully")
-
-#     yield
-
-#     # Release model on shutdown
-#     del app.state.model
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.model = None
 
-    if os.getenv("SIMULATE_MODEL_UNAVAILABLE") != "1":
-        model = TinyRegressionModel()
-        model.eval()
-        app.state.model = model
+    require_cuda = os.getenv("REQUIRE_CUDA", "0") == "1"
 
-        print("Model loaded successfully")
-    else:
-        print("SIMULATION: Model unavailable")
+    if require_cuda and not torch.cuda.is_available():
+        raise RuntimeError(
+            "GPU inference required, but CUDA is unavailable"
+        )
 
+    device = torch.device(
+        "cuda:0" if torch.cuda.is_available() else "cpu"
+    )
+
+    app.state.device = device
+    app.state.model = TinyRegressionModel().to(device)
+    app.state.model.eval()
+
+    print(f"Inference device: {device}")
+
+    # Application starts serving requests
     yield
 
-    app.state.model = None
+    # Application shutdown
+    del app.state.model
+    print("PyTorch model released")
+
 
 app = FastAPI(
     title="AI Infrastructure Inference API",
@@ -58,7 +56,7 @@ class PredictionRequest(BaseModel):
 
 
 class PredictionResponse(BaseModel):
-    prediction: float
+    prediction_value: float
     model_version: str
 
 
@@ -66,16 +64,6 @@ class PredictionResponse(BaseModel):
 def health():
     return {"status": "healthy"}
 
-
-# @app.get("/ready")
-# def ready(request: Request):
-#     if not hasattr(request.app.state, "model"):
-#         raise HTTPException(
-#             status_code=503,
-#             detail="Model not loaded",
-#         )
-
-#     return {"status": "ready"}
 
 @app.get("/ready")
 def ready(request: Request):
@@ -89,25 +77,27 @@ def ready(request: Request):
 
     return {"status": "ready"}
 
+
 @app.post("/predict", response_model=PredictionResponse)
 def predict(payload: PredictionRequest, request: Request):
-    model = getattr(request.app.state, "model", None)
 
-    if model is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Model unavailable",
-        )
+    model = request.app.state.model
+    device = request.app.state.device
 
     features = torch.tensor(
         [payload.features],
         dtype=torch.float32,
+        device=device,
     )
 
     with torch.inference_mode():
         prediction = model(features)
 
+    prediction_value = round(
+        float(prediction.item()), 6
+    )
+
     return PredictionResponse(
-        prediction=round(float(prediction.item()), 6),
+        prediction_value=prediction_value,
         model_version="demo-linear-v1",
     )
