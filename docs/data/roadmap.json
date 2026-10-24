@@ -308,7 +308,7 @@
     "phase": 3,
     "phase_title": "Model Serving / Inference",
     "topic": "GPU-backed inference",
-    "lab_directory": null,
+    "lab_directory": "day39-gpu-inference",
     "interactive_published": false
   },
   {
@@ -316,7 +316,7 @@
     "phase": 3,
     "phase_title": "Model Serving / Inference",
     "topic": "Batching",
-    "lab_directory": null,
+    "lab_directory": "day40-batching",
     "interactive_published": false
   },
   {

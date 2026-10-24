@@ -1,26 +1,151 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f7f9fb"><title>AI Infrastructure Lab</title><meta name="description" content="A 220-day AI Infrastructure & ML Systems engineering portfolio: interactive explanations, reproducible labs, and operational case studies."><link rel="icon" href="assets/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="assets/site.css"><script defer src="assets/site.js"></script></head><body><a class="skip" href="#content">Skip to main content</a>
-<header class="site-header"><div class="container header-inner"><a class="brand" href="index.html" aria-label="AI Infrastructure Lab home"><span class="brand-mark">&gt;_</span><span>AI Infrastructure Lab<span class="brand-sub">Build · Break · Diagnose · Improve</span></span></a><nav class="site-nav" aria-label="Main navigation"><a href="index.html" aria-current="page">Overview</a><a href="roadmap/">220-Day Roadmap</a><a href="projects/">Projects</a><a href="animations/">Interactive lessons</a><a class="nav-github" href="https://github.com/ZachJon1/ai-infra-learning" target="_blank" rel="noopener noreferrer">GitHub ↗</a></nav></div></header>
-<main id="content">
-<section class="hero"><div class="container"><div class="eyebrow">Evidence-first engineering journal</div>
-<h1>From Linux fundamentals to <span class="gradient-text">production-minded AI systems.</span></h1>
-<p class="lead">A public 220-day journey through infrastructure engineering: interactive visual explainers, source-backed labs, break/fix experiments, and practical ML systems projects.</p>
-<div class="hero-actions"><a class="btn btn-primary" href="animations/">▶ Browse 38 interactive lessons</a><a class="btn btn-ghost" href="roadmap/">Browse the roadmap →</a></div>
-<div class="stats"><div class="stat"><strong>220</strong><small>Learning days in the roadmap</small></div><div class="stat"><strong>11</strong><small>Systems engineering phases</small></div><div class="stat"><strong data-count="labs">39</strong><small>Day labs published</small></div><div class="stat"><strong data-count="interactive">38</strong><small>Interactive lessons</small></div></div></div></section>
-<section class="section" aria-label="Follow the learning journey"><div class="container grid-2">
-<article class="card"><span class="card-label">Follow along</span><h2>Daily repository updates</h2><p>Recent pushes to the GitHub repository appear here automatically.</p><ul class="list-clean" data-recent-commits aria-live="polite"><li class="muted">Loading latest updates…</li></ul><a href="https://github.com/ZachJon1/ai-infra-learning/commits/main" target="_blank" rel="noopener noreferrer">View all commits on GitHub ↗</a></article>
-<article class="card"><span class="card-label">Watch and learn</span><h2>Video playlist</h2><p>Watch the videos that accompany this AI infrastructure learning journey.</p><a class="btn btn-primary" href="https://youtube.com/playlist?list=PLfM2JP-63bWU&amp;si=LLeQAQuCMbv1S7wE" target="_blank" rel="noopener noreferrer">▶ Open the YouTube playlist ↗</a></article>
-</div></section>
-<section class="section"><div class="container"><div class="section-head"><div><span class="kicker">Start exploring</span><h2>Understand the system.<br>Then inspect the evidence.</h2></div><p class="muted">A visual explanation is paired with a lab: the animation builds intuition, while the repository shows what was implemented.</p></div>
-<div class="card feature"><div class="feature-copy"><span class="card-label">Start here · Day 01</span><h3>From Linux to the GPU</h3><p>An 11-chapter interactive explainer tracing the systems layers involved in AI workloads—from CPUs and memory through the NVIDIA stack and monitoring.</p><div class="tags"><span class="tag">Interactive HTML</span><span class="tag">4:05 visual sequence</span><span class="tag">11 chapters</span></div><a class="btn btn-primary" href="days/day-01/">Launch Day 01 →</a></div><div class="feature-preview"><img src="assets/linux-gpu-preview.png" alt="Preview of the From Linux to the GPU interactive explainer" width="900" height="506"><span class="feature-overlay">↗ Interactive chapter player</span></div></div>
-</div></section>
-<section class="section"><div class="container"><div class="section-head"><div><span class="kicker">Visual knowledge base</span><h2>38 interactive engineering explainers</h2></div><p class="muted">Explore the current roadmap's completed animation collection—from Linux process management to GPU infrastructure and model serving.</p></div><div class="grid-3">
-<article class="card"><span class="card-label">Days 01–20</span><h3>Systems and Kubernetes</h3><p>Linux, containerization, cluster operations, networking, persistent storage and debugging.</p><a href="animations/#phase-1">Explore 20 explainers →</a></article>
-<article class="card"><span class="card-label">Days 21–35</span><h3>GPU Infrastructure</h3><p>CUDA architecture, GPU scheduling, memory, profiling, and real incident case studies.</p><a href="animations/#phase-2">Explore 15 explainers →</a></article>
-<article class="card"><span class="card-label">Days 36–38</span><h3>Production Model Serving</h3><p>Inference architecture, FastAPI/PyTorch APIs, and containerized deployment.</p><a href="animations/#phase-3">Explore 3 explainers →</a></article></div><div class="section-cta"><a class="btn btn-primary" href="animations/">Browse all 38 interactive lessons →</a></div></div></section>
-<section class="section"><div class="container"><div class="section-head"><div><span class="kicker">Selected hands-on work</span><h2>Engineering projects and incident reports</h2></div><p class="muted">Selected work from the existing GitHub repository. Open the original READMEs for implementation details and observed outcomes.</p></div><div class="grid-3">
-<article class="card"><span class="card-label">Day 20 · Kubernetes</span><h3>Operating an AI service</h3><p>A Kubernetes capstone lab tying together deployment, networking, configuration, and operational troubleshooting.</p><a href="https://github.com/ZachJon1/ai-infra-learning/tree/main/day20-k8s-capstone" target="_blank" rel="noopener noreferrer">Read the capstone ↗</a></article>
-<article class="card"><span class="card-label">Day 35 · GPU operations</span><h3>GPU scheduling &amp; failure recovery</h3><p>Diagnosed device-plugin scheduling issues, reproduced GPU over-requests, and validated single-GPU CUDA workloads with measured results.</p><a href="https://github.com/ZachJon1/ai-infra-learning/tree/main/day35-gpu-capstone" target="_blank" rel="noopener noreferrer">Explore evidence ↗</a></article>
-<article class="card"><span class="card-label">Day 37 · Model serving</span><h3>FastAPI + PyTorch inference</h3><p>An HTTP inference API with model lifecycle management, separate health/readiness endpoints, input validation, and automated tests.</p><a href="https://github.com/ZachJon1/ai-infra-learning/tree/main/day37-fastapi-inference" target="_blank" rel="noopener noreferrer">Explore source ↗</a></article>
-</div><div class="section-cta"><a class="btn" href="projects/">View selected projects →</a></div></div></section>
-<section class="section"><div class="container"><div class="callout"><span class="kicker">How the site is organized</span><h2>Visualize → Implement → Debug → Explain</h2><p class="muted">Every lesson is designed to connect a concept to its engineering context. Interactive HTML teaches the architecture, the lab links show implementation, and the notes preserve the reasoning and limitations.</p><a class="btn btn-primary" href="roadmap/">Explore all 220 topics →</a></div></div></section>
-</main><footer class="site-footer"><div class="container footer-row"><div>Independent AI Infrastructure &amp; ML Systems engineering portfolio · 220-day roadmap</div><div><a href="https://github.com/ZachJon1/ai-infra-learning" target="_blank" rel="noopener noreferrer">Source labs ↗</a> &nbsp; · &nbsp; <a href="roadmap/">Roadmap</a></div></div></footer></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f9fb">
+  <title>AI Infrastructure Lab · Engineering and Understanding AI Systems</title>
+  <meta name="description" content="An independent technical portfolio by an Assistant Professor of Computer Science, documenting practical investigations in Linux, Kubernetes, GPU computing, and ML systems.">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/site.css">
+  <script defer src="assets/site.js"></script>
+</head>
+<body>
+  <a class="skip" href="#content">Skip to main content</a>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="index.html" aria-label="AI Infrastructure Lab home">
+        <span class="brand-mark">&gt;_</span>
+        <span>AI Infrastructure Lab<span class="brand-sub">Build · Break · Diagnose · Improve</span></span>
+      </a>
+      <nav class="site-nav" aria-label="Main navigation">
+        <a href="index.html" aria-current="page">Overview</a>
+        <a href="projects/">Projects</a>
+        <a href="animations/">Interactive lessons</a>
+        <a href="roadmap/">220-Day Roadmap</a>
+        <a class="nav-github" href="https://github.com/ZachJon1/ai-infra-learning" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="content">
+    <section class="hero">
+      <div class="container">
+        <div class="eyebrow">Computer Science faculty · AI Infrastructure · ML Systems</div>
+        <h1>Engineering and <span class="gradient-text">Understanding AI Systems</span></h1>
+        <p class="identity-line">Assistant Professor of Computer Science · Mississippi Valley State University</p>
+        <p class="lead">AI Infrastructure Lab documents practical investigations in Linux, Kubernetes, GPU computing, and ML model serving. The work pairs interactive technical explanations with source-backed experiments and incident analyses.</p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="projects/">Explore engineering projects →</a>
+          <a class="btn" href="animations/">View interactive explainers →</a>
+          <a class="text-link" href="roadmap/">Browse the 220-day roadmap</a>
+        </div>
+        <div class="hero-focus" aria-label="Portfolio focus">
+          <span>Systems experiments</span><span>GPU and Kubernetes labs</span><span>ML serving investigations</span>
+        </div>
+        <div class="stats" aria-label="Portfolio contents">
+          <div class="stat"><strong>220</strong><small>Topics in the roadmap</small></div>
+          <div class="stat"><strong>11</strong><small>Roadmap phases</small></div>
+          <div class="stat"><strong data-count="labs">40</strong><small>Day lab folders available</small></div>
+          <div class="stat"><strong data-count="interactive">38</strong><small>Interactive lessons</small></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section evidence-section" aria-labelledby="evidence-title">
+      <div class="container">
+        <div class="section-head">
+          <div><span class="kicker">Selected engineering evidence</span><h2 id="evidence-title">Investigate the failure.<br>Show what the evidence supports.</h2></div>
+          <p class="muted">These local lab projects include implementation notes, observed outcomes, and limits. Each card links to its source material.</p>
+        </div>
+        <div class="grid-3 project-evidence-grid">
+          <article class="card evidence-card">
+            <span class="card-label">Day 35 · Kubernetes GPU scheduling</span>
+            <h3>GPU scheduling and recovery</h3>
+            <p>Corrected a device-plugin toleration mismatch, restored one allocatable GPU, and verified a CUDA PyTorch job completed successfully.</p>
+            <div class="evidence-result"><strong>Observed</strong><span>Device-plugin DaemonSet changed from 0/0 to 1/1 ready; node reported 1 GPU allocatable.</span></div>
+            <a href="https://github.com/ZachJon1/ai-infra-learning/tree/main/day35-gpu-capstone" target="_blank" rel="noopener noreferrer">Read lab and incident evidence ↗</a>
+          </article>
+          <article class="card evidence-card">
+            <span class="card-label">Day 37 · FastAPI and PyTorch</span>
+            <h3>Inference API reliability</h3>
+            <p>Built an inference API with input validation, separate health and readiness endpoints, model lifecycle handling, and automated API tests.</p>
+            <div class="evidence-result"><strong>Verified</strong><span>Valid requests, invalid-input rejection, readiness behavior, and tested failure paths.</span></div>
+            <a href="https://github.com/ZachJon1/ai-infra-learning/tree/main/day37-fastapi-inference" target="_blank" rel="noopener noreferrer">Inspect implementation and tests ↗</a>
+          </article>
+          <article class="card evidence-card">
+            <span class="card-label">Day 38 · Dockerized inference</span>
+            <h3>Container image and port diagnosis</h3>
+            <p>Compared CUDA-enabled and CPU-only images, then traced a failed container start to an occupied host port and recovered on another port.</p>
+            <div class="evidence-result"><strong>Measured</strong><span>Docker-reported image disk usage fell from 5.90 GB to 1.09 GB (about 81.5%).</span></div>
+            <a href="https://github.com/ZachJon1/ai-infra-learning/tree/main/day38-dockerized-inference-lab" target="_blank" rel="noopener noreferrer">Read experiment notes ↗</a>
+          </article>
+        </div>
+        <p class="evidence-caveat">Measurements are from the documented local lab runs; they are not production service benchmarks.</p>
+        <div class="section-cta"><a class="btn" href="projects/">View all selected projects →</a></div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container">
+        <div class="callout approach-callout">
+          <span class="kicker">Engineering approach</span>
+          <h2>Visualize → Implement → Diagnose → Measure → Communicate</h2>
+          <p class="muted">Interactive explanations build system intuition; hands-on labs test behavior; incident notes distinguish observations from interpretation and unresolved questions.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section learning-section">
+      <div class="container">
+        <div class="section-head">
+          <div><span class="kicker">Learn and explore</span><h2>38 interactive engineering explainers</h2></div>
+          <p class="muted">Explore the visual collection, open a lesson, and follow its links into the associated lab when one is available.</p>
+        </div>
+        <div class="grid-3">
+          <article class="card"><span class="card-label">Days 01–20</span><h3>Systems and Kubernetes</h3><p>Linux, containers, cluster operations, networking, persistent storage, and debugging.</p><a href="animations/#phase-1">Explore systems explainers →</a></article>
+          <article class="card"><span class="card-label">Days 21–35</span><h3>GPU infrastructure</h3><p>CUDA architecture, GPU scheduling, memory, profiling, and troubleshooting.</p><a href="animations/#phase-2">Explore GPU explainers →</a></article>
+          <article class="card"><span class="card-label">Days 36–38</span><h3>Model serving</h3><p>Inference architecture, FastAPI and PyTorch APIs, and containerized deployment.</p><a href="animations/#phase-3">Explore serving explainers →</a></article>
+        </div>
+        <div class="section-cta button-row">
+          <a class="btn btn-primary" href="animations/">Browse all interactive lessons →</a>
+          <a class="btn" href="roadmap/">Explore roadmap topics →</a>
+        </div>
+        <div class="card feature day-one-feature">
+          <div class="feature-copy">
+            <span class="card-label">Interactive lesson · Day 01</span>
+            <h3>From Linux to the GPU</h3>
+            <p>An 11-chapter explainer tracing the systems layers involved in AI workloads, from CPUs and memory through the NVIDIA stack and monitoring.</p>
+            <div class="tags"><span class="tag">Interactive HTML</span><span class="tag">4:05 visual sequence</span><span class="tag">11 chapters</span></div>
+            <a class="btn btn-primary" href="days/day-01/">Launch Day 01 →</a>
+          </div>
+          <div class="feature-preview"><img src="assets/linux-gpu-preview.png" alt="Preview of the From Linux to the GPU interactive explainer" width="900" height="506"><span class="feature-overlay">↗ Interactive chapter player</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section supporting-section" aria-label="Follow the learning journey">
+      <div class="container grid-2">
+        <article class="card">
+          <span class="card-label">Follow along</span><h2>Repository updates</h2>
+          <p>Recent GitHub commits appear here when the GitHub API is available.</p>
+          <ul class="list-clean" data-recent-commits aria-live="polite"><li class="muted">Loading latest updates…</li></ul>
+          <a href="https://github.com/ZachJon1/ai-infra-learning/commits/main" target="_blank" rel="noopener noreferrer">View all commits on GitHub ↗</a>
+        </article>
+        <article class="card">
+          <span class="card-label">Watch and learn</span><h2>Video playlist</h2>
+          <p>Videos that accompany the AI infrastructure learning materials.</p>
+          <a class="btn btn-primary" href="https://youtube.com/playlist?list=PLfM2JP-63bWU&amp;si=LLeQAQuCMbv1S7wE" target="_blank" rel="noopener noreferrer">▶ Open the YouTube playlist ↗</a>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-row">
+      <div>Independent technical portfolio by a Computer Science faculty member. This site is not an official Mississippi Valley State University website.</div>
+      <div><a href="https://github.com/ZachJon1/ai-infra-learning" target="_blank" rel="noopener noreferrer">Source labs ↗</a> &nbsp; · &nbsp; <a href="roadmap/">Roadmap</a></div>
+    </div>
+  </footer>
+</body>
+</html>
