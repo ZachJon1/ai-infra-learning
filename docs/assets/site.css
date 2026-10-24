@@ -75,10 +75,9 @@ code{font:.92em/1.7 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monos
 
 /* Homepage positioning and evidence cards */
 .identity-line{margin:-8px 0 12px;color:#365563;font-size:15px;font-weight:720}
-.hero-focus{display:flex;gap:9px 18px;flex-wrap:wrap;margin-top:24px;color:#496775;font-size:12px;font-weight:700}
-.hero-focus span{display:inline-flex;align-items:center;gap:7px}
+.hero-focus{display:flex;gap:8px;flex-wrap:wrap;margin-top:24px;color:#496775;font-size:12px;font-weight:700}
+.hero-focus span{display:inline-flex;align-items:center;gap:7px;border:1px solid #dce6ec;border-radius:999px;background:rgba(255,255,255,.78);padding:6px 11px;line-height:1.4}
 .hero-focus span::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--accent)}
-.text-link{display:inline-flex;align-items:center;padding:10px 4px;font-size:14px;font-weight:750}
 .evidence-section{padding-top:42px}
 .project-evidence-grid{align-items:stretch}
 .evidence-card{display:flex;flex-direction:column;align-items:flex-start}
@@ -93,4 +92,4 @@ code{font:.92em/1.7 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monos
 .day-one-feature{margin-top:34px}
 .supporting-section{padding-top:30px}
 a:focus-visible,button:focus-visible{outline:3px solid #087b70;outline-offset:3px;border-radius:4px}
-@media(max-width:680px){.identity-line{font-size:13px}.hero-focus{display:grid;gap:7px}.evidence-section{padding-top:24px}.text-link{padding-left:0}.day-one-feature{margin-top:24px}}
+@media(max-width:680px){.identity-line{font-size:13px}.hero-focus{gap:7px}.evidence-section{padding-top:24px}.day-one-feature{margin-top:24px}}
