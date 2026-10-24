@@ -55,9 +55,14 @@ def animation_title(path, fallback):
     return title or fallback
 
 
-def discover_labs(day):
-    return sorted(p.name for p in BASE.iterdir()
-                  if p.is_dir() and re.match(rf'^day0*{day}-', p.name, re.I))
+def discover_labs(day, preferred=None):
+    matches = sorted(p.name for p in BASE.iterdir()
+                     if p.is_dir() and re.match(rf'^day0*{day}-', p.name, re.I))
+    # The roadmap is the authoritative mapping when a day has multiple folders
+    # with the same prefix (for example Day 5's networking lab and web demo).
+    if preferred in matches:
+        return [preferred]
+    return matches
 
 
 def roadmap_card(page, day, meta):
@@ -163,6 +168,10 @@ def main():
             if day in animations:
                 raise ValueError(f'Multiple animations found for Day {day}')
             animations[day] = path
+    # Day 1 predates the day-N filename convention and keeps its original name.
+    day_one_animation = ANIMATIONS / 'linux-to-gpu.html'
+    if day_one_animation.is_file() and 1 not in animations:
+        animations[1] = day_one_animation
 
     if any(day not in by_day for day in animations):
         invalid = sorted(day for day in animations if day not in by_day)
@@ -175,7 +184,7 @@ def main():
 
     for day, path in sorted(animations.items()):
         meta = by_day[day]
-        labs = discover_labs(day)
+        labs = discover_labs(day, meta.get('lab_directory'))
         if len(labs) > 1:
             raise ValueError(f'Multiple lab folders match Day {day}: {labs}')
         if labs:
