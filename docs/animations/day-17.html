@@ -1,0 +1,950 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kubernetes RBAC, explained</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=JetBrains+Mono:wght@400;600;700&display=swap">
+<style>
+:root{
+  --paper:#EEF2FA;--surface:#FFFFFF;--ink:#18203F;--ink-2:#525B82;--line:#CBD3EA;--code:#E2E7F5;
+  --web:#2F6BFF;--db:#7A4CF5;--client:#F5A524;--client-ink:#A35F00;--vol:#E94A89;--teal:#0E9FAE;
+  --ok:#0F9D65;--bad:#E0433F;--warn:#D98200;--net:rgba(47,107,255,.06);--on-client:#2A1C00;
+  --note:#FFE38A;--note-ink:#3B2E00;--hl:rgba(245,165,36,.42);
+  --sans:"Bricolage Grotesque",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  color-scheme:light;box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --paper:#151936;--surface:#1F2449;--ink:#ECEEFF;--ink-2:#A8AFD6;--line:#363E70;--code:#262C5A;
+  --web:#5C8DFF;--db:#9E80FF;--client:#FFBE3B;--client-ink:#FFCB5C;--vol:#FF6FA4;--teal:#29C3D2;
+  --ok:#33D08E;--bad:#FF6A6A;--warn:#FFB340;--net:rgba(92,141,255,.09);--note:#EBCF63;--note-ink:#2A2000;--hl:rgba(255,190,59,.30);color-scheme:dark}}
+:root[data-theme="dark"]{
+  --paper:#151936;--surface:#1F2449;--ink:#ECEEFF;--ink-2:#A8AFD6;--line:#363E70;--code:#262C5A;
+  --web:#5C8DFF;--db:#9E80FF;--client:#FFBE3B;--client-ink:#FFCB5C;--vol:#FF6FA4;--teal:#29C3D2;
+  --ok:#33D08E;--bad:#FF6A6A;--warn:#FFB340;--net:rgba(92,141,255,.09);--note:#EBCF63;--note-ink:#2A2000;--hl:rgba(255,190,59,.30);color-scheme:dark}
+*,*::before,*::after{box-sizing:inherit}
+html{height:100%;scroll-padding-top:env(safe-area-inset-top,0px);background:var(--paper)}
+body{height:100%;margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;overflow:hidden}
+.app{height:100%;display:grid;grid-template-rows:auto minmax(0,1fr) auto;padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
+.top{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px clamp(16px,3vw,44px) 4px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px;letter-spacing:-.01em}
+.brand svg{width:30px;height:22px}
+.where{font-size:15px;color:var(--ink-2);text-align:right}
+.where b{color:var(--ink);font-weight:650}
+.stage{position:relative;overflow:hidden}
+.scene{position:absolute;inset:0;display:grid;grid-template-columns:minmax(260px,.78fr) minmax(0,1.75fr);gap:clamp(16px,3.2vw,56px);align-items:center;padding:6px clamp(16px,3vw,44px) 10px;opacity:0;visibility:hidden;transform:translateX(48px);transition:opacity .45s ease,transform .6s cubic-bezier(.2,.8,.2,1),visibility 0s linear .6s}
+.scene.past{transform:translateX(-48px)}
+.scene.active{opacity:1;visibility:visible;transform:none;transition:opacity .55s ease .12s,transform .7s cubic-bezier(.2,.8,.2,1) .12s,visibility 0s}
+.copy{max-width:40ch;align-self:center;min-width:0}
+.copy h1{font-size:clamp(46px,6.6vw,98px);line-height:.95;letter-spacing:-.035em;margin:.08em 0 .25em;font-weight:800;font-variation-settings:"opsz" 96}
+.copy h2{font-size:clamp(26px,3.2vw,48px);line-height:1.04;letter-spacing:-.028em;margin:0 0 .45em;font-weight:760;font-variation-settings:"opsz" 96;text-wrap:balance}
+.copy p{font-size:clamp(15.5px,1.25vw,19px);line-height:1.45;color:var(--ink-2);margin:0 0 .75em;text-wrap:pretty}
+.copy p strong{color:var(--ink)}
+.copy code,.vis code{font-family:var(--mono);font-size:.84em;background:var(--code);color:var(--ink);padding:.06em .36em;border-radius:6px}
+.copy .rule{color:var(--ink);font-weight:680}
+.copy .rule span{background:linear-gradient(transparent 58%,var(--hl) 58%,var(--hl) 92%,transparent 92%);-webkit-box-decoration-break:clone;box-decoration-break:clone}
+.copy pre{font-family:var(--mono);font-size:13.5px;line-height:1.55;background:var(--code);color:var(--ink);padding:10px 12px;border-radius:10px;margin:0 0 .8em;overflow-x:auto;white-space:pre}
+.copy pre.yaml{font-size:12px;line-height:1.5;max-height:min(46vh,430px);overflow:auto}
+.copy .lede{font-size:clamp(18px,1.6vw,23px);color:var(--ink)}
+.copy .course{font-weight:650;color:var(--ink)}
+.copy .hint{font-size:14px}
+.rotate-hint{display:none}
+.start{font:inherit;font-weight:700;font-size:18px;padding:14px 24px 14px 20px;border-radius:999px;border:0;background:var(--ink);color:var(--paper);cursor:pointer;display:inline-flex;gap:10px;align-items:center;margin:.3em 0 1em;transition:background .2s,transform .15s}
+.start:hover{background:var(--web)}
+.start:active{transform:scale(.97)}
+.start svg{width:18px;height:18px}
+.vis{height:100%;min-height:0;min-width:0;display:flex;align-items:center;justify-content:center}
+.vis>svg{width:100%;height:100%;max-height:100%;overflow:visible;font-size:15px}
+.controls{display:flex;align-items:center;gap:10px;padding:8px clamp(16px,3vw,44px) 14px}
+.btn{width:44px;height:44px;border-radius:50%;border:1.5px solid var(--line);background:var(--surface);color:var(--ink);display:grid;place-items:center;cursor:pointer;flex:none;padding:0;transition:transform .15s,background .2s}
+.btn:hover{background:var(--code)}
+.btn:active{transform:scale(.94)}
+.btn:disabled{opacity:.35;cursor:default}
+.btn svg{width:20px;height:20px}
+.btn.play{width:52px;height:52px;background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.btn.play:hover{background:var(--web);border-color:var(--web)}
+:focus-visible{outline:3px solid var(--web);outline-offset:3px}
+.track{flex:1;display:flex;gap:4px;align-items:center;min-width:0}
+.seg{flex:1;height:28px;border:0;background:none;padding:0;cursor:pointer;display:flex;align-items:center;min-width:0}
+.seg.chstart{margin-left:7px}
+.seg i{display:block;width:100%;height:6px;border-radius:3px;background:var(--line);overflow:hidden;position:relative}
+.seg i b{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--ink);border-radius:3px}
+.seg:hover i{background:var(--ink-2)}
+.count{font-family:var(--mono);font-size:13px;color:var(--ink-2);min-width:4.6em;text-align:right}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+/* takeaways + quiz */
+.take{list-style:none;margin:0;padding:0;display:grid;gap:clamp(10px,1.8vh,20px);width:100%;max-width:660px}
+.take li{display:grid;grid-template-columns:64px 1fr;gap:16px;align-items:center;font-size:clamp(15px,1.25vw,19px);line-height:1.4;color:var(--ink-2)}
+.take li b{color:var(--ink)}
+.take svg{width:64px;height:auto;overflow:visible}
+.quiz{width:100%;max-width:740px;display:grid;gap:14px}
+.cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.card{perspective:1000px;border:0;background:none;padding:0;cursor:pointer;min-height:clamp(150px,23vh,210px);font:inherit;text-align:left;color:inherit;border-radius:18px}
+.card-inner{position:relative;display:block;width:100%;height:100%;min-height:inherit;transform-style:preserve-3d;transition:transform .65s cubic-bezier(.3,1.25,.5,1)}
+.card.flipped .card-inner{transform:rotateY(180deg)}
+.face{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;border-radius:18px;padding:16px 18px;display:flex;flex-direction:column;gap:8px}
+.front{background:var(--surface);border:2px solid var(--line);border-top:7px solid var(--k)}
+.back{background:var(--ink);color:var(--paper);transform:rotateY(180deg)}
+.face small{font-size:13px;font-weight:650;color:var(--ink-2)}
+.back small{color:var(--paper);opacity:.7}
+.face .q{font-size:clamp(15px,1.2vw,18px);line-height:1.35;font-weight:620}
+.face em{margin-top:auto;font-style:normal;font-size:13px;color:var(--ink-2)}
+.again{justify-self:start;font:inherit;font-weight:650;font-size:15px;padding:10px 16px;border-radius:999px;border:1.5px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+.again:hover{background:var(--code)}
+/* svg vocabulary */
+.vis text{fill:var(--ink);font-family:var(--sans);white-space:pre}
+.vis .m{font-family:var(--mono)}
+.vis .b{font-weight:700}
+.vis .mut{fill:var(--ink-2)}
+.vis .okc{fill:var(--ok)}.vis .badc{fill:var(--bad)}.vis .warnc{fill:var(--warn)}.vis .webc{fill:var(--web)}.vis .dbc{fill:var(--db)}.vis .clc{fill:var(--client-ink)}.vis .volc{fill:var(--vol)}.vis .tealc{fill:var(--teal)}.vis .wht{fill:#fff}.vis .inv{fill:var(--paper)}
+.f11{font-size:11px}.f12{font-size:12px}.f13{font-size:13px}.f14{font-size:14px}.f15{font-size:15px}.f16{font-size:16px}.f17{font-size:17px}.f18{font-size:18px}.f20{font-size:20px}.f22{font-size:22px}.f30{font-size:30px}.f44{font-size:44px}
+.vis .cname{fill:var(--fg);font-size:15px;font-weight:750}
+.vis .csub{fill:var(--fg);font-family:var(--mono);font-size:10.5px;opacity:.85}
+.vis .ridge{stroke:rgba(255,255,255,.2);stroke-width:2;fill:none}
+.vis .capline{stroke:rgba(0,0,0,.14);stroke-width:2}
+.vis .eye{fill:#fff}.vis .pupil{fill:#18203F}
+.vis .mouth,.vis .lid{fill:none;stroke:var(--fg);stroke-width:3;stroke-linecap:round}
+.vis .ghost{fill-opacity:.12;stroke-width:2.5;stroke-dasharray:7 5}
+.vis .ghostf .eye{stroke:var(--fg);stroke-width:2}
+.vis .paper{fill:var(--surface);stroke:var(--ink);stroke-width:2}
+.vis .paperfold{fill:none;stroke:var(--ink);stroke-width:2}
+.vis .panel{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+.vis .codebg{fill:var(--code)}
+.vis .sep{stroke:var(--line);stroke-width:1.5}
+.vis .net{fill:var(--net);stroke:var(--ink-2);stroke-width:2;stroke-dasharray:9 7}
+.vis .hostbox{fill:none;stroke:var(--line);stroke-width:2.5}
+.vis .aline{fill:none;stroke-linecap:round}
+.vis .draw{stroke-dasharray:1 1;stroke-linecap:butt}
+.vis .dashy{stroke-dasharray:6 6}
+.vis .ahead{fill:none;stroke-linecap:round;stroke-linejoin:round}
+.vis .bub{fill:var(--surface);stroke-width:2;stroke-linejoin:round}
+.vis .note rect{fill:var(--note)}
+.vis .note text{fill:var(--note-ink);font-family:var(--mono);font-size:11.5px}
+.vis .hlbox{fill:var(--hl)}
+.vis .hlrow{fill:var(--hl)}
+.vis .badhl{fill:var(--bad);fill-opacity:.12}
+.vis .zz{fill:var(--ink-2);font-weight:800;font-size:15px}
+.vis .trackl{stroke:var(--line);stroke-width:6;stroke-linecap:round}
+.vis .post{fill:var(--ink-2)}
+.vis .okf{fill:var(--ok)}.vis .badf{fill:var(--bad)}.vis .warnf{fill:var(--warn)}.vis .mutf{fill:var(--ink-2)}.vis .inkf{fill:var(--ink)}
+.vis .ring{fill:none;stroke:var(--ink-2);stroke-width:2}
+.vis .axis{stroke:var(--ink-2);stroke-width:2;fill:none}
+.vis .playhead{stroke:var(--ink);stroke-width:2.5}
+.vis .pipe{fill:none;stroke:var(--vol);stroke-width:10;stroke-opacity:.6}
+.vis .spot{fill:none;stroke:var(--bad);stroke-width:2;stroke-dasharray:4 4}
+.vis .steth{fill:none;stroke:var(--ink);stroke-width:4;stroke-linecap:round}
+.vis .stampbox{fill:var(--surface);stroke:var(--bad);stroke-width:3}
+.vis .pill{fill:var(--surface);stroke-width:1.5}
+.vis .rowchip{fill:var(--note)}
+.vis .dim{fill:var(--paper);fill-opacity:.62}
+.vis .armstripe{stroke:var(--ink);stroke-width:12;stroke-dasharray:12 12}
+.vis .outline{fill:none;stroke:var(--ink);stroke-width:2.5}
+.vis .outline-bad{fill:none;stroke:var(--bad);stroke-width:2.5}
+.vis .glass{stroke-width:3;fill-opacity:.08}
+.vis .ic-ok-o{fill:var(--surface);stroke:var(--ok);stroke-width:2.5}
+.vis .ic-ok-s{fill:none;stroke:var(--ok);stroke-width:2.8;stroke-linecap:round;stroke-linejoin:round}
+.vis .ic-w{fill:none;stroke:#fff;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}
+.vis .ic-wf{fill:#fff}
+.vis .caret{fill:var(--ink)}
+.vis .folder{fill:var(--note);stroke:var(--note-ink);stroke-width:1.5}
+/* motion */
+.vis :is(.pop,.popout,.popoof,.drop,.poof,.shake,.wiggle,.pulse,.stamp,.fly,.slide,.bounce,.move,.travel,.press){transform-box:fill-box;transform-origin:center}
+.vis :is(.grow-x,.growshrink,.lift,.typing){transform-box:fill-box;transform-origin:left center}
+.vis .liftr{transform-box:fill-box;transform-origin:right center}
+@keyframes k-fade{from{opacity:0}to{opacity:1}}
+@keyframes k-out{from{opacity:1}to{opacity:0}}
+@keyframes k-up{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+@keyframes k-pop{0%{opacity:0;transform:scale(.45)}60%{opacity:1;transform:scale(1.07)}100%{opacity:1;transform:scale(1)}}
+@keyframes k-poof{0%{opacity:1;transform:scale(1)}35%{opacity:1;transform:scale(1.12)}100%{opacity:0;transform:scale(.15)}}
+@keyframes k-drop{0%{opacity:0;transform:translateY(-140px)}55%{opacity:1;transform:translateY(6px)}75%{transform:translateY(-6px)}100%{opacity:1;transform:none}}
+@keyframes k-draw{from{opacity:1;stroke-dashoffset:1}to{opacity:1;stroke-dashoffset:0}}
+@keyframes k-flow{to{stroke-dashoffset:-24}}
+@keyframes k-travel{0%{opacity:0;transform:translate(0,0)}12%{opacity:1}88%{opacity:1}100%{opacity:0;transform:translate(var(--tx),var(--ty))}}
+@keyframes k-move{from{transform:translate(0,0)}to{transform:translate(var(--tx,0px),var(--ty,0px))}}
+@keyframes k-fly{from{opacity:1;transform:translate(0,0) scale(1)}to{opacity:0;transform:translate(var(--tx),var(--ty)) scale(.35)}}
+@keyframes k-slide{from{opacity:0;transform:translate(var(--dx,0px),var(--dy,0px))}to{opacity:1;transform:none}}
+@keyframes k-shake{0%,100%{transform:translateX(0)}15%,55%{transform:translateX(-7px)}35%,75%{transform:translateX(7px)}}
+@keyframes k-wiggle{0%,100%{transform:rotate(0)}20%,60%{transform:rotate(-5deg)}40%,80%{transform:rotate(5deg)}}
+@keyframes k-float{0%{opacity:0;transform:translate(0,0)}25%{opacity:1}100%{opacity:0;transform:translate(8px,-22px)}}
+@keyframes k-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.2)}}
+@keyframes k-blink{0%,49%{opacity:1}50%,100%{opacity:0}}
+@keyframes k-blip{0%{opacity:0}18%{opacity:1}70%{opacity:1}100%{opacity:0}}
+@keyframes k-growx{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes k-shrinkx{from{transform:scaleX(1)}to{transform:scaleX(0)}}
+@keyframes k-stamp{0%{opacity:0;transform:scale(1.7) rotate(-3deg)}70%{opacity:1;transform:scale(.96) rotate(-3deg)}100%{opacity:1;transform:scale(1) rotate(-3deg)}}
+@keyframes k-lift{from{transform:rotate(0)}to{transform:rotate(-72deg)}}
+@keyframes k-liftr{from{transform:rotate(0)}to{transform:rotate(72deg)}}
+@keyframes k-press{0%{transform:translateY(0)}45%,60%{transform:translateY(var(--ty))}100%{transform:translateY(0)}}
+@keyframes k-bounce{0%{opacity:0;transform:translate(0,0)}10%{opacity:1}60%{opacity:1;transform:translate(var(--tx),var(--ty))}100%{opacity:0;transform:translate(calc(var(--tx) - 70px),calc(var(--ty) + 40px)) rotate(-25deg)}}
+@keyframes k-type{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+.on .fade{animation:k-fade .5s ease var(--d,0s) both}
+.on .out{animation:k-out .35s ease var(--o,0s) forwards}
+.on .inout{animation:k-fade .45s ease var(--d,0s) both,k-out .35s ease var(--o,9s) forwards}
+.on .up{animation:k-up .6s cubic-bezier(.2,.8,.2,1) var(--d,0s) both}
+.on .pop{animation:k-pop .55s cubic-bezier(.3,1.3,.5,1) var(--d,0s) both}
+.on .popout{animation:k-pop .5s cubic-bezier(.3,1.3,.5,1) var(--d,0s) both,k-out .35s ease var(--o,9s) forwards}
+.on .popoof{animation:k-pop .5s cubic-bezier(.3,1.3,.5,1) var(--d,0s) both,k-poof .55s ease-in var(--o,9s) forwards}
+.on .poof{animation:k-poof .55s ease-in var(--o,0s) forwards}
+.on .drop{animation:k-drop .85s ease-out var(--d,0s) both}
+.on .draw{animation:k-draw var(--dur,.7s) ease-in-out var(--d,0s) both}
+.on .drawout{animation:k-draw var(--dur,.7s) ease-in-out var(--d,0s) both,k-out .3s ease var(--o,9s) forwards}
+.on .dashy.fade{animation:k-fade .5s ease var(--d,0s) both,k-flow 1.1s linear var(--d,0s) infinite}
+.on .travel{animation:k-travel var(--dur,.9s) ease-in-out var(--d,0s) var(--n,1) both}
+.on .move{animation:k-move var(--dur,1s) var(--ease,cubic-bezier(.45,0,.25,1)) var(--d,0s) forwards}
+.on .fly{animation:k-fly var(--dur,.7s) cubic-bezier(.5,0,.3,1) var(--d,0s) forwards}
+.on .slide{animation:k-slide .7s cubic-bezier(.2,.8,.2,1) var(--d,0s) both}
+.on .shake{animation:k-shake .5s ease var(--d,0s) 1}
+.on .wiggle{animation:k-wiggle .8s ease var(--d,0s) 1}
+.on .zz{animation:k-float 2.4s ease-out var(--d,0s) infinite both}
+.on .pulse{animation:k-pulse 1.1s ease-in-out var(--d,0s) infinite}
+.on .blink{animation:k-blink 1s steps(1) var(--d,0s) infinite}
+.on .blip{animation:k-blip var(--dur,.9s) ease var(--d,0s) both}
+.on .grow-x{animation:k-growx var(--dur,.9s) var(--ease,cubic-bezier(.2,.8,.2,1)) var(--d,0s) both}
+.on .growshrink{animation:k-growx var(--dur,.9s) cubic-bezier(.2,.8,.2,1) var(--d,0s) both,k-shrinkx .45s ease-in var(--o,9s) forwards}
+.on .stamp{animation:k-stamp .45s cubic-bezier(.3,1.2,.5,1) var(--d,0s) both}
+.on .lift{animation:k-lift .7s cubic-bezier(.3,1.3,.5,1) var(--d,0s) forwards}
+.on .liftr{animation:k-liftr .7s cubic-bezier(.3,1.3,.5,1) var(--d,0s) forwards}
+.on .press{animation:k-press var(--dur,1.2s) ease-in-out var(--d,0s) 1}
+.on .bounce{animation:k-bounce var(--dur,1.4s) ease-in-out var(--d,0s) both}
+.on .typing{animation:k-type var(--dur,1s) var(--d,0s) both}
+.scene:not(.on) :is(.fade,.inout,.up,.pop,.popout,.popoof,.drop,.draw,.drawout,.travel,.slide,.zz,.blip,.stamp,.bounce,.grow-x,.growshrink){opacity:0}
+.scene:not(.on) .typing{transform:scaleX(0)}
+@media (max-width:820px),(max-aspect-ratio:1/1){
+  .scene{grid-template-columns:1fr;grid-template-rows:auto auto;align-items:start;align-content:start;overflow-y:auto;gap:10px;padding-top:4px}
+  .copy{max-width:62ch}
+  .copy h2{font-size:clamp(24px,6.2vw,36px);margin-bottom:.35em}
+  .copy p{font-size:15px;margin-bottom:.5em}
+  .copy pre.yaml{max-height:30vh}
+  .vis{height:auto}
+  .vis>svg{height:auto;max-height:64vh}
+}
+@media (max-width:600px) and (orientation:portrait){.rotate-hint{display:block}.cards{grid-template-columns:1fr}.card{min-height:130px}}
+@media (max-width:480px){.count{display:none}.btn{width:40px;height:40px}.btn.play{width:46px;height:46px}.brand span{font-size:14px}.where{font-size:13px}}
+@media (prefers-reduced-motion:reduce){
+  .scene,.scene.past,.scene.active{transform:none!important}
+  .scene{transition:opacity .25s ease,visibility 0s linear .25s}
+  .scene.active{transition:opacity .25s ease,visibility 0s}
+  .scene.on *{animation-duration:1ms!important;animation-iteration-count:1!important}
+  .card-inner{transition:none}
+}
+
+.vis .podseam{fill:none;stroke:rgba(255,255,255,.32);stroke-width:2.5;stroke-linecap:round}
+.vis .tagb{fill:var(--surface);stroke-width:2}
+.vis .deskbody{fill:var(--surface);stroke:var(--ink);stroke-width:2}
+.vis .clippaper{fill:var(--surface)}
+.vis .clipclip{fill:var(--ink-2)}
+.vis .lbl{fill:var(--note)}
+.vis .lbltxt{fill:var(--note-ink)}
+.vis .nodebox{fill:var(--net);stroke:var(--ink);stroke-width:2.5}
+.vis .door{fill:var(--client);stroke:var(--ink);stroke-width:2}
+.vis .road{fill:none;stroke:var(--line);stroke-width:22;stroke-linecap:round}
+.vis .roadmid{fill:none;stroke:var(--surface);stroke-width:2.5;stroke-dasharray:10 10}
+.vis .rope{fill:none;stroke:var(--bad);stroke-width:7;stroke-linecap:round}
+.vis .stanchion{fill:var(--ink-2)}
+.vis .pipe2{fill:none;stroke:var(--teal);stroke-width:14;stroke-linecap:round;stroke-linejoin:round;stroke-opacity:.28}
+.vis .flow{fill:none;stroke:var(--teal);stroke-width:4;stroke-dasharray:6 10;stroke-linecap:round}
+.vis .stop{fill:var(--surface);stroke:var(--ink-2);stroke-width:2.5}
+.vis .cniband{fill:var(--teal);fill-opacity:.1;stroke:var(--teal);stroke-width:2}
+.vis .valve{fill:var(--surface);stroke:var(--ink);stroke-width:2.5}
+.vis .brk{fill:none;stroke-width:2}
+@keyframes k-flow16{to{stroke-dashoffset:-32}}
+.on .flow.fade{animation:k-fade .5s ease var(--d,0s) both,k-flow16 .9s linear var(--d,0s) infinite}
+.on .flow.inout{animation:k-fade .5s ease var(--d,0s) both,k-out .35s ease var(--o,9s) forwards,k-flow16 .9s linear var(--d,0s) infinite}
+.take{gap:clamp(8px,1.5vh,18px)}
+.take svg{max-height:52px}
+.copy h1.long{font-size:clamp(36px,4.2vw,64px)}
+@keyframes k-unwind{from{stroke-dashoffset:0}to{stroke-dashoffset:1}}
+.on .unwind{animation:k-unwind var(--dur,3s) linear var(--d,0s) both}
+@keyframes k-spin{to{transform:rotate(360deg)}}
+.vis .spin{transform-box:fill-box;transform-origin:center}
+.on .spin{animation:k-spin 2.4s linear var(--d,0s) infinite}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand"><svg viewBox="0 0 30 22" aria-hidden="true"><rect x="11" y="0" width="8" height="5" rx="2" fill="var(--ink-2)"/><rect x="3" y="3" width="24" height="18" rx="3" fill="var(--teal)"/><circle cx="10" cy="12" r="3.5" fill="#fff"/><rect x="16" y="9" width="8" height="2.5" rx="1" fill="#fff"/><rect x="16" y="14" width="6" height="2.5" rx="1" fill="#fff"/></svg><span>Kubernetes RBAC, explained</span></div>
+    <div class="where" id="chap"></div>
+  </header>
+  <main class="stage" id="stage"></main>
+  <nav class="controls" aria-label="Explainer controls">
+    <button class="btn" id="prev" aria-label="Previous scene"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
+    <button class="btn play" id="play" aria-label="Start auto-play" aria-pressed="false"></button>
+    <button class="btn" id="next" aria-label="Next scene"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></button>
+    <div class="track" id="track"></div>
+    <span class="count" id="count"></span>
+    <button class="btn" id="replay" aria-label="Replay this scene"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4.5h4.5"/></svg></button>
+  </nav>
+  <div class="sr" aria-live="polite" id="live"></div>
+</div>
+<script>
+const I=n=>'\u00A0'.repeat(n);
+const S=o=>{const p=[];for(const k in o){const v=o[k];if(v==null)continue;const sec=['d','o','dur'].includes(k),px=['tx','ty','dx','dy'].includes(k);p.push(`--${k}:${v}${sec?'s':px?'px':''}`)}return p.length?`style="${p.join(';')}"`:''};
+const G=(inner,o={})=>{const{x,y,an,...v}=o;let g=an?`<g class="${an}" ${S(v)}>${inner}</g>`:inner;if(x!=null||y!=null)g=`<g transform="translate(${x||0} ${y||0})">${g}</g>`;return g};
+const T=(x,y,s,o={})=>{const{c='',a,an='fade',d=0,o:oo}=o;return `<text x="${x}" y="${y}"${a?` text-anchor="${a}"`:''} class="${c} ${an}" ${an?S({d,o:oo}):''}>${s}</text>`};
+const svg=(inner,label)=>`<svg viewBox="0 0 800 500" role="img" aria-label="${label}" xml:space="preserve">${inner}</svg>`;
+let UID=0;
+
+function face(m,w,h){
+  const a=w*.36,b=w*.64,ey=h*.56,mx=w/2,my=h*.75;
+  if(m==='sleepy')return `<path class="lid" d="M${a-7} ${ey}q7 5 14 0M${b-7} ${ey}q7 5 14 0"/><path class="mouth" d="M${mx-5} ${my}h10"/>`;
+  const eyes=`<circle cx="${a}" cy="${ey}" r="8" class="eye"/><circle cx="${a+1}" cy="${ey+1}" r="3.8" class="pupil"/><circle cx="${b}" cy="${ey}" r="8" class="eye"/><circle cx="${b+1}" cy="${ey+1}" r="3.8" class="pupil"/>`;
+  const M={happy:`<path class="mouth" d="M${mx-11} ${my-3}q11 10 22 0"/>`,sad:`<path class="mouth" d="M${mx-10} ${my+4}q10 -9 20 0"/>`,flat:`<path class="mouth" d="M${mx-8} ${my}h16"/>`,worried:`<path class="mouth" d="M${mx-11} ${my+2}q5.5 -5 11 0q5.5 5 11 0"/>`,wow:`<ellipse class="mouth" cx="${mx}" cy="${my}" rx="5" ry="6"/>`};
+  return eyes+(M[m]||M.happy);
+}
+const ZZ=w=>`<text x="${w-26}" y="14" class="zz" style="--d:0s">z</text><text x="${w-14}" y="4" class="zz" style="--d:.8s">z</text><text x="${w-2}" y="-6" class="zz" style="--d:1.6s">Z</text>`;
+
+function crate({x=0,y=0,w=140,h=96,k='web',name='',sub='',mood='happy',m2,t2,m3,t3,an='',v={},s=1,ghost=false,extra=''}={}){
+  const fg=ghost?(k==='client'?'var(--client-ink)':`var(--${k})`):(k==='client'?'var(--on-client)':'#fff');
+  let r='';for(let i=16;i<w-8;i+=16)r+=`M${i} 30V${h-8}`;
+  const seq=[[mood,0]];if(m2)seq.push([m2,t2]);if(m3)seq.push([m3,t3]);
+  let faces='';
+  seq.forEach(([m,t],i)=>{const nx=seq[i+1];let cls='',st={};
+    if(i>0){cls='fade';st.d=t}
+    if(nx){cls=cls?'inout':'out';st.o=nx[1]}
+    faces+=`<g${cls?` class="${cls}" ${S(st)}`:''}>${face(m,w,h)}${m==='sleepy'?ZZ(w):''}</g>`;});
+  const body=ghost?`<rect width="${w}" height="${h}" rx="14" class="ghost" style="stroke:var(--${k});fill:var(--${k})"/>`
+    :`<rect width="${w}" height="${h}" rx="14" style="fill:var(--${k})"/><path d="${r}" class="ridge"/><path d="M8 27H${w-8}" class="capline"/>`;
+  let g=`<g class="${ghost?'ghostf':''}" style="--fg:${fg}">${body}${name?`<text x="12" y="19" class="cname">${name}</text>`:''}${sub?`<text x="${w-10}" y="18" text-anchor="end" class="csub">${sub}</text>`:''}${faces}${extra}</g>`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})${s!==1?` scale(${s})`:''}">${g}</g>`;
+}
+
+function drum({x=0,y=0,w=130,h=110,label='postgres_data',an='',v={},fs=12,ring=.5,extra=''}={}){
+  const rx=w/2,ry=13,ry2=Math.round(h*ring);
+  let g=`<path d="M0 ${ry}V${h-ry}A${rx} ${ry} 0 0 0 ${w} ${h-ry}V${ry}" style="fill:var(--vol)"/><ellipse cx="${rx}" cy="${ry}" rx="${rx}" ry="${ry}" style="fill:var(--vol)"/><ellipse cx="${rx}" cy="${ry}" rx="${rx}" ry="${ry}" fill="#fff" fill-opacity=".28"/><path d="M0 ${ry2}A${rx} ${ry} 0 0 0 ${w} ${ry2}" fill="none" stroke="#fff" stroke-opacity=".35" stroke-width="2"/>${label?`<text x="${rx}" y="${h-12}" text-anchor="middle" class="m b wht" style="font-size:${fs}px">${label}</text>`:''}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+
+function bubPath(W,H,tail,tp){
+  const top=tail==='tl'?`H${tp}L${tp+4} -12L${tp+14} 0H${W-12}`:`H${W-12}`;
+  const bot=tail==='bl'?`H${tp+14}L${tp+4} ${H+12}L${tp} ${H}H12`:`H12`;
+  return `M12 0${top}Q${W} 0 ${W} 12V${H-12}Q${W} ${H} ${W-12} ${H}${bot}Q0 ${H} 0 ${H-12}V12Q0 0 12 0Z`;
+}
+function bubble(x,y,txt,{w,c='var(--ink)',fs=14,mono=true,tail='bl',tp=16,an='pop',d=0,o}={}){
+  const plain=txt.replace(/<[^>]+>/g,'').replace(/&[a-z#0-9]+;/g,'x');
+  const W=w||Math.round(plain.length*fs*(mono?.6:.56)+26),H=fs+18;
+  const inner=`<path d="${bubPath(W,H,tail,tp)}" class="bub" style="stroke:${c}"/><text x="13" y="${(H/2+fs*.36).toFixed(1)}" class="${mono?'m ':''}b" style="fill:${c};font-size:${fs}px">${txt}</text>`;
+  let a=an;if(o!=null)a=an==='pop'?'popout':an==='fade'?'inout':an;
+  return G(inner,{x,y,an:a,d,o});
+}
+
+function arrow(p,{c='var(--ink)',d=0,dur=.7,w=2.5,dash=false}={}){
+  let path,fx,fy;const{x1,y1,x2,y2,q,c1,c2,poly}=p;let ex=x2,ey=y2;
+  if(poly){path='M'+poly.map(pt=>pt.join(' ')).join('L');const n=poly.length;[ex,ey]=poly[n-1];[fx,fy]=poly[n-2]}
+  else if(c1){path=`M${x1} ${y1}C${c1[0]} ${c1[1]} ${c2[0]} ${c2[1]} ${x2} ${y2}`;[fx,fy]=c2}
+  else if(q){path=`M${x1} ${y1}Q${q[0]} ${q[1]} ${x2} ${y2}`;[fx,fy]=q}
+  else{path=`M${x1} ${y1}L${x2} ${y2}`;fx=x1;fy=y1}
+  const ang=Math.atan2(ey-fy,ex-fx),L=12;
+  const h1=[ex+L*Math.cos(ang+2.55),ey+L*Math.sin(ang+2.55)],h2=[ex+L*Math.cos(ang-2.55),ey+L*Math.sin(ang-2.55)];
+  const head=`<path d="M${h1[0].toFixed(1)} ${h1[1].toFixed(1)}L${ex} ${ey}L${h2[0].toFixed(1)} ${h2[1].toFixed(1)}" class="ahead fade" style="stroke:${c};stroke-width:${w};--d:${(d+dur*.8).toFixed(2)}s"/>`;
+  const line=dash?`<path d="${path}" class="aline dashy fade" style="stroke:${c};stroke-width:${w};--d:${d}s"/>`
+    :`<path d="${path}" pathLength="1" class="aline draw" style="stroke:${c};stroke-width:${w};--d:${d}s;--dur:${dur}s"/>`;
+  return `<g>${line}${head}</g>`;
+}
+const packet=(x1,y1,x2,y2,{d=0,dur=.8,c='var(--web)',r=7}={})=>`<circle cx="${x1}" cy="${y1}" r="${r}" class="travel" style="fill:${c};--d:${d}s;--dur:${dur}s;--tx:${x2-x1}px;--ty:${y2-y1}px"/>`;
+
+function icon(t,x,y,{d=0,o,r=14,an='pop'}={}){
+  const s=r/14;
+  const sym={
+    kept:`<circle r="14" class="ic-ok-o"/><path d="M-6 0l4 4 8-8" class="ic-ok-s"/>`,
+    yes:`<circle r="14" class="okf"/><path d="M-6 0l4 4 8-8" class="ic-w"/>`,
+    no:`<circle r="14" class="badf"/><path d="M-5 -5l10 10M5 -5l-10 10" class="ic-w"/>`,
+    stop:`<circle r="14" class="mutf"/><path d="M-3.5 -5v10M3.5 -5v10" class="ic-w"/>`,
+    play:`<circle r="14" class="okf"/><path d="M-3.5 -6L6 0L-3.5 6Z" class="ic-wf"/>`,
+    restart:`<circle r="14" style="fill:var(--web)"/><path d="M6 1.5A6.2 6.2 0 1 1 3.6 -5" class="ic-w"/><path d="M4.5 -9.5L4 -4.6L-0.8 -5.6" class="ic-w"/>`,
+    plus:`<circle r="14" class="okf"/><path d="M0 -6V6M-6 0H6" class="ic-w"/>`,
+    warn:`<circle r="14" class="warnf"/><path d="M0 -6.5V1.5" class="ic-w"/><circle cy="6" r="1.7" class="ic-wf"/>`
+  }[t];
+  const a=o!=null?(an==='pop'?'popout':an):an;
+  return `<g transform="translate(${x} ${y})${s!==1?` scale(${s})`:''}"><g class="${a}" ${S({d,o})}>${sym}</g></g>`;
+}
+function typed(x,y,str,{fs=15,d=0,dur=1,c=''}={}){
+  const id='clip'+(UID++),w=str.length*fs*.6+6;
+  return `<clipPath id="${id}"><rect x="${x-2}" y="${y-fs}" width="${w}" height="${fs*1.5}" class="typing" style="--d:${d}s;--dur:${dur}s;animation-timing-function:steps(${str.length},end)"/></clipPath><text x="${x}" y="${y}" class="m ${c}" clip-path="url(#${id})" style="font-size:${fs}px">${str}</text>`;
+}
+function browser(x,y,w,h,addr,o={}){
+  return G(`<rect width="${w}" height="${h}" rx="10" class="panel"/><path d="M0 22H${w}" class="sep"/><circle cx="12" cy="11" r="3.5" class="badf"/><circle cx="24" cy="11" r="3.5" class="warnf"/><circle cx="36" cy="11" r="3.5" class="okf"/><rect x="8" y="32" width="${w-16}" height="24" rx="6" class="codebg"/><text x="16" y="49" class="m f12">${addr}</text>`,{x,y,...o});
+}
+const glass=(x,y,w,h,k,label,o={})=>G(`<rect width="${w}" height="${h}" rx="16" class="glass" style="stroke:var(--${k});fill:var(--${k})"/><path d="M0 16Q0 0 16 0H${label.length*8.2+30}V28H0Z" style="fill:var(--${k})"/><text x="14" y="19" class="f14 b" style="fill:${k==='client'?'var(--on-client)':'#fff'}">${label}</text>`,{x,y,...o});
+const codeLine=(x,y,s,c='')=>`<text x="${x}" y="${y}" class="m ${c}">${s}</text>`;
+// ---------- Day 10 helpers ----------
+function faceSeq(seq,w,h){let f='';seq.forEach(([m,t],i)=>{const nx=seq[i+1];let cls='',st={};if(i>0){cls='fade';st.d=t}if(nx){cls=cls?'inout':'out';st.o=nx[1]}f+=`<g${cls?` class="${cls}" ${S(st)}`:''}>${face(m,w,h)}${m==='sleepy'?ZZ(w):''}</g>`});return f}
+function pod({x=0,y=0,w=104,h=74,k='web',ip='',mood='happy',m2,t2,m3,t3,an='',v={},s=1,ghost=false,extra='',under=''}={}){
+  const fg=ghost?(k==='client'?'var(--client-ink)':`var(--${k})`):(k==='client'?'var(--on-client)':'#fff');
+  const r=Math.min(h/2,34),seq=[[mood,0]];if(m2)seq.push([m2,t2]);if(m3)seq.push([m3,t3]);
+  const body=ghost?`<rect width="${w}" height="${h}" rx="${r}" class="ghost" style="stroke:var(--${k});fill:var(--${k})"/>`
+    :`<rect width="${w}" height="${h}" rx="${r}" style="fill:var(--${k})"/><path d="M${(r*.75).toFixed(1)} 12Q${w/2} 2 ${(w-r*.75).toFixed(1)} 12" class="podseam"/>`;
+  let g=`<g class="${ghost?'ghostf':''}" style="--fg:${fg}">${body}${faceSeq(seq,w,h)}${extra}</g>${ip?`<text x="${w/2}" y="${h+17}" text-anchor="middle" class="m f12 mut">${ip}</text>`:''}${under}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})${s!==1?` scale(${s})`:''}">${g}</g>`;
+}
+const tagW=t=>Math.round(t.length*7.2+26);
+const tagD=w=>`M0 12L9.5 1.5Q11 0 13 0H${w-5}Q${w} 0 ${w} 5V19Q${w} 24 ${w-5} 24H13Q11 24 9.5 22.5Z`;
+const tagRaw=(t,k='ink-2')=>`<path d="${tagD(tagW(t))}" class="tagb" style="stroke:var(--${k})"/><circle cx="11" cy="12" r="2.5" style="fill:var(--${k})"/><text x="19" y="16.5" class="m f12">${t}</text>`;
+const tag=(x,y,t,{k='ink-2',an='fade',d=0,o}={})=>G(tagRaw(t,k),{x,y,an:o!=null?'inout':an,d,o});
+const tagHL=(x,y,t,ok,{d=0,o}={})=>{const c=ok?'ok':'bad';return `<path transform="translate(${x} ${y})" d="${tagD(tagW(t))}" class="${o!=null?'inout':'fade'}" style="fill:var(--${c});fill-opacity:.18;stroke:var(--${c});stroke-width:3;--d:${d}s${o!=null?`;--o:${o}s`:''}"/>`};
+function desk({x=0,y=0,w=170,name='Service: web',ip='',sub='',an='',v={},s=1,extra=''}={}){
+  let g=`<path d="M30 28V46M${w-30} 28V46" style="stroke:var(--ink-2);stroke-width:3"/><rect x="6" width="${w-12}" height="30" rx="8" class="inkf"/><text x="${w/2}" y="20" text-anchor="middle" class="f14 b inv">${name}</text><path d="M${w-64} 46a11 11 0 0 1 22 0Z" style="fill:var(--client)"/><circle cx="${w-53}" cy="33" r="2.6" style="fill:var(--client)"/><rect y="45" width="${w}" height="11" rx="4" class="inkf"/><rect x="8" y="56" width="${w-16}" height="58" rx="6" class="deskbody"/>${ip?`<text x="${w/2}" y="${sub?81:90}" text-anchor="middle" class="m f14 b">${ip}</text>`:''}${sub?`<text x="${w/2}" y="${ip?101:90}" text-anchor="middle" class="f12 mut">${sub}</text>`:''}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})${s!==1?` scale(${s})`:''}">${g}</g>`;
+}
+function clip({x=0,y=0,w=210,h=160,title='EndpointSlice',an='',v={},extra=''}={}){
+  let g=`<rect width="${w}" height="${h}" rx="10" class="inkf"/><rect x="8" y="12" width="${w-16}" height="${h-20}" rx="4" class="clippaper"/><rect x="${w/2-28}" y="-7" width="56" height="18" rx="5" class="clipclip"/><text x="20" y="38" class="f13 b">${title}</text><path d="M20 48H${w-20}" class="sep"/>${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function book({x=0,y=0,w=160,h=96,title='CoreDNS',sub='10.96.0.10',an='',v={},extra=''}={}){
+  let g=`<rect x="7" y="7" width="${w}" height="${h}" rx="8" style="fill:var(--note)"/><rect width="${w}" height="${h}" rx="8" class="inkf"/><path d="M18 6V${h-6}" style="stroke:var(--paper);stroke-opacity:.3;stroke-width:3"/><text x="30" y="${h/2-3}" class="f17 b inv">${title}</text>${sub?`<text x="30" y="${h/2+19}" class="m f12 inv" opacity=".78">${sub}</text>`:''}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function letterG(label=''){const w=Math.round(label.length*7.2+16);
+  return `<rect x="-14" y="-10" width="28" height="20" rx="3" class="paper"/><path d="M-14 -9L0 2L14 -9" class="paperfold"/>${label?`<rect x="${-w/2}" y="-40" width="${w}" height="22" rx="6" class="lbl"/><text x="0" y="-25" text-anchor="middle" class="m f12 b lbltxt">${label}</text>`:''}`}
+const sendL=(x1,y1,x2,y2,{d=0,dur=.8,label=''}={})=>`<g transform="translate(${x1} ${y1})"><g class="travel" ${S({d,dur,tx:x2-x1,ty:y2-y1})}>${letterG(label)}</g></g>`;
+const svcChip=(x,y,name,{w=170,an='pop',d=0}={})=>G(`<rect width="${w}" height="44" rx="12" class="deskbody"/><path d="M13 30a10 10 0 0 1 20 0Z" style="fill:var(--client)"/><rect x="10" y="29" width="26" height="4" rx="2" class="inkf"/><text x="44" y="28" class="f14 b">${name}</text>`,{x,y,an,d});
+const shieldP=`<path d="M0 -17L14 -11V0C14 9 7 15 0 18C-7 15 -14 9 -14 0V-11Z" class="inkf"/><path d="M-6 0l4 4 8-8" style="fill:none;stroke:var(--paper);stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round"/>`;
+const shield=(x,y,{s=1,an='pop',d=0}={})=>`<g transform="translate(${x} ${y}) scale(${s})"><g class="${an}" ${S({d})}>${shieldP}</g></g>`;
+const pill=(x,y,txt,{c='ok',an='pop',d=0}={})=>{const w=Math.round(txt.length*7.6+30);return G(`<rect width="${w}" height="24" rx="12" class="pill" style="stroke:var(--${c})"/><circle cx="13" cy="12" r="4.5" style="fill:var(--${c})"/><text x="23" y="16.5" class="f13 b">${txt}</text>`,{x,y,an,d})};
+const chipT=(t,w)=>`<rect x="${-w/2}" y="-12" width="${w}" height="24" rx="12" class="lbl"/><text x="0" y="5" text-anchor="middle" class="m f12 b lbltxt">${t}</text>`;
+const flyChip=(x1,y1,x2,y2,t,{d=0,dur=.8}={})=>`<g transform="translate(${x1} ${y1})"><g class="travel" ${S({d,dur,tx:x2-x1,ty:y2-y1})}>${chipT(t,Math.round(t.length*7.2+22))}</g></g>`;
+// ---------- Day 11 helpers ----------
+function ticket({x=0,y=0,w=170,h=96,title='PVC',lines=[],an='',v={},extra='',k='client'}={}){
+  const n=9,m=h/2;
+  const d=`M10 0H${w-10}Q${w} 0 ${w} 10V${m-n}A${n} ${n} 0 0 0 ${w} ${m+n}V${h-10}Q${w} ${h} ${w-10} ${h}H10Q0 ${h} 0 ${h-10}V${m+n}A${n} ${n} 0 0 0 0 ${m-n}V10Q0 0 10 0Z`;
+  let g=`<path d="${d}" class="paper"/><path d="M10 1H${w-10}Q${w-1} 1 ${w-1} 10V12H1V10Q1 1 10 1Z" style="fill:var(--${k})"/><text x="14" y="${m-9}" class="m f13 b">${title}</text><path d="M${n+5} ${m}H${w-n-5}" class="sep" style="stroke-dasharray:4 4"/>${lines.map((l,i)=>`<text x="14" y="${m+22+i*18}" class="m f12">${l}</text>`).join('')}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function pad({x=0,y=0,w=120,h=86,title='emptyDir',lines=[],an='',v={},extra=''}={}){
+  let rings='';for(let i=14;i<=w-20;i+=22)rings+=`<rect x="${i}" y="-6" width="6" height="14" rx="3" class="inkf"/>`;
+  let g=`<rect width="${w}" height="${h}" rx="8" style="fill:var(--note)"/>${rings}<text x="12" y="28" class="m f12 b lbltxt">${title}</text>${lines.map((l,i)=>`<text x="12" y="${50+i*18}" class="m f12 lbltxt">${l}</text>`).join('')}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function rack({x=0,y=0,w=110,h=90,label='backing storage',an='',v={}}={}){
+  const sh=(h-20)/3;let g=`<rect width="${w}" height="${h}" rx="10" style="fill:var(--ink-2)"/>`;
+  for(let i=0;i<3;i++){const yy=10+i*sh;g+=`<rect x="10" y="${yy}" width="${w-20}" height="${sh-6}" rx="4" fill="#fff" fill-opacity=".16"/><circle cx="${w-22}" cy="${yy+(sh-6)/2}" r="3.5" class="okf"/>`}
+  if(label)g+=`<text x="${w/2}" y="${h+18}" text-anchor="middle" class="f12 mut">${label}</text>`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function menuCard({x=0,y=0,w=200,h=150,title='StorageClass',rows='',an='',v={}}={}){
+  let g=`<rect width="${w}" height="${h}" rx="12" class="panel"/><path d="M12 0H${w-12}Q${w} 0 ${w} 12V32H0V12Q0 0 12 0Z" class="inkf"/><text x="14" y="21" class="f14 b inv">${title}</text>${rows}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+const HAT=w=>`<path d="M${w/2-36} -2Q${w/2-46} -20 ${w/2-28} -24Q${w/2-20} -40 ${w/2} -32Q${w/2+18} -42 ${w/2+28} -24Q${w/2+46} -20 ${w/2+36} -2Z" style="fill:#fff;stroke:var(--ink);stroke-width:2;stroke-linejoin:round"/>`;
+const nodeBox=(x,y,w,h,label,o={})=>G(`<rect width="${w}" height="${h}" rx="14" class="nodebox"/><text x="12" y="22" class="f13 b">${label}</text>`,{x,y,...o});
+const jersey=n=>`<circle cx="16" cy="16" r="12" class="stop"/><text x="16" y="21" text-anchor="middle" class="f13 b">${n}</text>`;
+const fileI=`<path d="M0 3Q0 0 3 0H12L18 6V21Q18 24 15 24H3Q0 24 0 21Z" class="paper"/><path d="M12 0.5V6H17.5" class="paperfold"/>`;
+const fileChip=(x,y,name,{an='fade',d=0,o,c=''}={})=>G(`${fileI}<text x="26" y="17" class="m f13 ${c}">${name}</text>`,{x,y,an:o!=null?'inout':an,d,o});
+const flyFile=(x1,y1,x2,y2,name='',{d=0,dur=.9}={})=>`<g transform="translate(${x1} ${y1})"><g class="travel" ${S({d,dur,tx:x2-x1,ty:y2-y1})}>${fileI}${name?`<text x="24" y="16" class="m f12 b">${name}</text>`:''}</g></g>`;
+const PENCIL=`<path d="M-7 7L-6 2L4 -8L8 -4L-2 6Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.8;stroke-linejoin:round"/>`;
+const EYE=`<path d="M-10 0Q0 -8 10 0Q0 8 -10 0Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.8"/><circle r="3" class="inkf"/>`;
+const LOCK=`<path d="M-6 -2V-7A6 6 0 0 1 6 -7V-2" style="fill:none;stroke:var(--ink);stroke-width:2.5"/><rect x="-9" y="-3" width="18" height="15" rx="3" class="inkf"/>`;
+const TRASH=`<rect x="-6" y="0" width="72" height="10" rx="3" class="inkf"/><rect x="22" y="-6" width="16" height="8" rx="2" class="inkf"/><path d="M2 14H58L54 76H6Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:2.5;stroke-linejoin:round"/><path d="M20 26V64M30 26V64M40 26V64" style="stroke:var(--ink-2);stroke-width:2.5"/>`;
+const sym=(g,x,y,{d=0,an='pop',s=1}={})=>`<g transform="translate(${x} ${y}) scale(${s})"><g class="${an}" ${S({d})}>${g}</g></g>`;
+const STAIRS=`<rect x="0" y="34" width="15" height="14" rx="3" style="fill:var(--web)"/><rect x="16" y="23" width="15" height="25" rx="3" style="fill:var(--teal)"/><rect x="32" y="12" width="15" height="36" rx="3" style="fill:var(--db)"/><rect x="48" y="1" width="15" height="47" rx="3" style="fill:var(--vol)"/>`;
+const term=(x,y,w,h,L,{fs=12,lh=24,top=26,d=0}={})=>G(`<rect width="${w}" height="${h}" rx="12" class="codebg"/>`+L.map(([t,c,dd],i)=>T(16,top+i*lh,t.replace(/ /g,'\u00A0'),{c:`m f${fs} ${c}`,d:dd})).join(''),{x,y,an:'fade',d});
+const chipsRow=(x,y,arr,{maxX=380,d=0,k='line'}={})=>{let s='',cx=x,cy=y;arr.forEach((t,i)=>{const w=Math.round(t.length*6.9+22);if(cx+w>maxX){cx=x;cy+=36}s+=G(`<rect width="${w}" height="28" rx="14" class="pill" style="stroke:var(--${k})"/><text x="${w/2}" y="19" text-anchor="middle" class="f13">${t}</text>`,{x:cx,y:cy,an:'pop',d:d+i*.15});cx+=w+8});return s};
+// ---------- Day 12 helpers ----------
+const LOCKW=`<path d="M-6 -2V-7A6 6 0 0 1 6 -7V-2" style="fill:none;stroke:#fff;stroke-width:2.5"/><rect x="-9" y="-3" width="18" height="15" rx="3" fill="#fff"/>`;
+function cfgCard({x=0,y=0,w=240,kind='cm',name='inference-config',rows=[],rh=24,an='',v={},extra=''}={}){
+  const k=kind==='cm'?'teal':'db',h=46+rows.length*rh;
+  let g=`<rect width="${w}" height="${h}" rx="12" class="panel"/><path d="M12 0H${w-12}Q${w} 0 ${w} 12V34H0V12Q0 0 12 0Z" style="fill:var(--${k})"/>${kind==='sec'?`<g transform="translate(${w-20} 18) scale(.75)">${LOCKW}</g>`:''}<text x="14" y="22" class="f13 b wht">${kind==='cm'?'ConfigMap':'Secret'}: ${name}</text>`;
+  rows.forEach(([kk,vv],i)=>{g+=`<text x="14" y="${58+i*rh}" class="m f12"><tspan class="b">${kk}</tspan><tspan class="mut">: </tspan>${vv}</text>`});
+  g+=extra;if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+const polaroid=(x,y,lines,{w=170,an='pop',d=0,o,label='photo at start'}={})=>{const h=40+lines.length*22+28;return G(`<rect width="${w}" height="${h}" rx="4" style="fill:#fff;stroke:var(--ink);stroke-width:2"/><rect x="10" y="10" width="${w-20}" height="${h-44}" rx="2" style="fill:#1F2449"/>${lines.map((l,i)=>`<text x="20" y="${36+i*22}" class="m f13 b" style="fill:#FFE38A">${l}</text>`).join('')}<text x="${w/2}" y="${h-12}" text-anchor="middle" class="f12" style="fill:#18203F">${label}</text>`,{x,y,an:an?(o!=null?'popout':an):'',d,o})};
+const liveWin=(x,y,w,h,title,o={})=>G(`<rect width="${w}" height="${h}" rx="10" class="panel"/><path d="M10 0H${w-10}Q${w} 0 ${w} 10V26H0V10Q0 0 10 0Z" class="codebg"/><circle cx="14" cy="13" r="4" class="badf"/><circle cx="28" cy="13" r="4" class="warnf"/><circle cx="42" cy="13" r="4" class="okf"/><text x="56" y="18" class="m f11 mut">${title}</text>`,{x,y,...o});
+const DISGUISE=`<circle cx="-15" cy="0" r="11" style="fill:var(--surface);fill-opacity:.2;stroke:var(--ink);stroke-width:3"/><circle cx="15" cy="0" r="11" style="fill:var(--surface);fill-opacity:.2;stroke:var(--ink);stroke-width:3"/><path d="M-4 0Q0 -4 4 0M-26 -2L-34 -6M26 -2L34 -6" style="fill:none;stroke:var(--ink);stroke-width:3;stroke-linecap:round"/><path d="M-22 20Q-11 12 0 18Q11 12 22 20Q11 26 0 22Q-11 26 -22 20Z" class="inkf"/>`;
+const room=(x,y,w,h,name,o={})=>{const tw=Math.round((11+name.length)*8.1+30);return G(`<rect width="${w}" height="${h}" rx="16" class="nodebox"/><path d="M16 0H${tw}V30H0V16Q0 0 16 0Z" class="inkf"/><text x="14" y="20" class="f13 b inv">namespace: ${name}</text>`,{x,y,...o})};
+const BOLT=`<path d="M8 0L0 18H8L4 34L20 12H11L16 0Z" style="fill:var(--warn);stroke:var(--ink);stroke-width:1.5;stroke-linejoin:round"/>`;
+const pillT=(x,y,t,{k='line',an='pop',d=0,o,c='f13'}={})=>{const w=Math.round(t.length*6.9+28);return G(`<rect width="${w}" height="32" rx="16" class="pill" style="stroke:var(--${k})"/><text x="14" y="21" class="${c}">${t}</text>`,{x,y,an:o!=null?'popout':an,d,o})};
+const valX=k=>14+(k.length+2)*7.2;
+// ---------- Day 13 helpers ----------
+function nodeCard({x=0,y=0,w=200,h=150,name='node',k='ink',an='',v={},extra=''}={}){
+  const head=k==='ink'?'class="inkf"':`style="fill:var(--${k})"`,tc=k==='ink'?'class="f13 b inv"':(k==='client'?'class="f13 b" style="fill:var(--on-client)"':'class="f13 b wht"');
+  let g=`<rect width="${w}" height="${h}" rx="14" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><path d="M14 0H${w-14}Q${w} 0 ${w} 14V30H0V14Q0 0 14 0Z" ${head}/><text x="14" y="21" ${tc}>${name}</text>${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function signRaw(t){const w=Math.round(t.length*7.2+24);let st='';for(let i=4;i<w-12;i+=12)st+=`M${i} 12L${i+8} 0`;return `<rect width="${w}" height="44" rx="6" style="fill:var(--surface);stroke:var(--ink);stroke-width:2"/><path d="M6 1H${w-6}Q${w-1} 1 ${w-1} 6V12H1V6Q1 1 6 1Z" style="fill:var(--warn)"/><path d="${st}" style="stroke:var(--ink);stroke-width:2.5"/><text x="12" y="33" class="m f12 b">${t}</text>`}
+const sign=(x,y,t,{an='pop',d=0,o}={})=>G(signRaw(t),{x,y,an:o!=null?'popout':an,d,o});
+function badgeRaw(t,k='ok'){const w=Math.round(t.length*6.6+44);return `<rect width="${w}" height="34" rx="8" style="fill:var(--surface);stroke:var(--${k});stroke-width:2.5"/><rect width="14" height="34" rx="6" style="fill:var(--${k})"/><circle cx="7" cy="9" r="2.5" style="fill:var(--surface)"/><text x="24" y="22" class="m f11 b">${t}</text>`}
+const badge=(x,y,t,{k='ok',an='pop',d=0,o}={})=>G(badgeRaw(t,k),{x,y,an:o!=null?'popout':an,d,o});
+function pizza(cx,cy,r,frac,{d=0}={}){let wedge;
+  if(frac>=1)wedge=`<circle cx="${cx}" cy="${cy}" r="${r-4}" style="fill:var(--warn)"/><circle cx="${cx-12}" cy="${cy-10}" r="5" class="badf"/><circle cx="${cx+14}" cy="${cy-4}" r="5" class="badf"/><circle cx="${cx-2}" cy="${cy+14}" r="5" class="badf"/>`;
+  else{const a=-Math.PI/2+frac*2*Math.PI,x2=cx+(r-4)*Math.cos(a),y2=cy+(r-4)*Math.sin(a),lg=frac>.5?1:0;wedge=`<path d="M${cx} ${cy}L${cx} ${cy-r+4}A${r-4} ${r-4} 0 ${lg} 1 ${x2.toFixed(1)} ${y2.toFixed(1)}Z" style="fill:var(--warn);stroke:var(--client-ink);stroke-width:2;stroke-linejoin:round"/>`}
+  return G(`<circle cx="${cx}" cy="${cy}" r="${r}" style="fill:none;stroke:var(--line);stroke-width:2;stroke-dasharray:5 5"/>${wedge}${frac>=1?`<circle cx="${cx}" cy="${cy}" r="${r-2}" style="fill:none;stroke:var(--client-ink);stroke-width:4"/>`:''}`,{an:'pop',d});}
+const BALLOON=`<ellipse cx="0" cy="0" rx="24" ry="30" style="fill:var(--vol)"/><ellipse cx="-8" cy="-10" rx="6" ry="9" fill="#fff" fill-opacity=".35"/><path d="M-4 29L4 29L0 35Z" style="fill:var(--vol)"/><path d="M0 35Q8 48 0 60" style="fill:none;stroke:var(--ink-2);stroke-width:2"/>`;
+const FUNNEL=`<path d="M0 0H60L38 26V46L22 54V26Z" style="fill:var(--teal)"/>`;
+const MAG=`<circle cx="20" cy="20" r="15" style="fill:var(--surface);stroke:var(--ink);stroke-width:5"/><path d="M31 31L46 46" style="stroke:var(--ink);stroke-width:7;stroke-linecap:round"/>`;
+const TARGET=`<circle r="16" style="fill:none;stroke:var(--web);stroke-width:4"/><circle r="8" style="fill:none;stroke:var(--web);stroke-width:4"/><circle r="3" style="fill:var(--web)"/>`;
+const miniPod=(x,y,k='web')=>`<g transform="translate(${x} ${y})"><rect width="32" height="24" rx="8" style="fill:var(--${k})"/><circle cx="11" cy="12" r="3" fill="#fff"/><circle cx="21" cy="12" r="3" fill="#fff"/></g>`;
+// ---------- Day 14 helpers ----------
+const ptick=(x,y,ok,{d=0,r=8}={})=>`<circle cx="${x}" cy="${y}" r="${r}" class="pop" style="fill:var(--${ok?'ok':'bad'});--d:${d}s"/>`;
+const CLOCK=`<circle r="10" class="warnf"/><path d="M0 -6V0L4 3" style="fill:none;stroke:#fff;stroke-width:2;stroke-linecap:round"/>`;
+const ptag=(x,y,name,k,{d=0,an='pop'}={})=>G(`<rect width="${Math.round(name.length*8.2+24)}" height="26" rx="13" style="fill:var(--${k})"/><text x="12" y="18" class="f13 b wht">${name}</text>`,{x,y,an,d});
+const spill=(x,y,txt,k='ok',{d=0,o,an}={})=>{const w=Math.round(txt.length*7.6+30);return G(`<rect width="${w}" height="24" rx="12" class="pill" style="stroke:var(--${k})"/><circle cx="13" cy="12" r="4.5" style="fill:var(--${k})"/><text x="23" y="16.5" class="f13 b">${txt}</text>`,{x,y,an:an||(o!=null?'inout':'pop'),d,o})};
+const pbox=(x,y,w,h,k,t,q,d)=>G(`<rect width="${w}" height="${h}" rx="14" class="panel" style="stroke:var(--${k});stroke-width:3"/><rect x="14" y="14" width="${Math.round(t.length*8.6+24)}" height="26" rx="13" style="fill:var(--${k})"/><text x="26" y="32" class="f14 b wht">${t}</text><text x="16" y="66" class="f14">${q}</text>`,{x,y,an:'pop',d});
+// ---------- Day 15 helpers ----------
+const crowd=(x,y,n,cols,{first=0,d0=.6,d1=1.8,gap=16,k='ink-2'}={})=>{let s='';for(let i=0;i<n;i++){const cx=x+(i%cols)*gap,cy=y+Math.floor(i/cols)*gap,d=i<first?d0:d1+(i-first)*.012;s+=`<circle cx="${cx}" cy="${cy}" r="5.5" class="pop" style="fill:var(--${k});--d:${d.toFixed(2)}s"/>`}return s};
+const meterCard=(x,y,w,h,title,val,frac,k,cap,{d=0,extra=''}={})=>G(`<rect width="${w}" height="${h}" rx="14" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><text x="16" y="30" class="f13 b mut">${title}</text>${val?`<text x="16" y="84" class="f30 b" style="fill:var(--${k})">${val}</text>`:''}<rect x="16" y="108" width="${w-32}" height="14" rx="7" style="fill:var(--line)"/><rect x="16" y="108" width="${Math.round((w-32)*frac)}" height="14" rx="7" class="grow-x" style="fill:var(--${k});--d:${d+.3}s"/><text x="16" y="150" class="f12">${cap}</text>${extra}`,{x,y,an:'pop',d});
+// ---------- Day 16 helpers ----------
+function house({x=0,y=0,w=150,h=140,name='inference-dev',k='teal',an='',v={},extra='',solar=false}={}){
+  const rh=Math.round(h*.38),bh=h-rh;
+  let g=`<path d="M${w/2} 0L${w} ${rh}H0Z" style="fill:var(--${k})"/>${solar?`<path d="M${w*.56} ${rh*.32}L${w*.86} ${rh*.82}L${w*.74} ${rh*.82}L${w*.48} ${rh*.42}Z" class="inkf" opacity=".75"/>`:''}<rect x="${w*.08}" y="${rh}" width="${w*.84}" height="${bh-24}" style="fill:var(--surface);stroke:var(--ink);stroke-width:2.5"/><rect x="${w/2-12}" y="${h-24-34}" width="24" height="34" rx="3" style="fill:var(--${k});fill-opacity:.6"/><rect x="${w*.18}" y="${rh+14}" width="22" height="18" rx="3" style="fill:var(--note)"/><rect x="${w*.82-22}" y="${rh+14}" width="22" height="18" rx="3" style="fill:var(--note)"/><rect y="${h-22}" width="${w}" height="22" rx="6" class="inkf"/><text x="${w/2}" y="${h-7}" text-anchor="middle" class="m f11 b inv">${name}</text>${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function blueprint({x=0,y=0,w=160,h=110,title='inference-chart',lines=[],an='',v={}}={}){
+  let grid='';for(let i=12;i<w;i+=16)grid+=`M${i} 0V${h}`;for(let j=12;j<h;j+=16)grid+=`M0 ${j}H${w}`;
+  let g=`<rect width="${w}" height="${h}" rx="8" style="fill:var(--web)"/><path d="${grid}" style="stroke:#fff;stroke-opacity:.14;stroke-width:1"/><path d="M${w-50} ${h-12}V${h-34}L${w-32} ${h-50}L${w-14} ${h-34}V${h-12}Z" style="fill:none;stroke:#fff;stroke-width:2;stroke-opacity:.75"/><text x="12" y="22" class="m f12 b wht">${title}</text>${lines.map((l,i)=>`<text x="12" y="${42+i*17}" class="m f11 wht">${l}</text>`).join('')}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function gears({x=0,y=0,w=150,h=120,label='helm render',an='',v={},d=0}={}){
+  const gear=(cx,cy,r,dd)=>{let t='';for(let i=0;i<8;i++)t+=`<rect x="${(cx-3.5).toFixed(1)}" y="${(cy-r-6).toFixed(1)}" width="7" height="10" rx="2" transform="rotate(${i*45} ${cx} ${cy})"/>`;return `<g class="spin" style="--d:${dd}s"><g style="fill:var(--ink-2)">${t}<circle cx="${cx}" cy="${cy}" r="${r}"/></g><circle cx="${cx}" cy="${cy}" r="${(r*.4).toFixed(1)}" style="fill:var(--surface)"/></g>`};
+  let g=`<rect width="${w}" height="${h}" rx="14" class="panel" style="stroke:var(--db);stroke-width:3"/>${gear(w*.36,h*.42,18,d)}${gear(w*.66,h*.58,13,d)}<text x="${w/2}" y="${h-12}" text-anchor="middle" class="m f12 b dbc">${label}</text>`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function docPaper({x=0,y=0,w=130,h=150,title='',lines=[],an='',v={},extra=''}={}){
+  let g=`<path d="M0 8Q0 0 8 0H${w-22}L${w} 22V${h-8}Q${w} ${h} ${w-8} ${h}H8Q0 ${h} 0 ${h-8}Z" class="paper"/><path d="M${w-22} 1V22H${w-1}" class="paperfold"/>${title?`<text x="12" y="22" class="m f11 b">${title}</text>`:''}${lines.map((l,i)=>`<text x="12" y="${46+i*18}" class="m f11">${l}</text>`).join('')}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+const PARCEL=w=>`<rect width="${w}" height="80" rx="6" style="fill:var(--warn);fill-opacity:.35;stroke:var(--ink);stroke-width:2.5"/><rect x="${w/2-9}" width="18" height="80" style="fill:var(--warn)"/><path d="M0 22H${w}" style="stroke:var(--ink);stroke-width:2"/>`;
+const bx2=(x,y,w,h,a,b,k,d)=>G(`<rect width="${w}" height="${h}" rx="12" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><text x="${w/2}" y="${b?h/2-3:h/2+5}" text-anchor="middle" class="f14 b">${a}</text>${b?`<text x="${w/2}" y="${h/2+15}" text-anchor="middle" class="f11 mut">${b}</text>`:''}`,{x,y,an:'pop',d});
+// ---------- Day 17 helpers ----------
+function idCard({x=0,y=0,w=150,h=80,name='model-sa',sub='ServiceAccount',k='teal',an='',v={}}={}){
+  const m=h/2+10;
+  let g=`<rect x="${w/2-14}" y="-10" width="28" height="16" rx="5" class="inkf"/><rect width="${w}" height="${h}" rx="10" style="fill:var(--surface);stroke:var(--${k});stroke-width:3"/><path d="M0 10Q0 0 10 0H${w-10}Q${w} 0 ${w} 10V18H0Z" style="fill:var(--${k})"/><circle cx="26" cy="${m}" r="14" style="fill:var(--${k});fill-opacity:.22"/><circle cx="26" cy="${m-4}" r="5" style="fill:var(--${k})"/><path d="M17 ${m+11}Q26 ${m+1} 35 ${m+11}Z" style="fill:var(--${k})"/><text x="48" y="${m-1}" class="m f12 b">${name}</text><text x="48" y="${m+15}" class="f11 mut">${sub}</text>`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function rdoor(x,y,label,{k='web',d=0,open=null,deny=null,w=64,h=96}={}){
+  let s=G(`<rect width="${w}" height="${h}" rx="4" style="fill:var(--line);stroke:var(--ink);stroke-width:2.5"/><rect x="6" y="6" width="${w-12}" height="${h-6}" rx="3" style="fill:var(--${k});fill-opacity:.55"/><circle cx="${w-14}" cy="${h/2+6}" r="3.5" class="inkf"/>${label?`<text x="${w/2}" y="${h+18}" text-anchor="middle" class="f12 b">${label}</text>`:''}`,{x,y,an:'pop',d});
+  s+=`<circle cx="${x+w/2}" cy="${y-10}" r="6" class="${open!=null?'inout':'pop'}" style="fill:var(--bad);--d:${d}s${open!=null?`;--o:${open}s`:''}"/>`;
+  if(open!=null)s+=G(`<rect x="6" y="6" width="${w-12}" height="${h-6}" rx="3" class="inkf" opacity=".85"/><path d="M6 6L${Math.round(w*.32)} 14V${h-4}L6 ${h}Z" style="fill:var(--${k})"/><circle cx="${w/2}" cy="-10" r="6" style="fill:var(--ok)"/>`,{x,y,an:'fade',d:open});
+  if(deny!=null)s+=icon('no',x+w/2,y+h/2,{r:13,d:deny});
+  return s;
+}
+const keyI=(x,y,{s=1,d=0,o,an='pop',k='warn'}={})=>G(`<g transform="scale(${s})"><circle cx="12" cy="15" r="10" style="fill:none;stroke:var(--${k});stroke-width:6"/><rect x="21" y="12" width="40" height="7" rx="3" style="fill:var(--${k})"/><rect x="47" y="18" width="6" height="9" rx="2" style="fill:var(--${k})"/><rect x="55" y="18" width="6" height="12" rx="2" style="fill:var(--${k})"/></g>`,{x,y,an:o!=null?'inout':an,d,o});
+const bindBand=(x,y,w,h,a,b,{d=0,k='vol'}={})=>G(`<rect width="${w}" height="${h}" rx="${h/2}" style="fill:var(--${k});fill-opacity:.18;stroke:var(--${k});stroke-width:3"/><g transform="translate(14 ${h/2-8})" style="fill:none;stroke:var(--${k});stroke-width:3"><rect width="16" height="10" rx="5"/><rect x="10" y="6" width="16" height="10" rx="5"/></g><text x="${w/2+14}" y="${b?h/2-2:h/2+5}" text-anchor="middle" class="f13 b">${a}</text>${b?`<text x="${w/2+14}" y="${h/2+14}" text-anchor="middle" class="f11 mut">${b}</text>`:''}`,{x,y,an:'pop',d});
+const mchip=(x,y,t,k,{d=0,o}={})=>{const w=Math.round(t.length*7.2+20);return G(`<rect width="${w}" height="24" rx="12" style="fill:var(--${k});fill-opacity:.18;stroke:var(--${k});stroke-width:2"/><text x="${w/2}" y="17" text-anchor="middle" class="m f12 b">${t}</text>`,{x,y,an:o!=null?'inout':'pop',d,o})};
+const hlr=(x,y,w,h,k,d)=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="4" class="fade" style="fill:var(--${k});fill-opacity:.22;stroke:var(--${k});stroke-width:1.5;--d:${d}s"/>`;
+// ---------- Day 17 visuals 0-7 ----------
+function V0(){
+  const pan=(x,t,q,d)=>G(`<rect width="240" height="200" rx="16" class="panel"/><text x="120" y="164" text-anchor="middle" class="f16 b">${t}</text><text x="120" y="186" text-anchor="middle" class="f13 mut">${q}</text>`,{x,y:16,an:'fade',d});
+  let s=pan(20,'ServiceAccount','Who is the workload?',.1)+idCard({x:65,y:58,w:150,h:80,name:'model-sa',sub:'identity',an:'pop',v:{d:.3}});
+  s+=pan(280,'Token','How does it prove identity?',.5)+keyI(356,74,{s:1.4,d:.7});
+  s+=pan(540,'RBAC','What may it do?',.9)+rdoor(628,52,'',{k:'web',d:1.1,open:3.4});
+  s+=pod({x:40,y:292,s:.7,k:'teal',an:'pop',v:{d:1.4}})+T(76,372,'Pod as model-sa',{c:'f12 b',a:'middle',d:1.4});
+  s+=crate({x:260,y:282,w:150,h:100,k:'db',name:'API server',an:'pop',v:{d:1.5}})+packet(118,318,256,326,{d:1.9,dur:.5,c:'var(--warn)',r:8});
+  s+=T(335,404,'who? model-sa ✓',{c:'f12 b okc',a:'middle',d:2.4});
+  s+=rdoor(520,290,'configmaps',{k:'teal',d:1.6,open:3.0})+rdoor(660,290,'secrets',{k:'web',d:1.7,deny:3.4});
+  s+=arrow({x1:412,y1:326,x2:516,y2:336},{d:2.7,dur:.3})+arrow({x1:412,y1:310,q:[560,250],x2:656,y2:300},{d:3.1,dur:.4,c:'var(--ink-2)',w:2});
+  s+=T(400,462,'Who are you? How do you prove it? What may you do?',{c:'f16 b',a:'middle',d:4.0});
+  return svg(s,'Three questions: a ServiceAccount answers who the workload is, a token proves its identity, and RBAC decides what it may do. A Pod running as model-sa presents its token to the API server, which opens the configmaps door and keeps the secrets door locked.');
+}
+
+function V1(){
+  let s=G(`<rect width="330" height="300" rx="16" class="panel"/><text x="16" y="28" class="f14 b">Everything is an API request</text>`,{x:20,y:16,an:'fade',d:.1});
+  ['create Pods','read Secrets','change Deployments','list Nodes','scale apps'].forEach((t,i)=>{const y=60+i*48;s+=G(`<rect width="160" height="32" rx="8" class="codebg"/><text x="12" y="21" class="f13">${t}</text>`,{x:36,y,an:'pop',d:.2+i*.12})+arrow({x1:198,y1:y+16,x2:226,y2:186},{d:.6+i*.1,dur:.2,c:'var(--ink-2)',w:1.8})+packet(198,y+16,226,186,{d:1.2+i*.2,dur:.3,c:'var(--teal)',r:5})});
+  s+=crate({x:230,y:140,w:110,h:92,k:'db',name:'API server',an:'pop',v:{d:.5}});
+  s+=G(`<rect width="410" height="300" rx="16" class="panel"/><text x="16" y="28" class="f14 b">A campus badge analogy</text>`,{x:370,y:16,an:'fade',d:.8});
+  const COL=['Classroom','Lab','Datacenter','Mechanical','Records'];
+  COL.forEach((t,j)=>{const cx=540+j*52;s+=`<text x="${cx-4}" y="108" transform="rotate(-60 ${cx-4} 108)" class="f11 b fade" style="--d:.9s">${t}</text>`});
+  const M=[[1,0,0,0,0],[1,1,0,0,0],[0,0,0,1,0]];
+  [['Student ID','web'],['Faculty','db'],['Facilities','warn']].forEach(([t,k],r)=>{const y=150+r*56,d=1.0+r*.4;s+=G(`<rect width="24" height="32" rx="4" style="fill:var(--${k})"/><circle cx="12" cy="12" r="5" style="fill:#fff"/><rect x="5" y="22" width="14" height="3" rx="1.5" style="fill:#fff"/>`,{x:386,y:y-20,an:'pop',d})+T(420,y+4,t,{c:'f13 b',d});M[r].forEach((v,j)=>{s+=icon(v?'yes':'no',540+j*52,y,{r:9,d:d+.1+j*.06})})});
+  s+=G(`<rect width="760" height="138" rx="16" class="panel"/>`,{x:20,y:332,an:'up',d:2.4})+T(40,368,'An ID proves who you are. It shouldn’t open every door.',{c:'f16 b',d:2.5})+T(40,398,'Kubernetes works the same way: identity and permission are separate.',{c:'f14',d:2.8})+T(40,432,'Giving every app cluster-admin is like giving every badge a master key.',{c:'f14 b badc',d:3.2});
+  return svg(s,'Creating Pods, reading Secrets, changing Deployments, listing Nodes and scaling apps are all requests to the API server. A campus analogy: a student ID opens classrooms, a faculty badge also opens the lab, and a facilities badge opens mechanical rooms, but none opens the datacenter or the records room.');
+}
+
+function V2(){
+  const R=[['Request','List ConfigMaps in namespace inference',''],['Authentication','Who made this request?',''],['Identity established','system:serviceaccount:inference:model-sa','m'],['Authorization','May this identity list configmaps?',''],['Decision','','']];
+  let s='';
+  R.forEach(([t,dt,m],i)=>{const y=16+i*84,d=.2+i*.8;s+=G(`<rect width="470" height="64" rx="12" class="panel" style="stroke:var(--${i===4?'ok':i===2?'teal':'db'});stroke-width:2.5"/><circle cx="26" cy="32" r="14" class="inkf"/><text x="26" y="37" text-anchor="middle" class="f13 b inv">${i+1}</text><text x="52" y="${dt?27:38}" class="f14 b">${t}</text>${dt?`<text x="52" y="48" class="${m?'m ':''}f12">${dt}</text>`:''}`,{x:20,y,an:'up',d});if(i<4)s+=arrow({x1:46,y1:y+66,x2:46,y2:y+82},{d:d+.4,dur:.2,c:'var(--ink-2)',w:2})+packet(46,y+66,46,y+82,{d:d+.6,dur:.25,c:'var(--warn)',r:6})});
+  s+=G(`<rect width="104" height="32" rx="16" style="fill:var(--ok);fill-opacity:.15;stroke:var(--ok);stroke-width:2"/><text x="52" y="21" text-anchor="middle" class="f13 b">Allow ✓</text>`,{x:200,y:368,an:'pop',d:3.4})+T(326,389,'or',{c:'f13 mut',a:'middle',d:3.4})+G(`<rect width="104" height="32" rx="16" style="fill:var(--bad);fill-opacity:.12;stroke:var(--bad);stroke-width:2"/><text x="52" y="21" text-anchor="middle" class="f13 b">Deny ✗</text>`,{x:350,y:368,an:'pop',d:3.4})+`<rect x="196" y="364" width="112" height="40" rx="20" class="fade" style="fill:none;stroke:var(--ok);stroke-width:3;--d:4.0s"/>`;
+  s+=G(`<rect width="270" height="400" rx="16" class="panel"/><text x="16" y="30" class="f14 b">Three separate questions</text>`,{x:510,y:16,an:'fade',d:.4});
+  s+=idCard({x:530,y:74,w:230,h:76,name:'identity',sub:'who you are',an:'pop',v:{d:.8}});
+  s+=keyI(532,196,{s:1,d:1.6})+T(610,206,'credential',{c:'f14 b',d:1.6})+T(610,226,'how it’s proven',{c:'f12 mut',d:1.6});
+  s+=rdoor(548,282,'',{k:'web',w:48,h:72,d:2.4,open:4.0})+T(616,310,'authorization',{c:'f14 b',d:2.4})+T(616,330,'what it may do',{c:'f12 mut',d:2.4});
+  s+=T(400,452,'Keep them apart and security gets much easier to reason about.',{c:'f15 b',a:'middle',d:4.6});
+  return svg(s,'A request to list ConfigMaps in namespace inference is authenticated, establishing the identity system:serviceaccount:inference:model-sa, then authorized, and finally allowed. A side panel separates three questions: identity, credential and authorization.');
+}
+
+function V3(){
+  let s=T(20,40,'Authentication: who are you?',{c:'f16 b',d:.1});
+  s+=G(`<text x="40" y="84" class="m f18 b"><tspan>system:serviceaccount:</tspan><tspan class="tealc">inference</tspan>:<tspan class="webc">model-sa</tspan></text>`,{an:'fade',d:.3});
+  [[40,276,'a ServiceAccount','mut',.7],[279,374,'namespace','tealc',.9],[387,472,'name','webc',1.1]].forEach(([a,b,t,c,d])=>{s+=`<path d="M${a} 96V102H${b}V96" class="fade" style="fill:none;stroke:var(--ink-2);stroke-width:2;--d:${d}s"/>`+T((a+b)/2,122,t,{c:'f12 b '+c,a:'middle',d})});
+  s+=T(20,158,'Authorization: may it do this?',{c:'f16 b',d:1.4});
+  [['WHO','model-sa','teal'],['VERB','delete','ok'],['RESOURCE','configmaps','web'],['SCOPE','inference','db']].forEach(([a,b,k],i)=>{s+=G(`<rect width="180" height="56" rx="12" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><text x="14" y="22" class="f11 b mut">${a}</text><text x="14" y="44" class="m f15 b" style="fill:var(--${k})">${b}</text>`,{x:20+i*195,y:172,an:'pop',d:1.6+i*.2})});
+  s+=term(20,244,760,132,[['Error from server (Forbidden):','badc b',2.6],['configmaps is forbidden:','',2.6],['User "system:serviceaccount:inference:model-sa"','',2.6],['cannot delete resource "configmaps"','',2.6],['in API group "" in the namespace "inference"','',2.6]],{lh:21,top:26,d:2.5});
+  s+=hlr(70,297,306,20,'teal',3.0)+hlr(84,318,48,20,'ok',3.3)+hlr(199,318,90,20,'web',3.6)+hlr(271,339,83,20,'db',3.9);
+  s+=G(`<rect width="760" height="78" rx="14" class="panel" style="stroke:var(--warn);stroke-width:2.5"/>`,{x:20,y:392,an:'up',d:4.3})+T(40,422,'Authenticated ✓ but not authorized ✗ → Forbidden.',{c:'f15 b',d:4.4})+T(40,448,'Forbidden means the API server heard you. Check identity, bindings, verbs, resources, scope, not DNS.',{c:'f13 mut',d:4.6});
+  return svg(s,'The username system:serviceaccount:inference:model-sa breaks down into a ServiceAccount marker, the namespace inference and the name model-sa. Authorization weighs who, verb, resource and scope: model-sa, delete, configmaps, inference. A Forbidden error names all four.');
+}
+
+function V4(){
+  let s=G(`<rect width="360" height="300" rx="16" class="panel"/><text x="16" y="28" class="f15 b">RBAC is additive</text>`,{x:20,y:16,an:'fade',d:.1});
+  s+=G(`<rect width="150" height="90" rx="12" class="panel" style="stroke:var(--web);stroke-width:2.5"/><text x="14" y="26" class="f13 b">Binding A</text>`,{x:40,y:60,an:'pop',d:.3})+mchip(54,96,'get','web',{d:.5})+mchip(104,96,'list','web',{d:.6});
+  s+=G(`<rect width="150" height="90" rx="12" class="panel" style="stroke:var(--db);stroke-width:2.5"/><text x="14" y="26" class="f13 b">Binding B</text>`,{x:210,y:60,an:'pop',d:.8})+mchip(224,96,'watch','db',{d:1.0});
+  s+=arrow({x1:115,y1:152,x2:170,y2:190},{d:1.3,dur:.2,c:'var(--ink-2)',w:2})+arrow({x1:285,y1:152,x2:230,y2:190},{d:1.3,dur:.2,c:'var(--ink-2)',w:2});
+  s+=G(`<rect width="260" height="74" rx="12" class="panel" style="stroke:var(--ok);stroke-width:3"/><text x="14" y="26" class="f13 b okc">Effective: the union</text>`,{x:70,y:194,an:'pop',d:1.5})+mchip(84,232,'get','ok',{d:1.7})+mchip(134,232,'list','ok',{d:1.8})+mchip(192,232,'watch','ok',{d:1.9});
+  s+=T(36,300,'No “deny” rules. You only grant.',{c:'f13 b badc',d:2.2});
+  s+=G(`<rect width="380" height="454" rx="16" class="panel"/><text x="16" y="30" class="f15 b">Common verbs</text>`,{x:400,y:16,an:'fade',d:.4});
+  [['get','one named object','ok'],['list','a whole collection','ok'],['watch','a stream of changes','ok'],['create','a new object','warn'],['update','replace an existing object','warn'],['patch','change part of one','warn'],['delete','remove an object','bad']].forEach(([v,m,k],i)=>{const y=84+i*52,d=.6+i*.25;s+=mchip(416,y-17,v,k,{d})+T(510,y,m,{c:'f13',d})});
+  s+=G(`<rect width="360" height="138" rx="16" class="panel"/>`,{x:20,y:332,an:'up',d:2.8})+T(36,368,'Knowing who you are',{c:'f16 b',d:2.9})+T(36,392,'isn’t permission to act.',{c:'f16 b',d:2.9})+T(36,428,'Authentication success ≠ authorization.',{c:'f13 mut',d:3.1});
+  return svg(s,'Binding A grants get and list, binding B grants watch; the effective permissions are the union, get, list and watch. RBAC has no deny rules. A list of verbs explains get, list, watch, create, update, patch and delete.');
+}
+
+function V5(){
+  let s=term(20,16,300,230,[['apiVersion: v1','',.2],['kind: Pod','',.2],['metadata:','',.2],['  name: demo','',.2],['  namespace: inference','',.2],['spec:','',.2],['  # no serviceAccountName','warnc b',.8],['  containers:','',.2],['  - name: web','',.2],['    image: nginx','',.2]],{lh:20,top:28,d:.1});
+  s+=G(`<rect width="440" height="230" rx="16" class="nodebox"/><text x="16" y="28" class="m f13 b">namespace: inference</text>`,{x:340,y:16,an:'fade',d:.3});
+  s+=pod({x:380,y:84,s:.8,k:'teal',an:'pop',v:{d:.5}})+T(422,72,'Pod: demo',{c:'f12 b',a:'middle',d:.5});
+  s+=idCard({x:590,y:66,w:170,h:80,name:'default',sub:'ServiceAccount',k:'warn',an:'inout',v:{d:.8,o:2.2}});
+  s+=arrow({x1:588,y1:110,q:[520,160],x2:470,y2:176},{dash:true,d:1.6,c:'var(--warn)',w:2});
+  s+=idCard({x:364,y:172,w:150,h:60,name:'default',sub:'auto-assigned',k:'warn',an:'drop',v:{d:2.2}})+T(540,206,'implicit assignment',{c:'f13 b warnc',d:2.4});
+  s+=term(20,262,760,76,[["$ kubectl get pod demo -n inference -o jsonpath='{.spec.serviceAccountName}'",'',2.6],['default','okc b',3.0]],{fs:11,lh:24,top:28,d:2.5});
+  s+=G(`<rect width="760" height="116" rx="16" class="panel"/>`,{x:20,y:354,an:'fade',d:3.2})+T(40,382,'Every namespace gets its own default ServiceAccount',{c:'f14 b',d:3.3});
+  ['dev','inference','monitoring'].forEach((n,i)=>{const x=40+i*250;s+=G(`<rect width="220" height="58" rx="10" class="nodebox"/><text x="12" y="24" class="m f12 b">${n}</text>`,{x,y:398,an:'pop',d:3.5+i*.15})+spill(x+120,415,'default','warn',{d:3.7+i*.15})});
+  return svg(s,'A Pod manifest named demo in namespace inference has no serviceAccountName, so Kubernetes quietly assigns the namespace’s default ServiceAccount. kubectl get pod with a jsonpath query prints default. Every namespace, such as dev, inference and monitoring, has its own default ServiceAccount.');
+}
+
+function V6(){
+  let s=G(`<rect width="760" height="230" rx="16" class="panel"/>`,{x:20,y:16,an:'fade',d:.1});
+  [['Model server','model-sa'],['Monitoring agent','monitor-sa'],['Controller','controller-sa']].forEach(([w,n],i)=>{const x=60+i*250;s+=G(`<rect width="180" height="46" rx="10" class="inkf"/><text x="90" y="29" text-anchor="middle" class="f14 b inv">${w}</text>`,{x,y:36,an:'pop',d:.2+i*.1})+arrow({x1:x+90,y1:84,x2:x+90,y2:104},{d:.5,dur:.2,c:'var(--ink-2)',w:2});
+    s+=idCard({x:x+5,y:116,w:170,h:70,name:'default',sub:'shared by all three',k:'warn',an:'inout',v:{d:.6,o:2.4}})+idCard({x:x+5,y:116,w:170,h:70,name:n,sub:'its own identity',k:'teal',an:'pop',v:{d:2.4+i*.15}})});
+  s+=T(400,222,'One shared identity: every app collects everyone’s permissions.',{c:'f13 b warnc',a:'middle',an:'inout',d:.9,o:2.4})+T(400,222,'Each app gets only the permissions it needs.',{c:'f13 b okc',a:'middle',d:2.9});
+  s+=term(20,262,470,76,[['$ kubectl create namespace day17-rbac','',3.2],['$ kubectl create serviceaccount inference-reader -n day17-rbac','b',3.4]],{fs:11,lh:24,top:28,d:3.1});
+  s+=term(20,352,470,118,[['kind: Pod','',3.8],['spec:','',3.8],['  serviceAccountName: inference-reader','tealc b',3.8],['  containers: [{name: nginx, image: nginx}]','',3.8]],{lh:22,top:30,d:3.7});
+  s+=G(`<rect width="270" height="208" rx="16" class="panel"/>`,{x:510,y:262,an:'fade',d:4.0})+idCard({x:526,y:284,w:238,h:70,name:'inference-reader',sub:'brand-new identity',an:'pop',v:{d:4.1}})+T(530,372,'opens no doors yet',{c:'f12 b badc',d:4.6});
+  [['pods',534],['configmaps',609],['secrets',684]].forEach(([t,x],i)=>{s+=rdoor(x,392,t,{w:44,h:56,k:'web',d:4.3+i*.1})});
+  return svg(s,'Three workloads, a model server, a monitoring agent and a controller, first share the default ServiceAccount, then each gets its own: model-sa, monitor-sa and controller-sa. Commands create namespace day17-rbac and ServiceAccount inference-reader, and a Pod selects it with serviceAccountName. The new identity opens no doors yet.');
+}
+
+function V7(){
+  let s=term(20,16,380,210,[['apiVersion: rbac.authorization.k8s.io/v1','',.2],['kind: Role','',.2],['metadata:','',.2],['  name: configmap-reader','',.2],['  namespace: day17-rbac','',.2],['rules:','',.2],['- apiGroups: [""]','',.2],['  resources: ["configmaps"]','',.2],['  verbs: ["get", "list"]','',.2]],{lh:20,top:26,d:.1});
+  s+=hlr(48,108,155,19,'teal',1.0)+hlr(99,188,110,19,'ok',1.6)+hlr(128,168,103,19,'web',2.2)+hlr(128,148,31,19,'db',2.8);
+  s+=G(`<rect width="370" height="210" rx="16" class="panel"/><text x="16" y="26" class="f12 b mut">In plain English</text>`,{x:410,y:16,an:'fade',d:.4});
+  s+=G(`<text x="426" y="76" class="f16 b">Inside the <tspan class="tealc">day17-rbac</tspan> namespace,</text>`,{an:'fade',d:1.0})+G(`<text x="426" y="108" class="f16 b">this Role permits <tspan class="okc">get</tspan> and <tspan class="okc">list</tspan></text>`,{an:'fade',d:1.6})+G(`<text x="426" y="140" class="f16 b">on <tspan class="webc">ConfigMaps</tspan></text>`,{an:'fade',d:2.2})+G(`<text x="426" y="172" class="f16 b">from the <tspan class="dbc">core API group</tspan>.</text>`,{an:'fade',d:2.8});
+  s+=G(`<rect width="760" height="100" rx="16" class="panel"/>`,{x:20,y:244,an:'fade',d:3.2});
+  [['API group','""','db'],['resource','configmaps','web'],['verbs','get, list','ok'],['namespace','day17-rbac','teal']].forEach(([a,b,k],i)=>{s+=G(`<rect width="160" height="58" rx="12" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><text x="14" y="22" class="f11 b mut">${a}</text><text x="14" y="44" class="m f14 b" style="fill:var(--${k})">${b}</text>`,{x:40+i*190,y:265,an:'pop',d:3.3+i*.2});if(i<3)s+=T(215+i*190,302,'+',{c:'f22 b',a:'middle',d:3.4+i*.2})});
+  s+=G(`<rect width="760" height="110" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/>`,{x:20,y:360,an:'up',d:4.2})+docPaper({x:40,y:374,w:66,h:82,title:'',lines:[],an:'pop',v:{d:4.3}})+`<path d="M52 400H92M52 414H92M52 428H80" class="fade" style="stroke:var(--line);stroke-width:4;--d:4.3s"/>`;
+  s+=T(130,402,'A Role describes WHAT may be done.',{c:'f16 b',d:4.4})+T(130,430,'It names no one: no user, no ServiceAccount.',{c:'f14 mut',d:4.6});
+  return svg(s,'A Role named configmap-reader in day17-rbac allows get and list on configmaps in the core API group. Read as a sentence: inside day17-rbac, this Role permits get and list on ConfigMaps from the core API group. A rule is API group plus resource plus verbs plus namespace, and a Role names no one.');
+}
+// ---------- Day 17 visuals 8-15 ----------
+function V8(){
+  const CB=[['"" (core)','apiGroups: [""]',['pods','services','secrets','configmaps'],'web'],['apps','apiGroups: ["apps"]',['deployments','replicasets','statefulsets'],'teal'],['batch','apiGroups: ["batch"]',['jobs','cronjobs'],'db'],['rbac.authorization.k8s.io','RBAC administration',['roles','rolebindings'],'vol']];
+  let s='';
+  CB.forEach(([g,sub,rs,k],i)=>{const x=20+i*192,d=.2+i*.3;s+=G(`<rect width="180" height="262" rx="14" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><path d="M0 14Q0 0 14 0H166Q180 0 180 14V56H0Z" style="fill:var(--${k})"/><text x="12" y="24" class="m ${g.length>12?'f11':'f13'} b wht">${g}</text><text x="12" y="44" class="m f11 wht">${sub}</text>`+rs.map((r,j)=>`<rect x="12" y="${70+j*46}" width="156" height="36" rx="6" style="fill:var(--surface);stroke:var(--line);stroke-width:2"/><rect x="140" y="${86+j*46}" width="20" height="5" rx="2.5" style="fill:var(--line)"/><text x="20" y="${93+j*46}" class="f13">${r}</text>`).join(''),{x,y:16,an:'up',d})});
+  s+=`<rect x="224" y="86" width="156" height="36" rx="6" class="fade" style="fill:none;stroke:var(--ok);stroke-width:3.5;--d:2.6s"/>`+`<rect x="212" y="16" width="180" height="262" rx="14" class="fade" style="fill:none;stroke:var(--ok);stroke-width:4;--d:2.6s"/>`;
+  s+=term(20,294,420,176,[['rules:','',1.6],['- apiGroups: ["apps"]','tealc b',1.6],['  resources: ["deployments"]','',1.6],['  verbs: ["get", "list", "watch"]','',1.6],['','',1.6],['# Deployments live in apps, not core ("")','mut',2.0]],{lh:22,top:30,d:1.5});
+  s+=G(`<rect width="320" height="176" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="18" y="34" class="f15 b">Name the right group</text><text x="18" y="64" class="f13">Every resource lives in exactly</text><text x="18" y="84" class="f13">one API group.</text><text x="18" y="118" class="f13">Get the group wrong and the rule</text><text x="18" y="138" class="f13 b">simply won’t match.</text>`,{x:460,y:294,an:'up',d:3.0});
+  return svg(s,'Four cabinets for API groups: core, written as an empty string, holds pods, services, secrets and configmaps; apps holds deployments, replicasets and statefulsets; batch holds jobs and cronjobs; rbac.authorization.k8s.io holds roles and rolebindings. A rule for deployments must name the apps group.');
+}
+
+function V9(){
+  let s=term(20,16,300,112,[['rules:','',.2],['- apiGroups: [""]','',.2],['  resources: ["pods", "configmaps"]','b',.2],['  verbs: ["get", "list", "watch"]','b',.2]],{lh:20,top:30,d:.1});
+  s+=term(20,142,300,140,[['rules:','',2.6],['- apiGroups: [""]','',2.6],['  resources: ["pods"]','',2.6],['  verbs: ["get", "list", "watch"]','',2.6],['- apiGroups: [""]','',2.6],['  resources: ["configmaps"]','',2.6],['  verbs: ["get"]','okc b',2.6]],{fs:11,lh:17,top:24,d:2.5});
+  s+=G(`<rect width="440" height="152" rx="16" class="panel"/>`,{x:340,y:16,an:'fade',d:.3});
+  ['get','list','watch'].forEach((v,j)=>{s+=T(560+j*80,48,v,{c:'m f13 b',a:'middle',d:.4})});
+  s+=T(360,96,'Pods',{c:'f14 b',d:.5})+T(360,136,'ConfigMaps',{c:'f14 b',d:.5});
+  for(let j=0;j<3;j++){s+=icon('yes',560+j*80,92,{r:11,d:.8+j*.15});s+=j===0?icon('yes',560,132,{r:11,d:1.4}):icon('yes',560+j*80,132,{r:11,d:1.4+j*.15,o:2.8})+icon('no',560+j*80,132,{r:11,d:2.9})}
+  s+=T(560,160,'one rule: every verb × every resource',{c:'f12 b mut',a:'middle',an:'inout',d:1.6,o:2.8})+T(560,160,'two rules: ConfigMaps get only',{c:'f12 b okc',a:'middle',d:3.0});
+  s+=G(`<rect width="440" height="286" rx="16" class="panel"/><text x="16" y="28" class="f15 b">Blast radius</text>`,{x:340,y:184,an:'fade',d:3.2});
+  for(let r=0;r<4;r++)for(let c=0;c<8;c++){const x=370+c*48,y=230+r*38,i=r*8+c;s+=`<rect x="${x}" y="${y}" width="36" height="28" rx="6" class="fade" style="fill:var(--line);--d:3.3s"/>`;if(i<2)s+=`<rect x="${x}" y="${y}" width="36" height="28" rx="6" class="pop" style="fill:var(--ok);--d:${3.7+i*.1}s"/>`;else s+=`<rect x="${x}" y="${y}" width="36" height="28" rx="6" class="pop" style="fill:var(--bad);fill-opacity:.8;--d:${(4.6+i*.03).toFixed(2)}s"/>`}
+  s+=`<rect x="370" y="230" width="36" height="28" rx="6" class="pop" style="fill:var(--bad);fill-opacity:.8;--d:4.6s"/><rect x="418" y="230" width="36" height="28" rx="6" class="pop" style="fill:var(--bad);fill-opacity:.8;--d:4.63s"/>`;
+  s+=T(356,406,'explicit: only what it needs',{c:'f13 b okc',d:3.8})+T(356,424,'["configmaps"] × ["get", "list"]',{c:'m f11',d:3.8})+T(356,452,'wildcard: resources ["*"], verbs ["*"]',{c:'f13 b badc',d:4.6});
+  s+=G(`<rect width="300" height="174" rx="16" class="panel" style="stroke:var(--ok);stroke-width:2.5"/><text x="16" y="32" class="f16 b okc">Least privilege</text><text x="16" y="60" class="f14">Grant only what the</text><text x="16" y="82" class="f14">job actually needs.</text><text x="16" y="116" class="f13 mut">Prefer explicit resources</text><text x="16" y="136" class="f13 mut">and verbs over "*".</text>`,{x:20,y:296,an:'up',d:3.4});
+  return svg(s,'One rule listing pods and configmaps with get, list and watch grants all six combinations. Splitting it into two rules leaves ConfigMaps with get only. A blast-radius grid shows an explicit rule touching two things, while a wildcard rule touches everything.');
+}
+
+function V10(){
+  let s=pod({x:20,y:52,s:.65,k:'teal',an:'pop',v:{d:.2}})+T(54,124,'Pod: inference-demo',{c:'f11 b',a:'middle',d:.2})+arrow({x1:92,y1:78,x2:126,y2:80},{d:.4,dur:.2});
+  s+=idCard({x:130,y:40,w:180,h:80,name:'inference-reader',sub:'WHO',an:'pop',v:{d:.4}});
+  s+=T(405,88,'?',{c:'f22 b mut',a:'middle',an:'inout',d:.8,o:1.8})+bindBand(330,56,150,50,'RoleBinding','connects',{d:1.8});
+  s+=docPaper({x:500,y:20,w:150,h:130,title:'Role: WHAT',lines:['configmap-reader','get, list','configmaps'],an:'pop',v:{d:.6}});
+  s+=arrow({x1:312,y1:80,x2:328,y2:80},{d:2.0,dur:.15,c:'var(--vol)'})+arrow({x1:482,y1:80,x2:498,y2:80},{d:2.0,dur:.15,c:'var(--vol)'})+arrow({x1:652,y1:86,x2:686,y2:88},{d:2.4,dur:.2})+rdoor(690,40,'configmaps',{k:'teal',d:.4,open:2.6});
+  s+=term(20,180,380,290,[['kind: RoleBinding','',.8],['metadata:','',.8],['  name: inference-reader-binding','',.8],['  namespace: day17-rbac','',.8],['subjects:','tealc b',.8],['- kind: ServiceAccount','',.8],['  name: inference-reader','',.8],['  namespace: day17-rbac','',.8],['roleRef:','webc b',.8],['  kind: Role','',.8],['  name: configmap-reader','',.8],['  apiGroup: rbac.authorization.k8s.io','',.8]],{lh:20,top:28,d:.7});
+  s+=hlr(28,274,364,80,'teal',3.0)+hlr(28,354,364,80,'web',3.4)+T(386,292,'WHO',{c:'f12 b tealc',a:'end',d:3.0})+T(386,372,'WHAT',{c:'f12 b webc',a:'end',d:3.4});
+  s+=G(`<rect width="360" height="290" rx="16" class="panel"/><text x="16" y="30" class="f15 b">Effective result</text>`,{x:420,y:180,an:'fade',d:3.6});
+  [['yes','get, list ConfigMaps in day17-rbac'],['no','delete ConfigMaps'],['no','read Pods'],['no','read Secrets'],['no','anything in another namespace']].forEach(([t,l],i)=>{const y=244+i*30,d=3.8+i*.2;s+=icon(t,446,y-5,{r:9,d})+T(464,y,l,{c:'f13'+(t==='yes'?' b':''),d})});
+  s+=G(`<rect width="328" height="66" rx="10" style="fill:var(--warn);fill-opacity:.14;stroke:var(--warn);stroke-width:2"/><text x="14" y="26" class="f13 b">Role = a job description.</text><text x="14" y="48" class="f13 b">RoleBinding = HR assigning it.</text>`,{x:436,y:392,an:'up',d:4.9});
+  return svg(s,'A Pod runs as the ServiceAccount inference-reader, the WHO. A RoleBinding connects it to the Role configmap-reader, the WHAT, and the configmaps door opens. The YAML’s subjects field names who; roleRef names the Role. The result: get and list ConfigMaps in day17-rbac, but no delete, no Pods, no Secrets and nothing in other namespaces.');
+}
+
+function V11(){
+  let s=G(`<rect width="440" height="330" rx="16" class="panel"/><text x="16" y="28" class="m f13 b">cluster</text>`,{x:20,y:16,an:'fade',d:.1});
+  [['dev','Pods','ConfigMaps'],['production','Pods','ConfigMaps'],['monitoring','Pods','Agents']].forEach(([n,a,b],i)=>{const x=36+i*140;s+=G(`<rect width="128" height="150" rx="12" class="nodebox"/><text x="12" y="24" class="m f13 b">${n}</text><rect x="12" y="44" width="104" height="28" rx="6" class="codebg"/><text x="22" y="63" class="f12">${a}</text><rect x="12" y="80" width="104" height="28" rx="6" class="codebg"/><text x="22" y="99" class="f12">${b}</text>`,{x,y:52,an:'pop',d:.2+i*.1})});
+  s+=G(`<rect width="408" height="104" rx="12" style="fill:var(--line);fill-opacity:.35;stroke:var(--ink-2);stroke-width:2;stroke-dasharray:7 5"/><text x="14" y="26" class="f12 b mut">cluster-scoped resources</text>`,{x:36,y:224,an:'fade',d:.5})+['Nodes','PVs','Namespaces'].map((t,i)=>G(`<rect width="110" height="32" rx="8" class="codebg"/><text x="55" y="21" text-anchor="middle" class="f13">${t}</text>`,{x:50+i*126,y:270,an:'pop',d:.6+i*.1})).join('');
+  const glow=(x,y,w,h,d,o)=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="12" class="${o?'inout':'fade'}" style="fill:var(--ok);fill-opacity:.18;stroke:var(--ok);stroke-width:4;--d:${d}s${o?`;--o:${o}s`:''}"/>`;
+  s+=glow(36,52,128,150,.9,2.9)+glow(316,52,128,150,2.9,4.9)+glow(36,52,128,150,4.9)+glow(176,52,128,150,4.9)+glow(316,52,128,150,4.9)+glow(36,224,408,104,4.9);
+  [['Role + RoleBinding','one namespace','teal','app permissions in one namespace',.9],['ClusterRole + RoleBinding','one namespace','teal','reuse one definition in many namespaces',2.9],['ClusterRole + ClusterRoleBinding','cluster-wide','bad','monitoring, node visibility, justified global access',4.9]].forEach(([t,sc,k,u,d],i)=>{const y=16+i*112;s+=G(`<rect width="300" height="100" rx="14" class="panel"/><text x="16" y="28" class="f13 b">${t}</text><text x="16" y="52" class="f13 b" style="fill:var(--${k})">${sc}</text><text x="16" y="76" class="f11 mut">${u}</text>`,{x:480,y,an:'up',d:.3+i*.2})+`<rect x="480" y="${y}" width="300" height="100" rx="14" class="hlrow blip" style="--d:${d}s;--dur:2s"/>`});
+  s+=G(`<rect width="760" height="108" rx="16" class="panel"/>`,{x:20,y:362,an:'up',d:5.6})+T(40,394,'Role: namespaced. ClusterRole: not namespaced, and can cover Nodes and other cluster-scoped resources.',{c:'f13',d:5.7})+T(40,430,'The binding decides where the grant applies.',{c:'f16 b',d:5.9});
+  return svg(s,'A cluster with three namespaces, dev, production and monitoring, above a basement of cluster-scoped resources: Nodes, PVs and Namespaces. Role plus RoleBinding lights up only dev; ClusterRole plus RoleBinding lights up only monitoring; ClusterRole plus ClusterRoleBinding lights up every namespace and the cluster-scoped resources.');
+}
+
+function V12(){
+  let s=docPaper({x:290,y:12,w:220,h:100,title:'ClusterRole: pod-reader',lines:['pods: get, list, watch'],an:'pop',v:{d:.2}})+T(400,128,'defined once',{c:'f12 b',a:'middle',d:.4});
+  ['team-a','team-b','team-c'].forEach((t,i)=>{const x=30+i*180,d=.8+i*.4;s+=arrow({x1:400,y1:132,x2:x+80,y2:148},{d,dur:.3,c:'var(--vol)',w:2})+bindBand(x+6,150,148,30,'RoleBinding','',{d:d+.2})+G(`<rect width="160" height="132" rx="12" class="nodebox"/><text x="12" y="20" class="m f12 b">${t}</text>`,{x,y:186,an:'pop',d:d-.4})+idCard({x:x+12,y:222,w:136,h:54,name:'app-sa',sub:t,an:'pop',v:{d:d+.3}})+`<rect x="${x}" y="186" width="160" height="132" rx="12" class="fade" style="fill:var(--ok);fill-opacity:.15;stroke:var(--ok);stroke-width:3;--d:${d+.5}s"/>`+T(x+80,304,'pods ✓ here only',{c:'f11 b okc',a:'middle',d:d+.5})});
+  s+=G(`<rect width="190" height="300" rx="16" class="panel"/><text x="16" y="28" class="f14 b">Reading Nodes?</text><text x="16" y="46" class="f11 mut">Nodes are cluster-scoped</text>`,{x:590,y:16,an:'fade',d:2.4});
+  s+=G(`<rect width="158" height="84" rx="12" class="panel" style="stroke:var(--bad);stroke-width:2.5"/><text x="14" y="28" class="f13 b">Role</text><text x="14" y="52" class="f11">can’t grant Nodes:</text><text x="14" y="68" class="f11">it’s namespaced</text>`,{x:606,y:76,an:'pop',d:2.6})+icon('no',742,104,{r:11,d:2.8});
+  s+=G(`<rect width="158" height="128" rx="12" class="panel" style="stroke:var(--ok);stroke-width:2.5"/><text x="14" y="28" class="f13 b">ClusterRole</text><text x="14" y="46" class="m f11">node-reader</text><text x="14" y="70" class="f11">+ ClusterRoleBinding</text><text x="14" y="96" class="f11">cluster-wide,</text><text x="14" y="112" class="f11">only if justified</text>`,{x:606,y:172,an:'pop',d:3.0})+icon('yes',742,200,{r:11,d:3.2});
+  s+=term(20,330,330,140,[['kind: RoleBinding','',3.4],['metadata:','',3.4],['  namespace: team-a','tealc b',3.4],['roleRef:','',3.4],['  kind: ClusterRole','webc b',3.4],['  name: pod-reader','',3.4]],{lh:18,top:28,d:3.3});
+  s+=G(`<rect width="410" height="140" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="18" y="36" class="f15 b">ClusterRole ≠ everyone, everywhere.</text><text x="18" y="66" class="f13">A ClusterRole is only a definition.</text><text x="18" y="92" class="f13 b">The binding decides who gets it,</text><text x="18" y="112" class="f13 b">and where.</text>`,{x:370,y:330,an:'up',d:3.8});
+  return svg(s,'One ClusterRole named pod-reader is granted through a RoleBinding in each of team-a, team-b and team-c, so each team’s app-sa can read Pods only in its own namespace. Reading Nodes needs a ClusterRole such as node-reader with a ClusterRoleBinding, because a namespaced Role can’t grant cluster-scoped resources.');
+}
+
+function V13(){
+  const C='$ kubectl auth can-i ';
+  let s=term(20,16,470,300,[['$ SA=system:serviceaccount:day17-rbac:inference-reader','mut',.2],[C+'get configmaps --as=$SA -n day17-rbac','',.6],['yes','okc b',.9],[C+'delete configmaps --as=$SA -n day17-rbac','',1.6],['no','badc b',1.9],[C+'get pods --as=$SA -n day17-rbac','',2.4],['no','badc b',2.7],[C+'get configmaps --as=$SA -n default','',3.2],['no','badc b',3.5]],{fs:11,lh:25,top:30,d:.1});
+  s+=G(`<rect width="270" height="300" rx="16" class="panel"/>`,{x:510,y:16,an:'fade',d:.3})+T(524,48,'resource',{c:'f11 b mut',d:.3})+T(608,48,'verb',{c:'f11 b mut',d:.3})+T(660,48,'namespace',{c:'f11 b mut',d:.3});
+  [['ConfigMap','get','day17-rbac',1,.9],['ConfigMap','list','day17-rbac',1,1.2],['ConfigMap','delete','day17-rbac',0,1.9],['Pod','get','day17-rbac',0,2.7],['ConfigMap','get','default',0,3.5]].forEach(([r,v,n,ok,d],i)=>{const y=92+i*46;s+=`<path d="M520 ${y-28}H770" class="sep fade" style="--d:${d}s"/>`+T(524,y,r,{c:'f12',d})+T(608,y,v,{c:'m f12 b',d})+T(660,y,n,{c:'m f11',d})+icon(ok?'yes':'no',760,y-4,{r:10,d})});
+  s+=term(20,332,470,56,[['$ kubectl auth can-i --list --as=$SA -n day17-rbac','b',4.0]],{fs:11,lh:20,top:33,d:3.9});
+  s+=T(20,420,'Test both sides: what should work, and what shouldn’t.',{c:'f15 b',d:4.4})+T(20,446,'Probe each boundary: verb, resource, namespace.',{c:'f13 mut',d:4.6});
+  s+=G(`<rect width="270" height="138" rx="16" class="panel"/><text x="16" y="32" class="f14 b">--list shows everything</text><text x="16" y="60" class="f13">this identity can do here.</text><text x="16" y="94" class="f13">Then ask of each line:</text><text x="16" y="116" class="f13 b">expected? necessary?</text>`,{x:510,y:332,an:'up',d:4.2});
+  return svg(s,'kubectl auth can-i checks inference-reader: get configmaps in day17-rbac is yes; delete configmaps, get pods, and get configmaps in default are all no. A matrix lists the five expected results, and can-i --list shows every permission so each can be checked as expected and necessary.');
+}
+
+function V14(){
+  let s='';
+  [['WHO','ml/trainer','teal'],['VERB','create','ok'],['RESOURCE','jobs','web'],['SCOPE','namespace ml','db'],['THEN','auth can-i','ink']].forEach(([a,b,k],i)=>{const x=20+i*152;s+=G(`<rect width="140" height="64" rx="12" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><text x="14" y="24" class="f11 b mut">${a}</text><text x="14" y="48" class="m f13 b" style="fill:var(--${k})">${b}</text>`,{x,y:16,an:'pop',d:.3+i*.4});if(i<4)s+=arrow({x1:x+142,y1:48,x2:x+150,y2:48},{d:.5+i*.4,dur:.1,c:'var(--ink-2)',w:2})});
+  s+=G(`<rect width="760" height="86" rx="14" class="codebg"/>`,{x:20,y:100,an:'fade',d:1.8});
+  const segs=[['kubectl auth can-i ',36,null,2.0],['create',184.2,'ok',2.2],['jobs',238.8,'web',2.4],[' --as=',270,null,2.0],['system:serviceaccount:ml:trainer',316.8,'teal',2.6],[' -n ',566.4,null,2.0],['ml',597.6,'db',2.8]];
+  segs.forEach(([t,x,k,d])=>{if(k)s+=hlr(x-2,121,t.length*7.8+4,24,k,d);s+=T(x,138,t.replace(/ /g,'\u00A0'),{c:'m f13'+(k?' b':''),d})});
+  s+=T(36,170,'no',{c:'m f13 b badc',d:3.2})+T(66,170,'→ RBAC says no. Next: should it be allowed at all?',{c:'f12 mut',d:3.4});
+  s+=G(`<rect width="760" height="264" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/>`,{x:20,y:206,an:'up',d:3.8})+T(40,240,'Important distinction',{c:'f15 b warnc',d:3.9})+T(40,272,'kubectl auth can-i --as=… answers:',{c:'m f13 b',d:4.0})+T(40,300,'“If a request arrives as this identity,',{c:'f14',d:4.1})+T(40,322,'would it be authorized?”',{c:'f14',d:4.1})+T(40,364,'It doesn’t prove that a Pod actually holds',{c:'f14 b',d:4.4})+T(40,386,'usable credentials for that identity.',{c:'f14 b',d:4.4});
+  s+=idCard({x:480,y:236,w:180,h:70,name:'trainer',sub:'RBAC: authorized',an:'pop',v:{d:4.6}})+icon('yes',690,272,{r:12,d:4.7});
+  s+=pod({x:494,y:340,s:.7,k:'teal',mood:'worried',an:'pop',v:{d:4.9}})+G(`<rect width="96" height="44" rx="8" style="fill:none;stroke:var(--ink-2);stroke-width:2.5;stroke-dasharray:6 5"/><text x="48" y="28" text-anchor="middle" class="f12 b mut">no token</text>`,{x:588,y:346,an:'pop',d:5.1})+icon('no',700,368,{r:12,d:5.2})+T(616,440,'authorized, but can’t prove who it is',{c:'f12 b badc',a:'middle',d:5.4});
+  return svg(s,'A workflow: identify who (ml/trainer), the verb (create), the resource (jobs) and the scope (namespace ml), then run kubectl auth can-i for exactly that request, which answers no. can-i only says whether an identity would be authorized; it doesn’t prove a Pod holds a usable token.');
+}
+
+function V15(){
+  let s=G(`<rect width="760" height="110" rx="16" class="panel"/>`,{x:20,y:16,an:'fade',d:.1});
+  s+=idCard({x:36,y:38,w:164,h:66,name:'ServiceAccount',sub:'identity',an:'pop',v:{d:.2}})+arrow({x1:204,y1:72,x2:236,y2:72},{d:.5,dur:.2});
+  s+=keyI(244,52,{s:.9,d:.6})+T(312,66,'Token',{c:'f14 b',d:.6})+T(312,86,'credential',{c:'f12 mut',d:.6})+arrow({x1:384,y1:72,x2:436,y2:72},{d:.9,dur:.2})+T(404,58,'authenticate',{c:'f11 b',a:'middle',d:.9});
+  s+=crate({x:440,y:30,w:122,h:84,k:'db',name:'API server',an:'pop',v:{d:1.0}})+arrow({x1:566,y1:72,x2:632,y2:72},{d:1.3,dur:.2})+T(599,58,'authorize',{c:'f11 b',a:'middle',d:1.3});
+  s+=rdoor(640,44,'',{w:44,h:62,k:'web',d:1.4,open:2.0})+T(696,70,'RBAC',{c:'f14 b',d:1.4})+T(696,90,'authorizes',{c:'f12 mut',d:1.4});
+  s+=G(`<rect width="380" height="220" rx="16" class="panel"/><text x="16" y="28" class="m f11 b">/var/run/secrets/kubernetes.io/serviceaccount/</text>`,{x:20,y:142,an:'fade',d:2.2});
+  [['token','proves the ServiceAccount’s identity'],['ca.crt','verifies the API server’s certificate'],['namespace','tells software which namespace it’s in']].forEach(([n,t],i)=>{const y=210+i*50,d=2.4+i*.3;s+=G(fileI,{x:36,y:y-16,an:'pop',d})+T(64,y,n,{c:'m f14 b',d})+T(64,y+18,t,{c:'f12 mut',d})});
+  s+=G(`<rect width="360" height="220" rx="16" class="panel"/><text x="16" y="28" class="f14 b">Short-lived beats long-lived</text>`,{x:420,y:142,an:'fade',d:3.0})+T(436,196,'projected token, rotated',{c:'f12 b okc',d:3.1});
+  for(let i=0;i<5;i++)s+=`<rect x="${436+i*66}" y="206" width="58" height="18" rx="5" class="grow-x" style="fill:var(--ok);--d:${(3.2+i*.35).toFixed(2)}s"/>`;
+  s+=keyI(458,232,{s:.4,d:3.6,k:'bad'})+T(486,244,'a stolen copy stops working at expiry',{c:'f11 b',d:3.7});
+  s+=T(436,282,'static token Secret',{c:'f12 b badc',d:4.2})+`<rect x="436" y="292" width="328" height="18" rx="5" class="grow-x" style="fill:var(--bad);--d:4.3s"/>`+T(436,334,'works until someone revokes it',{c:'f11 b badc',d:4.6})+T(764,352,'time →',{c:'f11 mut',a:'end',d:3.1});
+  s+=term(20,378,760,92,[['$ kubectl exec -n day17-rbac inference-demo -- ls /var/run/secrets/kubernetes.io/serviceaccount','',4.8],['ca.crt  namespace  token','okc b',5.1]],{fs:11,lh:24,top:34,d:4.7});
+  return svg(s,'A chain: the ServiceAccount is the identity, the token is the credential, the API server authenticates it, and RBAC authorizes. The Pod’s mount folder holds token, ca.crt and namespace. Projected tokens are short-lived and rotated, so a stolen copy stops working, unlike a static token Secret that works until revoked.');
+}
+// ---------- Day 17 visuals 16-22 ----------
+function V16(){
+  const drawer=(x,y,full,d)=>G(`<rect width="110" height="62" rx="8" style="fill:var(--surface);stroke:var(--ink);stroke-width:2.5${full?'':';stroke-dasharray:7 5'}"/><rect x="40" y="8" width="30" height="6" rx="3" class="inkf"/>`,{x,y,an:'pop',d});
+  let s=G(`<rect width="370" height="300" rx="16" class="panel" style="stroke:var(--ok);stroke-width:2.5"/><text x="16" y="30" class="f15 b">Calls the API</text><text x="16" y="50" class="f12 mut">e.g. a controller</text>`,{x:20,y:16,an:'fade',d:.1});
+  s+=pod({x:36,y:100,s:.75,k:'teal',an:'pop',v:{d:.3}})+drawer(140,110,true,.5)+keyI(160,132,{s:.65,d:.8})+T(195,196,'token mounted',{c:'f12 b',a:'middle',d:.8});
+  s+=crate({x:290,y:100,w:88,h:76,k:'db',name:'API',an:'pop',v:{d:.6}})+arrow({x1:252,y1:140,x2:286,y2:140},{d:1.2,dur:.2})+packet(252,140,286,140,{d:1.5,dur:.3,c:'var(--warn)',r:6});
+  s+=icon('yes',46,270,{r:11,d:1.6})+T(66,275,'it needs the API: keep the token',{c:'f13 b',d:1.6});
+  s+=G(`<rect width="370" height="300" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="16" y="30" class="f15 b">Only serves predictions</text><text x="16" y="50" class="f12 mut">model-server, never calls the API</text>`,{x:410,y:16,an:'fade',d:1.8});
+  s+=pod({x:430,y:100,s:.75,k:'teal',mood:'happy',m2:'worried',t2:3.0,an:'pop',v:{d:2.0}})+drawer(540,110,false,2.2)+T(595,148,'empty',{c:'f12 b mut',a:'middle',d:2.3})+T(595,196,'no token',{c:'f12 b',a:'middle',d:2.3});
+  s+=G(`<rect width="338" height="30" rx="8" class="codebg"/><text x="12" y="20" class="m f12 b">automountServiceAccountToken: false</text>`,{x:426,y:212,an:'pop',d:2.4});
+  s+=bubble(668,96,'hacked!',{fs:13,mono:false,tail:'bl',tp:12,d:3.0})+icon('yes',436,272,{r:11,d:3.6})+T(456,277,'attacker finds no API key to steal',{c:'f13 b okc',d:3.6});
+  s+=term(20,332,370,138,[['spec:','',4.0],['  serviceAccountName: model-sa','',4.0],['  automountServiceAccountToken: false','okc b',4.0],['  containers: …','',4.0]],{lh:24,top:32,d:3.9});
+  s+=G(`<rect width="370" height="138" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="16" y="30" class="f14 b warnc">Not the same as removing access</text><text x="16" y="56" class="f13">The ServiceAccount and its RBAC stay.</text><text x="16" y="80" class="m f12 b">kubectl auth can-i → still yes</text><text x="16" y="108" class="f13 b">The Pod just doesn’t get the key.</text>`,{x:410,y:332,an:'up',d:4.4});
+  return svg(s,'A controller that calls the API keeps its mounted token. A model server that only serves predictions sets automountServiceAccountToken: false, so its drawer is empty and an attacker who compromises it finds no API key. The ServiceAccount and its RBAC still exist; can-i still says yes.');
+}
+
+function V17(){
+  let s=term(20,16,760,124,[['Forbidden:','badc b',.2],['User "system:serviceaccount:ml:trainer"','',.2],['cannot create resource "jobs"','',.2],['in API group "batch"','',.2],['in the namespace "ml"','',.2]],{fs:13,lh:20,top:26,d:.1});
+  s+=hlr(73,47,269,20,'teal',.8)+hlr(88.6,67,50.8,20,'ok',1.2)+hlr(213.4,67,50.8,20,'web',1.6)+hlr(135.4,87,58.6,20,'vol',1.6)+hlr(166.6,107,35.2,20,'db',2.0);
+  [['WHO?','ml/trainer','the ServiceAccount','teal',.8],['VERB?','create','the attempted action','ok',1.2],['RESOURCE?','jobs','API group: batch','web',1.6],['WHERE?','ml','the namespace','db',2.0]].forEach(([a,b,c,k,d],i)=>{s+=G(`<rect width="180" height="110" rx="14" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><text x="16" y="28" class="f12 b mut">${a}</text><text x="16" y="62" class="m f17 b" style="fill:var(--${k})">${b}</text><text x="16" y="90" class="f11 mut">${c}</text>`,{x:20+i*195,y:158,an:'pop',d})});
+  s+=G(`<rect width="760" height="182" rx="16" class="panel"/>`,{x:20,y:288,an:'up',d:2.8})+T(40,322,'Before touching YAML, ask one more thing:',{c:'f15 b',d:2.9})+T(40,356,'Should a trainer create Jobs at all?',{c:'f18 b',d:3.2});
+  s+=G(`<rect width="350" height="60" rx="14" style="fill:var(--ok);fill-opacity:.13;stroke:var(--ok);stroke-width:2.5"/><text x="18" y="37" class="f14 b">Yes: add only create on jobs in ml</text>`,{x:40,y:384,an:'pop',d:3.6})+G(`<rect width="350" height="60" rx="14" style="fill:var(--warn);fill-opacity:.13;stroke:var(--warn);stroke-width:2.5"/><text x="18" y="37" class="f14 b">No: keep it denied, fix the app</text>`,{x:410,y:384,an:'pop',d:3.9});
+  return svg(s,'A Forbidden error says user system:serviceaccount:ml:trainer cannot create resource jobs in API group batch in namespace ml. Four cards extract who (ml/trainer), verb (create), resource (jobs) and where (ml). Then ask whether a trainer should create Jobs at all: if yes, add only that permission; if no, keep it denied and fix the app.');
+}
+
+function V18(){
+  const Q=['Pod uses the expected ServiceAccount?','Binding correct?','Role has the right resource + verb?','Scope correct?','Should the app be allowed at all?'];
+  const F=['check serviceAccountName in the Pod','check subjects, roleRef, namespace','fix the Role / ClusterRole and API group','Role vs ClusterRole; RoleBinding vs ClusterRoleBinding'];
+  let s='';
+  Q.forEach((q,i)=>{const y=16+i*68,d=.2+i*.2;s+=G(`<rect width="320" height="46" rx="12" class="panel" style="stroke:var(--${i===4?'warn':'db'});stroke-width:2.5"/><text x="16" y="29" class="f13 b">${q}</text>`,{x:20,y,an:'pop',d})+`<rect x="20" y="${y}" width="320" height="46" rx="12" class="hlrow blip" style="--d:${1.6+i*.5}s;--dur:.8s"/>`;
+    if(i<4){s+=arrow({x1:342,y1:y+23,x2:416,y2:y+23},{d:d+.2,dur:.2,c:'var(--bad)',w:2})+T(379,y+16,'no',{c:'f11 b badc',a:'middle',d:d+.2})+G(`<rect width="360" height="46" rx="12" class="panel"/><text x="14" y="29" class="f12">${F[i]}</text>`,{x:420,y,an:'pop',d:d+.3})+arrow({x1:60,y1:y+48,x2:60,y2:y+66},{d:d+.2,dur:.15,c:'var(--ok)',w:2})+T(70,y+62,'yes',{c:'f11 b okc',d:d+.2})}});
+  s+=arrow({x1:110,y1:336,x2:110,y2:350},{d:1.4,dur:.15,c:'var(--ok)',w:2})+T(120,347,'yes',{c:'f11 b okc',d:1.4})+arrow({x1:300,y1:336,q:[400,340],x2:540,y2:350},{d:1.4,dur:.3,c:'var(--bad)',w:2})+T(430,334,'no',{c:'f11 b badc',d:1.4});
+  s+=G(`<rect width="370" height="50" rx="12" style="fill:var(--ok);fill-opacity:.13;stroke:var(--ok);stroke-width:2.5"/><text x="16" y="31" class="f14 b">Add only the minimum permission</text>`,{x:20,y:352,an:'pop',d:1.5})+G(`<rect width="370" height="50" rx="12" style="fill:var(--warn);fill-opacity:.13;stroke:var(--warn);stroke-width:2.5"/><text x="16" y="31" class="f14 b">Keep it denied; fix the application</text>`,{x:410,y:352,an:'pop',d:1.6});
+  s+=`<rect x="20" y="352" width="370" height="50" rx="12" class="hlrow blip" style="--d:4.2s;--dur:1s"/><rect x="410" y="352" width="370" height="50" rx="12" class="hlrow blip" style="--d:4.2s;--dur:1s"/>`;
+  s+=G(`<rect width="760" height="54" rx="14" class="codebg"/><text x="20" y="33" class="m f12">kubectl get pod -o yaml · describe rolebinding · describe role · auth can-i</text>`,{x:20,y:416,an:'fade',d:4.6});
+  return svg(s,'A troubleshooting path for Forbidden: does the Pod use the expected ServiceAccount? Is the binding correct? Does the Role have the right resource and verb? Is the scope correct? Each no leads to a specific fix. Finally, should the app be allowed? If yes, add only the minimum permission; if no, keep it denied and fix the app.');
+}
+
+function V19(){
+  const P=[[['Wrong','ServiceAccount'],['serviceAccountName','omitted, so it uses','default silently']],[['Wrong verb'],['read-only role, but','the app tries to','patch or delete']],[['Wrong','namespace'],['binding is in dev;','the request targets','production']],[['Wrong scope'],['a namespaced Role','can’t grant Nodes']],[['No','credentials'],['RBAC says yes, but','automount is off:','no token mounted']]];
+  let s='';
+  P.forEach(([t,dl],i)=>{const x=20+i*152,d=.2+i*.3;s+=G(`<rect width="144" height="176" rx="14" class="panel"/><circle cx="26" cy="28" r="14" style="fill:var(--warn)"/><text x="26" y="33" text-anchor="middle" class="f13 b">${i+1}</text>`+t.map((l,j)=>`<text x="14" y="${70+j*18}" class="f13 b">${l}</text>`).join('')+dl.map((l,j)=>`<text x="14" y="${118+j*16}" class="f11">${l}</text>`).join(''),{x,y:16,an:'up',d})});
+  s+=G(`<rect width="370" height="262" rx="16" class="panel" style="stroke:var(--bad);stroke-width:2.5"/><text x="16" y="30" class="f13 b badc">Anti-pattern: “just give it cluster-admin”</text>`,{x:20,y:208,an:'fade',d:1.8});
+  for(let r=0;r<3;r++)for(let c=0;c<6;c++){const x=50+c*52,y=252+r*44,i=r*6+c;s+=`<rect x="${x}" y="${y}" width="40" height="32" rx="7" class="fade" style="fill:var(--line);--d:1.9s"/><rect x="${x}" y="${y}" width="40" height="32" rx="7" class="pop" style="fill:var(--bad);fill-opacity:.85;--d:${(i?2.8+i*.05:2.2).toFixed(2)}s"/>`}
+  s+=T(70,272,'hacked',{c:'f11 b wht',a:'middle',d:2.3})+T(36,410,'One compromised app with cluster-admin',{c:'f13',d:3.8})+T(36,432,'becomes a cluster-wide compromise.',{c:'f13 b badc',d:3.9});
+  s+=G(`<rect width="370" height="262" rx="16" class="panel" style="stroke:var(--ok);stroke-width:2.5"/><text x="16" y="30" class="f13 b">Anti-pattern: “Forbidden = RBAC is broken”</text>`,{x:410,y:208,an:'fade',d:2.4});
+  s+=G(`<path d="M0 12L36 0L72 12V44Q72 78 36 94Q0 78 0 44Z" style="fill:var(--ok);fill-opacity:.18;stroke:var(--ok);stroke-width:3"/><path d="M20 48L32 60L54 34" style="fill:none;stroke:var(--ok);stroke-width:5;stroke-linecap:round;stroke-linejoin:round"/>`,{x:640,y:250,an:'pop',d:2.6});
+  s+=T(436,290,'delete secrets?',{c:'m f12 b',d:2.8})+arrow({x1:436,y1:304,x2:630,y2:304},{d:3.0,dur:.4,c:'var(--bad)',w:2.5})+icon('no',620,304,{r:12,d:3.4});
+  s+=T(426,400,'A denial can be RBAC working as designed.',{c:'f13 b okc',d:3.8})+T(426,424,'First ask: should the app do this at all?',{c:'f13',d:4.0});
+  return svg(s,'Five common failures: the wrong ServiceAccount, the wrong verb, the wrong namespace, the wrong scope, and no credentials because automount is off. Two anti-patterns: granting cluster-admin turns one compromised app into a compromised cluster, and a Forbidden response can be RBAC correctly blocking something the app shouldn’t do.');
+}
+
+function V20(){
+  let s=G(`<rect width="370" height="454" rx="16" class="panel"/><text x="16" y="30" class="f14 b">Lab steps</text>`,{x:20,y:16,an:'fade',d:.1});
+  [['Namespace + ServiceAccount','day17-rbac, inference-reader'],['A sample ConfigMap','model-config: MODEL_NAME=resnet50, BATCH_SIZE=32'],['Role','configmap-reader: get, list ConfigMaps'],['RoleBinding','inference-reader-binding'],['Pod with serviceAccountName','inference-demo runs as inference-reader'],['Prove the yeses','get ✓   list ✓'],['Prove the nos','delete ✗   secrets ✗   default ✗'],['Inspect the token mount','then compare automount: false']].forEach(([a,b],i)=>{const y=70+i*50,d=.3+i*.35;s+=`<circle cx="44" cy="${y-5}" r="12" class="inkf pop" style="--d:${d}s"/>`+T(44,y,String(i+1),{c:'f12 b inv',a:'middle',d})+T(64,y-2,a,{c:'f13 b',d})+T(64,y+15,b,{c:i>=5&&i<7?'m f11 b':'f11 mut',d})});
+  s+=G(`<rect width="370" height="454" rx="16" class="panel"/>`,{x:410,y:16,an:'fade',d:.2});
+  s+=G(`<rect width="150" height="48" rx="10" class="inkf"/><text x="75" y="30" text-anchor="middle" class="f13 b inv">Inference Pod</text>`,{x:430,y:40,an:'pop',d:.6})+arrow({x1:505,y1:90,x2:505,y2:112},{d:.8,dur:.2})+keyI(440,118,{s:.55,d:.9})+T(484,132,'projected SA token',{c:'f12 b',d:.9});
+  s+=crate({x:626,y:36,w:140,h:84,k:'db',name:'API server',an:'pop',v:{d:1.0}})+arrow({x1:604,y1:128,x2:640,y2:122},{d:1.2,dur:.2})+T(600,156,'authenticate',{c:'f11 b',d:1.2});
+  s+=idCard({x:430,y:196,w:180,h:70,name:'inference-reader',sub:'ServiceAccount',an:'pop',v:{d:1.6}})+bindBand(430,290,180,40,'RoleBinding','',{d:1.9})+docPaper({x:430,y:352,w:180,h:100,title:'Role',lines:['configmap-reader','get, list ConfigMaps'],an:'pop',v:{d:2.2}});
+  s+=arrow({x1:520,y1:268,x2:520,y2:288},{d:2.0,dur:.15,c:'var(--vol)'})+arrow({x1:520,y1:332,x2:520,y2:350},{d:2.3,dur:.15,c:'var(--vol)'})+arrow({x1:690,y1:124,x2:614,y2:214},{dash:true,d:2.5,c:'var(--db)',w:2})+T(700,172,'authorization',{c:'f11 b',d:2.5})+T(700,186,'decision',{c:'f11 b',d:2.5});
+  [['yes','get configmaps'],['yes','list configmaps'],['no','delete configmaps'],['no','get secrets'],['no','other namespace']].forEach(([t,l],i)=>{const y=262+i*34,d=3.0+i*.25;s+=icon(t,640,y-4,{r:9,d})+T(656,y,l,{c:'f12',d})});
+  return svg(s,'The lab in eight steps: create namespace day17-rbac and ServiceAccount inference-reader, a sample ConfigMap, the configmap-reader Role, a RoleBinding, and a Pod running as inference-reader; prove get and list work and delete, secrets and the default namespace don’t; then inspect the token mount. The architecture links the Pod’s token, the API server, the ServiceAccount, the binding and the Role.');
+}
+
+const miniSvg=(inner,vb)=>`<svg viewBox="${vb}" aria-hidden="true">${inner}</svg>`;
+function V21(){
+  const CARD=`<rect x="0" y="6" width="44" height="34" rx="5" style="fill:var(--surface);stroke:var(--teal);stroke-width:3"/><rect x="0" y="6" width="44" height="8" rx="3" style="fill:var(--teal)"/><circle cx="13" cy="26" r="5" style="fill:var(--teal)"/><g transform="translate(30 30) scale(.45)"><circle cx="12" cy="15" r="10" style="fill:none;stroke:var(--warn);stroke-width:7"/><rect x="21" y="12" width="40" height="8" rx="3" style="fill:var(--warn)"/></g>`;
+  const DOOR=`<rect x="8" y="4" width="34" height="46" rx="3" style="fill:var(--line);stroke:var(--ink);stroke-width:3"/><rect x="12" y="8" width="26" height="40" style="fill:var(--web);fill-opacity:.6"/><circle cx="25" cy="-2" r="4" style="fill:var(--bad)"/>`;
+  const RB=`<rect x="0" y="4" width="34" height="42" rx="4" style="fill:var(--surface);stroke:var(--ink);stroke-width:2.5"/><path d="M6 16H28M6 24H28M6 32H20" style="stroke:var(--line);stroke-width:3"/><rect x="34" y="18" width="24" height="12" rx="6" style="fill:var(--vol)"/>`;
+  const SC=`<rect x="0" y="4" width="58" height="44" rx="5" style="fill:none;stroke:var(--ink-2);stroke-width:2.5"/><rect x="5" y="10" width="14" height="18" rx="2" style="fill:var(--ok)"/><rect x="22" y="10" width="14" height="18" rx="2" style="fill:var(--line)"/><rect x="39" y="10" width="14" height="18" rx="2" style="fill:var(--line)"/><rect x="5" y="33" width="48" height="10" rx="2" style="fill:var(--line)"/>`;
+  const TE=`<rect width="60" height="44" rx="6" class="inkf"/><text x="8" y="28" class="m f13 b" style="fill:#7ee2b8">can-i?</text>`;
+  const SH=`<path d="M0 8L24 0L48 8V28Q48 48 24 56Q0 48 0 28Z" style="fill:var(--ok);fill-opacity:.2;stroke:var(--ok);stroke-width:3"/><path d="M13 29L21 37L36 20" style="fill:none;stroke:var(--ok);stroke-width:4;stroke-linecap:round;stroke-linejoin:round"/>`;
+  const items=[[miniSvg(CARD,'-2 0 62 48'),'<b>Three separate questions.</b> ServiceAccount = who, token = how it’s proven, RBAC = what it may do.'],
+    [miniSvg(DOOR,'0 -8 50 60'),'<b>Forbidden ≠ unknown.</b> The API server knows who you are; that identity just isn’t allowed this action.'],
+    [miniSvg(RB,'-2 0 62 50'),'<b>Role = what, RoleBinding = who gets it.</b> Rules combine API group, resource and verbs, and only ever add.'],
+    [miniSvg(SC,'-2 0 62 52'),'<b>The binding sets the scope.</b> ClusterRole + RoleBinding stays in one namespace; a ClusterRoleBinding is cluster-wide.'],
+    [miniSvg(TE,'-2 -2 64 48'),'<b>Test the exact tuple.</b> <code>kubectl auth can-i</code> with identity, verb, resource and namespace.'],
+    [miniSvg(SH,'-2 -2 52 60'),'<b>Least privilege.</b> No cluster-admin to silence errors, and no tokens for Pods that never call the API.']];
+  return `<ul class="take">${items.map(([ic,t],i)=>`<li class="up" style="--d:${.3+i*.3}s">${ic}<div>${t}</div></li>`).join('')}</ul>`;
+}
+function V22(){
+  const Q=[['teal','Authentication succeeded, but you get Forbidden. Which decision failed?','Authorization. The API server knows who you are; that identity just isn’t allowed this action.'],
+    ['warn','A RoleBinding in team-a references the ClusterRole pod-reader. Where does the access apply?','Only in team-a. The binding sets the scope; a ClusterRoleBinding would make it cluster-wide.'],
+    ['db','A Pod omits serviceAccountName. Which identity does it use?','The default ServiceAccount of its own namespace.'],
+    ['vol','can-i says yes for the ServiceAccount, but the Pod still can’t authenticate. Why?','Its token may not be mounted, for example automountServiceAccountToken: false. can-i checks authorization, not credentials.']];
+  return `<div class="quiz"><div class="cards">${Q.map(([k,q,a],i)=>`<button class="card up" style="--k:var(--${k});--d:${.3+i*.15}s" aria-pressed="false"><span class="card-inner"><span class="face front"><small>Question ${i+1}</small><span class="q">${q}</span><em>Tap to flip</em></span><span class="face back" aria-hidden="true"><small>Answer</small><span class="q">${a}</span></span></span></button>`).join('')}</div><button class="again up" style="--d:1s" data-action="restart">Watch again from the start</button></div>`;
+}
+// ---------- Scenes ----------
+const CH=['Intro','Why access control','AuthN vs AuthZ','ServiceAccounts','Roles','RoleBindings','Scope','Testing','Tokens','Troubleshooting','Lab and wrap-up'];
+const P=(t,d)=>`<p class="up" style="--d:${d}s">${t}</p>`;
+const R=(t,d)=>`<p class="rule up" style="--d:${d}s"><span>${t}</span></p>`;
+const SC=[
+ {ch:0,dur:10,title:'Kubernetes RBAC',vis:V0(),copy:`<p class="course up" style="--d:.05s">AI Infrastructure &amp; ML Systems, Day 17</p><h1 class="long up" style="--d:.15s">Kubernetes RBAC</h1><p class="lede up" style="--d:.3s">Who are you, how do you prove it, and what are you allowed to do? Access control for people and workloads.</p><button class="start up" style="--d:.45s" data-action="start"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15l12-7.5z"/></svg>Start the explainer</button><p class="hint up" style="--d:.6s">About 4½ minutes. Use ← → or swipe to go at your own pace.</p><p class="hint rotate-hint up" style="--d:.7s">Tip: turn your phone sideways for bigger diagrams.</p>`},
+ {ch:1,dur:11,title:'Everything goes through the API',vis:V1(),body:P('Creating Pods, reading Secrets, scaling apps: almost everything is a request to the API server.',.2)+P('Like a campus badge, an identity shouldn’t open every door.',.35)+R('Identity and permission are separate decisions.',.5)},
+ {ch:1,dur:11,title:'The security pipeline',vis:V2(),body:P('Every request is authenticated first, then authorized.',.2)+P('Keep three questions apart: who you are, how you prove it, and what you may do.',.35)},
+ {ch:2,dur:11.5,title:'Authentication vs authorization',vis:V3(),body:P('<strong>Authentication</strong> answers “who are you?” and produces a username.',.2)+P('<strong>Authorization</strong> answers “may you do this?” from who, verb, resource and scope.',.35)+R('Authenticated but not authorized? You get Forbidden.',.5)},
+ {ch:2,dur:10.5,title:'RBAC only adds',vis:V4(),body:P('Permissions from every binding are combined. There are no “deny” rules; you only grant.',.2)+P('Verbs name the action, from <code>get</code> for one object to <code>delete</code>.',.35)},
+ {ch:3,dur:11,title:'The default ServiceAccount',vis:V5(),body:P('ServiceAccounts are identities for workloads, and every namespace gets one called <code>default</code>.',.2)+P('A Pod that doesn’t name one quietly uses its namespace’s <code>default</code>.',.35)},
+ {ch:3,dur:11.5,title:'One workload, one identity',vis:V6(),body:P('Give each workload its own ServiceAccount so permissions don’t pile up on a shared one.',.2)+R('A new ServiceAccount opens no doors until you grant access.',.35)},
+ {ch:4,dur:11,title:'Roles: what may be done',vis:V7(),body:P('A Role is a namespaced list of rules: API group, resources, verbs.',.2)+P('Read it as a sentence, and notice it names no one.',.35)},
+ {ch:4,dur:10.5,title:'API groups',vis:V8(),body:P('Every resource lives in an API group. Core resources use <code>""</code>; Deployments live in <code>apps</code>, Jobs in <code>batch</code>.',.2)+P('A rule must name the group its resource lives in.',.35)},
+ {ch:4,dur:12,title:'Rules and least privilege',vis:V9(),body:P('One rule applies every listed verb to every listed resource. Use separate rules for different access.',.2)+R('Grant only what the job needs, and avoid <code>*</code>.',.35)},
+ {ch:5,dur:12,title:'RoleBindings: who gets what',vis:V10(),body:P('A ServiceAccount and a Role do nothing together until a RoleBinding connects them.',.2)+P('<code>subjects</code> say who; <code>roleRef</code> says which Role.',.35)},
+ {ch:6,dur:12,title:'Scope: namespace or cluster',vis:V11(),body:P('A Role is namespaced. A ClusterRole isn’t, and can cover cluster-scoped resources like Nodes.',.2)+P('Three combinations cover almost every case.',.35)},
+ {ch:6,dur:11,title:'Reuse a ClusterRole',vis:V12(),body:P('Define <code>pod-reader</code> once as a ClusterRole, then grant it per namespace with RoleBindings.',.2)+R('A ClusterRole is a definition; the binding decides who and where.',.35)},
+ {ch:7,dur:11,title:'Ask the API: kubectl auth can-i',vis:V13(),body:P('Test what should work and what shouldn’t, across the verb, resource and namespace boundaries.',.2)+P('<code>--list</code> shows everything an identity can do in a namespace.',.35)},
+ {ch:7,dur:11.5,title:'Test the exact request',vis:V14(),body:P('Pin down who, verb, resource and scope, then run <code>can-i</code> for exactly that.',.2)+R('<code>can-i</code> checks authorization, not whether a Pod has credentials.',.35)},
+ {ch:8,dur:11.5,title:'Tokens: how a Pod proves who it is',vis:V15(),body:P('A Pod authenticates as its ServiceAccount with a token, mounted as a projected volume.',.2)+P('Modern tokens are short-lived and rotated, so a stolen one soon stops working.',.35)},
+ {ch:8,dur:11,title:'No API calls? No token.',vis:V16(),body:P('If a Pod never calls the Kubernetes API, set <code>automountServiceAccountToken: false</code>.',.2)+P('Don’t leave a key in a drawer nobody uses.',.35)},
+ {ch:9,dur:11,title:'Read the Forbidden error',vis:V17(),body:P('The error already tells you who, which verb, which resource and where.',.2)+P('Extract all four before you touch any YAML.',.35)},
+ {ch:9,dur:11,title:'A troubleshooting path',vis:V18(),body:P('Work down the chain: identity, binding, rule, scope.',.2)+R('Last question: should the app be allowed at all?',.35)},
+ {ch:9,dur:11.5,title:'Common failures, dangerous fixes',vis:V19(),body:P('Most RBAC failures fall into five patterns.',.2)+P('Silencing errors with cluster-admin turns one compromised app into a compromised cluster.',.35)},
+ {ch:10,dur:11,title:'Lab: a least-privilege reader',vis:V20(),body:P('Build a ServiceAccount that can read ConfigMaps in one namespace, and nothing else.',.2)+P('Then prove both the yeses and the nos.',.35)},
+ {ch:10,dur:12,title:'What to remember',vis:V21(),body:P('Six ideas carry the whole lesson.',.2)+P('Next, check yourself with four quick questions.',.35)},
+ {ch:10,dur:10,title:'Check yourself',vis:V22(),body:P('Answer in your head first, then tap a card to flip it.',.2)+P('Want another look at a scene? Tap its segment in the progress bar.',.35)}
+];
+// ---------- Player ----------
+const stage=document.getElementById('stage'),track=document.getElementById('track'),chap=document.getElementById('chap'),count=document.getElementById('count'),live=document.getElementById('live');
+const btnPrev=document.getElementById('prev'),btnNext=document.getElementById('next'),btnPlay=document.getElementById('play'),btnReplay=document.getElementById('replay');
+const strip=s=>s.replace(/<[^>]+>/g,'').replace(/&amp;/g,'&');
+const els=[],fills=[],segs=[];
+SC.forEach((s,i)=>{
+  const sec=document.createElement('section');sec.className='scene';
+  sec.setAttribute('aria-label',`Scene ${i+1} of ${SC.length}: ${strip(s.title)}`);
+  sec.innerHTML=`<div class="copy">${s.copy||`<h2 class="up" style="--d:.05s">${s.title}</h2>${s.body}`}</div><div class="vis">${s.vis}</div>`;
+  stage.appendChild(sec);els.push(sec);
+  const b=document.createElement('button');b.className='seg'+(i>0&&SC[i-1].ch!==s.ch?' chstart':'');
+  b.setAttribute('aria-label',`Go to scene ${i+1}: ${strip(s.title)}`);b.innerHTML='<i><b></b></i>';
+  b.addEventListener('click',()=>go(i));track.appendChild(b);segs.push(b);fills.push(b.querySelector('b'));
+});
+const ICON_PLAY='<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',ICON_PAUSE='<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6.5" y="5" width="4" height="14" rx="1"/><rect x="13.5" y="5" width="4" height="14" rx="1"/></svg>';
+let cur=-1,auto=false,t0=performance.now(),onTimer=null;
+function setAuto(v){
+  auto=v;btnPlay.innerHTML=v?ICON_PAUSE:ICON_PLAY;btnPlay.setAttribute('aria-label',v?'Pause auto-play':'Start auto-play');btnPlay.setAttribute('aria-pressed',String(v));
+  if(v&&cur>=0){const dur=SC[cur].dur*1000,el=performance.now()-t0;if(el>dur-1200)t0=performance.now()-(dur-1200)}
+}
+function go(i,{replay=false}={}){
+  i=Math.max(0,Math.min(SC.length-1,i));
+  if(i===cur&&!replay)return;
+  const prev=cur;
+  els.forEach((el,j)=>{el.classList.toggle('active',j===i);el.classList.toggle('past',j<i);
+    if(j===i){el.inert=false;el.removeAttribute('aria-hidden')}else{el.inert=true;el.setAttribute('aria-hidden','true')}});
+  if(prev>=0&&prev!==i){const p=prev;setTimeout(()=>{if(cur!==p)els[p].classList.remove('on')},750)}
+  const el=els[i];el.classList.remove('on');void el.getBoundingClientRect();
+  clearTimeout(onTimer);const delay=(prev===i)?40:260;
+  onTimer=setTimeout(()=>{el.classList.add('on');t0=performance.now()},delay);
+  t0=performance.now()+delay;cur=i;el.scrollTop=0;
+  const s=SC[i];
+  chap.innerHTML=s.ch===0?'<b>Intro</b>':`Chapter ${s.ch} of ${CH.length-1}: <b>${CH[s.ch]}</b>`;
+  count.textContent=`${i+1} / ${SC.length}`;
+  live.textContent=`Scene ${i+1} of ${SC.length}: ${strip(s.title)}`;
+  btnPrev.disabled=i===0;btnNext.disabled=i===SC.length-1;
+  fills.forEach((f,j)=>{f.style.width=j<i?'100%':'0%'});
+  segs.forEach((b,j)=>{if(j===i)b.setAttribute('aria-current','step');else b.removeAttribute('aria-current')});
+}
+function tick(now){
+  if(cur>=0){const dur=SC[cur].dur*1000,el=Math.max(0,now-t0);fills[cur].style.width=(Math.min(1,el/dur)*100).toFixed(2)+'%';
+    if(auto&&el>=dur){if(cur<SC.length-1)go(cur+1);else setAuto(false)}}
+  requestAnimationFrame(tick);
+}
+btnPrev.addEventListener('click',()=>go(cur-1));
+btnNext.addEventListener('click',()=>go(cur+1));
+btnPlay.addEventListener('click',()=>{if(!auto&&cur===SC.length-1){go(0)}setAuto(!auto);if(auto&&cur===0)go(1)});
+btnReplay.addEventListener('click',()=>go(cur,{replay:true}));
+stage.addEventListener('click',e=>{
+  const a=e.target.closest('[data-action]');
+  if(a){if(a.dataset.action==='start'){setAuto(true);go(1)}else if(a.dataset.action==='restart'){setAuto(true);go(1)}return}
+  const c=e.target.closest('.card');
+  if(c){const f=c.classList.toggle('flipped');c.setAttribute('aria-pressed',String(f));c.querySelector('.front').setAttribute('aria-hidden',String(f));c.querySelector('.back').setAttribute('aria-hidden',String(!f))}
+});
+document.addEventListener('keydown',e=>{
+  if(e.altKey||e.ctrlKey||e.metaKey)return;
+  const onBtn=e.target.closest&&e.target.closest('button');
+  if(e.key==='ArrowRight'||e.key==='PageDown'){e.preventDefault();go(cur+1)}
+  else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();go(cur-1)}
+  else if(e.key===' '&&!onBtn){e.preventDefault();btnPlay.click()}
+  else if(e.key==='r'||e.key==='R'){go(cur,{replay:true})}
+  else if(e.key==='Home'){go(0)}else if(e.key==='End'){go(SC.length-1)}
+});
+let sx=null,sy=null;
+stage.addEventListener('touchstart',e=>{const t=e.touches[0];sx=t.clientX;sy=t.clientY},{passive:true});
+stage.addEventListener('touchend',e=>{if(sx==null)return;const t=e.changedTouches[0],dx=t.clientX-sx,dy=t.clientY-sy;if(Math.abs(dx)>55&&Math.abs(dx)>Math.abs(dy)*1.4)go(cur+(dx<0?1:-1));sx=null},{passive:true});
+setAuto(false);go(0);requestAnimationFrame(tick);
+
+// Deterministic export hooks for html_to_mp4.py.
+window.__total=SC.reduce((sum,s)=>sum+s.dur,0);
+window.__seek=seconds=>{
+  let ms=Math.max(0,Math.min(window.__total*1000,seconds*1000)),i=0;
+  while(i<SC.length-1&&ms>=SC[i].dur*1000)ms-=SC[i++].dur*1000;
+  if(cur!==i)go(i,{replay:true});
+  setAuto(false);
+  clearTimeout(onTimer);
+  const local=ms;
+  t0=performance.now()-local;
+  const el=els[i];el.classList.add('on','active');
+  fills.forEach((f,k)=>{f.style.width=k<i?'100%':k===i?`${Math.min(100,local/(SC[k].dur*10))}%`:'0%'});
+  void el.offsetWidth;
+  el.getAnimations({subtree:true}).forEach(animation=>{animation.currentTime=local});
+};
+</script>
+</body>
+</html>

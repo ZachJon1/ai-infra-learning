@@ -1,0 +1,1537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kubernetes, unboxed: an animated Day 9 explainer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Fredoka:wght@500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#E6EEFC; --stage:#FFFFFF; --wash:#F0F4FD; --slab:#DCE5F8; --line:#C9D6F1;
+  --ink:#1D2B53; --ink2:#4E5E88; --shadow:#1D2B53;
+  --sun:#FFBE2E; --teal:#14A898; --berry:#EE4D78; --grape:#6A5AE0;
+  --onacc:#16203F; --ongrape:#FFFFFF;
+  --term:#1D2B53; --termtx:#F2F5FF; --termmu:#A3B3DD;
+  --f-disp:"Fredoka","Nunito","Arial Rounded MT Bold",ui-rounded,system-ui,sans-serif;
+  --f-body:"Atkinson Hyperlegible","Segoe UI",system-ui,-apple-system,sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --sw:min(1140px, max(560px, calc((100vh - 200px) * 16 / 9)));
+  color-scheme:light;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@supports (height:100dvh){ :root{ --sw:min(1140px, max(560px, calc((100dvh - 200px) * 16 / 9))); } }
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0F1736; --stage:#18224A; --wash:#212C59; --slab:#2B3970; --line:#33437A;
+    --ink:#EEF2FF; --ink2:#A9B6DC; --shadow:#04081C;
+    --sun:#FFC94D; --teal:#2CCBB9; --berry:#FF6E95; --grape:#8E80FF;
+    --onacc:#16203F; --ongrape:#16203F;
+    --term:#0B1230; --termtx:#EEF2FF; --termmu:#8D9CC8;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0F1736; --stage:#18224A; --wash:#212C59; --slab:#2B3970; --line:#33437A;
+  --ink:#EEF2FF; --ink2:#A9B6DC; --shadow:#04081C;
+  --sun:#FFC94D; --teal:#2CCBB9; --berry:#FF6E95; --grape:#8E80FF;
+  --onacc:#16203F; --ongrape:#16203F;
+  --term:#0B1230; --termtx:#EEF2FF; --termmu:#8D9CC8;
+  color-scheme:dark;
+}
+html{height:100%;scroll-padding-top:env(safe-area-inset-top,0px)}
+*,*::before,*::after{box-sizing:inherit}
+body{margin:0;min-height:100%;background:var(--bg);color:var(--ink);font-family:var(--f-body);-webkit-font-smoothing:antialiased}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* ---------- page frame ---------- */
+.app{max-width:1200px;margin:0 auto;padding:14px clamp(10px,3vw,28px) 22px;display:flex;flex-direction:column;gap:12px}
+.top{width:min(100%,var(--sw));margin:0 auto;display:flex;justify-content:space-between;align-items:baseline;gap:6px 16px;flex-wrap:wrap}
+.top h1{margin:0;font-family:var(--f-disp);font-weight:600;font-size:clamp(21px,2.4vw,28px);letter-spacing:.2px}
+.top h1 small{font-family:var(--f-body);font-weight:400;font-size:15px;color:var(--ink2);margin-left:10px;letter-spacing:0}
+.chap{font-family:var(--f-disp);font-weight:500;font-size:16px;display:flex;align-items:center;gap:8px}
+.chap::before{content:"";width:12px;height:12px;border-radius:4px;background:var(--cc,var(--sun));border:2px solid var(--ink)}
+
+.stage{position:relative;width:min(100%,var(--sw));margin:0 auto;aspect-ratio:16/9;background-color:var(--stage);
+  background-image:radial-gradient(var(--line) 1.1px, transparent 1.3px);background-size:24px 24px;
+  border:3px solid var(--ink);border-radius:24px;box-shadow:7px 7px 0 var(--shadow);overflow:hidden;container-type:inline-size}
+.scene{position:absolute;inset:0;display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.6fr);gap:clamp(12px,2.4cqw,32px);
+  padding:clamp(14px,2.8cqw,36px);opacity:0;visibility:hidden}
+.scene.on{opacity:1;visibility:visible}
+.cap{display:flex;flex-direction:column;justify-content:center;gap:clamp(6px,1cqw,12px);min-height:0}
+.cap h2{margin:0 0 .2em;font-family:var(--f-disp);font-weight:600;font-size:clamp(21px,3cqw,36px);line-height:1.08;text-wrap:balance}
+.beat{margin:0;font-size:clamp(14px,1.55cqw,18.5px);line-height:1.42;padding-left:14px;border-left:4px solid var(--c,var(--teal));max-width:34ch}
+.beat:nth-of-type(4n+1){--c:var(--teal)} .beat:nth-of-type(4n+2){--c:var(--sun)}
+.beat:nth-of-type(4n+3){--c:var(--berry)} .beat:nth-of-type(4n+4){--c:var(--grape)}
+.beat code,.qc code{font-family:var(--f-mono);font-size:.86em;background:var(--wash);border:1.5px solid var(--line);border-radius:6px;padding:0 5px;white-space:nowrap}
+.code{margin:2px 0 0;font-family:var(--f-mono);font-size:clamp(10.5px,1.04cqw,13px);line-height:1.5;background:var(--term);color:var(--termtx);
+  border:2.5px solid var(--ink);border-radius:12px;padding:9px 12px;white-space:pre-wrap;word-break:break-word;max-width:44ch}
+.vis{display:flex;align-items:center;justify-content:center;min-height:0;min-width:0}
+.vis>svg{width:100%;height:100%;overflow:visible}
+
+/* ---------- svg vocabulary ---------- */
+.vis text{font-family:var(--f-body);fill:var(--ink)}
+.vis .d{font-family:var(--f-disp);font-weight:600}
+.vis .m{font-family:var(--f-mono)}
+.vis .bd{font-weight:700}
+.vis .mu{fill:var(--ink2)} .vis .oa{fill:var(--onacc)} .vis .og{fill:var(--ongrape)}
+.vis .tt{fill:var(--termtx)} .vis .tm{fill:var(--termmu)} .vis .sunt{fill:var(--sun)}
+.vis .good{fill:var(--teal);font-weight:700} .vis .bad{fill:var(--berry);font-weight:700}
+.vis .f-stage{fill:var(--stage)} .vis .f-wash{fill:var(--wash)} .vis .f-slab{fill:var(--slab)} .vis .f-ink{fill:var(--ink)}
+.vis .f-sun{fill:var(--sun)} .vis .f-teal{fill:var(--teal)} .vis .f-berry{fill:var(--berry)} .vis .f-grape{fill:var(--grape)} .vis .f-term{fill:var(--term)}
+.vis .ol{stroke:var(--ink);stroke-width:2.5;stroke-linejoin:round}
+.vis .ln{fill:none;stroke-linecap:round;stroke-linejoin:round}
+.vis .s-ink{stroke:var(--ink)} .vis .s-mu{stroke:var(--ink2)} .vis .s-slab{stroke:var(--slab)}
+.vis .s-sun{stroke:var(--sun)} .vis .s-teal{stroke:var(--teal)} .vis .s-berry{stroke:var(--berry)} .vis .s-grape{stroke:var(--grape)}
+.vis .w2{stroke-width:2} .vis .w3{stroke-width:3} .vis .w4{stroke-width:4} .vis .w5{stroke-width:5} .vis .w8{stroke-width:8} .vis .w12{stroke-width:12} .vis .w18{stroke-width:18}
+.vis .dash{stroke-dasharray:8 7}
+.vis .lens{fill:var(--grape);fill-opacity:.3;stroke:var(--grape);stroke-width:4}
+
+/* ---------- motion kit (runs only in the active scene) ---------- */
+[class*="fx-"]{transform-box:fill-box;transform-origin:center}
+.fx-draw{stroke-dasharray:1 1;stroke-dashoffset:1}
+@keyframes in{from{opacity:0}to{opacity:1}}
+@keyframes out{from{opacity:1}to{opacity:0}}
+@keyframes up{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+@keyframes pop{0%{opacity:0;transform:scale(.3)}60%{opacity:1;transform:scale(1.08)}100%{opacity:1;transform:scale(1)}}
+@keyframes gx{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes flip{0%{opacity:0;transform:scaleX(0)}1%{opacity:1}100%{opacity:1;transform:scaleX(1)}}
+@keyframes draw{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
+@keyframes dim{to{opacity:.5}}
+@keyframes dimto{to{opacity:.35}}
+@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
+@keyframes pulse{0%,100%{opacity:.12}50%{opacity:.9}}
+@keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-7px)}40%,80%{transform:translateX(7px)}}
+@keyframes slideL{from{opacity:0;transform:translateX(-70px)}to{opacity:1;transform:none}}
+@keyframes slideR{from{opacity:0;transform:translateX(70px)}to{opacity:1;transform:none}}
+.scene.on .fx-in{animation:in var(--t,.5s) ease var(--d,0s) both}
+.scene.on .fx-out{animation:out .45s ease var(--d,0s) both}
+.scene.on .fx-up{animation:up var(--t,.55s) cubic-bezier(.2,.8,.2,1) var(--d,0s) both}
+.scene.on .fx-pop{animation:pop var(--t,.6s) cubic-bezier(.3,1.4,.5,1) var(--d,0s) both}
+.scene.on .fx-gx{transform-origin:left center;animation:gx var(--t,.8s) cubic-bezier(.3,.8,.3,1) var(--d,0s) both}
+.scene.on .fx-flip{animation:flip .55s cubic-bezier(.3,1.3,.5,1) var(--d,0s) both}
+.scene.on .fx-draw{animation:draw var(--t,.9s) ease-in-out var(--d,0s) both}
+.scene.on .fx-span{animation:in .35s ease var(--d,0s) both, out .35s ease var(--d2,99s) forwards}
+.scene.on .fx-bob{animation:bob 2.4s ease-in-out var(--d,0s) infinite}
+.scene.on .fx-pulse{animation:pulse var(--t,1.6s) ease-in-out var(--d,0s) infinite both}
+.scene.on .fx-sl{animation:slideL .6s cubic-bezier(.2,.9,.3,1.1) var(--d,0s) both}
+.scene.on .fx-sr{animation:slideR .6s cubic-bezier(.2,.9,.3,1.1) var(--d,0s) both}
+.scene.on .beat{animation:up .55s cubic-bezier(.2,.8,.2,1) var(--d,0s) both, dim .5s ease var(--d2,99s) forwards}
+.scene.on .cap h2{animation:up .55s cubic-bezier(.2,.8,.2,1) .1s both}
+.scene.on .code{animation:up .55s cubic-bezier(.2,.8,.2,1) var(--d,.4s) both}
+
+/* scene-specific choreography */
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes poof{to{opacity:0;transform:scale(1.35)}}
+@keyframes hop{0%{transform:translate(var(--x0),var(--y0));opacity:0}12%{opacity:1}88%{opacity:1}100%{transform:translate(var(--x1),var(--y1));opacity:0}}
+@keyframes hop3{0%{transform:translate(var(--x0),var(--y0));opacity:0}8%{opacity:1}50%{transform:translate(var(--x1),var(--y1))}92%{opacity:1}100%{transform:translate(var(--x2),var(--y2));opacity:0}}
+@keyframes wobble{0%{transform:scaleX(.35)}50%{transform:scaleX(.9)}100%{transform:scaleX(.55)}}
+@keyframes grow{from{transform:scale(.6)}to{transform:scale(1.25)}}
+@keyframes clipx{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+.hop,.hop3{opacity:0}
+.scene.on .hop{animation:hop var(--t,1s) ease-in-out var(--d,0s) var(--n,1) both}
+.scene.on .hop3{animation:hop3 var(--t,1.6s) ease-in-out var(--d,0s) var(--n,1) both}
+.scene.on .fx-poof{animation:poof .45s ease-in var(--d,0s) forwards}
+.scene.on .fx-wob{transform-origin:left center;animation:wobble 1.6s ease-in-out var(--d,0s) infinite alternate both}
+.scene.on .fx-grow{animation:grow .9s cubic-bezier(.3,1.4,.5,1) var(--d,0s) both}
+.scene.on .fx-clip{transform-origin:left center;animation:clipx var(--t,4s) linear var(--d,0s) both}
+.vis .hl{fill:var(--sun);fill-opacity:.3}
+
+.s4-spin{transform-box:view-box;transform-origin:270px 100px}
+.scene.on .s4-spin{animation:spin 3.2s linear .8s infinite}
+.scene.on .s4-draw{animation:draw 8s linear 1.4s both}
+
+@keyframes s7move{from{transform:translate(0,0)}to{transform:translate(0,302px)}}
+.scene.on .s7-move{animation:s7move .7s cubic-bezier(.5,0,.3,1.2) 5.6s both}
+
+@keyframes s20live{from{transform:translate(300px,70px)}to{transform:translate(500px,70px)}}
+.s20-live{transform:translate(300px,70px)}
+.scene.on .s20-live{animation:s20live .7s cubic-bezier(.5,0,.3,1.2) 3.6s both}
+
+/* ---------- transition wipe ---------- */
+.wipe{position:absolute;inset:-3px;z-index:5;pointer-events:none;visibility:hidden;background:var(--wc,var(--sun));border-right:3px solid var(--ink);transform:translateX(-103%)}
+.wipe.run{visibility:visible;animation:wipe .7s cubic-bezier(.7,0,.3,1) both}
+.wipe svg{position:absolute;right:-34px;top:50%;width:64px;height:68px;margin-top:-34px}
+@keyframes wipe{0%{transform:translateX(-103%)}46%,54%{transform:translateX(0)}100%{transform:translateX(103%)}}
+
+/* ---------- controls ---------- */
+.bar{width:min(100%,var(--sw));margin:6px auto 0;display:flex;align-items:center;gap:10px}
+.btn{flex:none;width:46px;height:46px;border-radius:50%;border:2.5px solid var(--ink);background:var(--stage);color:var(--ink);display:grid;place-items:center;
+  cursor:pointer;box-shadow:3px 3px 0 var(--shadow);transition:transform .12s,box-shadow .12s;padding:0}
+.btn:active:not(:disabled){transform:translate(2px,2px);box-shadow:1px 1px 0 var(--shadow)}
+.btn:disabled{opacity:.4;cursor:default}
+.btn svg{width:20px;height:20px;fill:currentColor}
+.btn.play{width:56px;height:56px;background:var(--sun);color:var(--onacc)}
+.btn.play .i-play{display:none} .btn.play.paused .i-play{display:block} .btn.play.paused .i-pause{display:none}
+.prog{flex:1;height:14px;border:2.5px solid var(--ink);border-radius:99px;background:var(--stage);overflow:hidden}
+.prog i{display:block;height:100%;background:var(--teal);transform-origin:left center;transform:scaleX(0)}
+.count{font-family:var(--f-disp);font-weight:500;font-size:16px;min-width:4.4em;text-align:right;font-variant-numeric:tabular-nums}
+.rail{width:min(100%,var(--sw));margin:0 auto;display:flex;flex-wrap:wrap;gap:6px 18px}
+.ch{display:flex;align-items:center;gap:4px}
+.ch-name{font-size:13.5px;color:var(--ink2);margin-right:2px}
+.ch.cur .ch-name{color:var(--ink);font-weight:700}
+.dots{display:flex}
+.dot{width:24px;height:24px;border:0;background:none;padding:0;cursor:pointer;display:grid;place-items:center}
+.dot::before{content:"";width:13px;height:13px;border-radius:50%;border:2px solid var(--ink);background:var(--stage);transition:transform .2s,background .2s}
+.dot.done::before{background:var(--ink)}
+.dot.cur::before{background:var(--sun);transform:scale(1.3)}
+:focus-visible{outline:3px solid var(--grape);outline-offset:3px}
+.hint{width:min(100%,var(--sw));margin:0 auto;font-size:13px;color:var(--ink2)}
+@media (hover:none){.hint{display:none}}
+
+/* ---------- quiz ---------- */
+.quiz{display:grid;grid-template-columns:1fr 1fr;gap:clamp(10px,1.4cqw,18px);width:100%;align-content:center}
+.qc{position:relative;height:clamp(118px,15.5cqw,176px);border:0;padding:0;background:none;cursor:pointer;perspective:900px;font:inherit;color:inherit;text-align:left}
+.qc-in{position:absolute;inset:0;transition:transform .6s cubic-bezier(.3,1.25,.5,1);transform-style:preserve-3d}
+.qc[aria-pressed="true"] .qc-in{transform:rotateY(180deg)}
+.qc-f,.qc-b{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;border:3px solid var(--ink);border-radius:18px;
+  box-shadow:4px 4px 0 var(--shadow);padding:12px 16px;display:flex;flex-direction:column;justify-content:space-between;gap:6px}
+.qc-f{background:var(--stage)}
+.qc-f strong{font-family:var(--f-disp);font-weight:600;font-size:clamp(15px,1.85cqw,21px);line-height:1.2}
+.qc-f span{font-size:13px;color:var(--ink2)}
+.qc-b{transform:rotateY(180deg);color:var(--onacc);font-size:clamp(13.5px,1.5cqw,17px);line-height:1.38;justify-content:center}
+.qc:nth-child(1) .qc-b{background:var(--teal)} .qc:nth-child(2) .qc-b{background:var(--sun)}
+.qc:nth-child(3) .qc-b{background:var(--berry)} .qc:nth-child(4) .qc-b{background:var(--grape);color:var(--ongrape)}
+.qc-b code{background:rgba(255,255,255,.35);border-color:transparent;color:inherit}
+.pill-btn{align-self:flex-start;margin-top:6px;font:600 16px var(--f-disp);border:2.5px solid var(--ink);background:var(--sun);color:var(--onacc);border-radius:99px;
+  padding:10px 18px;box-shadow:3px 3px 0 var(--shadow);cursor:pointer}
+.pill-btn:active{transform:translate(2px,2px);box-shadow:1px 1px 0 var(--shadow)}
+
+/* ---------- small screens ---------- */
+@media (max-width:760px){
+  .stage{aspect-ratio:auto;border-radius:20px;box-shadow:5px 5px 0 var(--shadow)}
+  .scene{position:relative;inset:auto;display:none;grid-template-columns:1fr;padding:16px 12px 18px;gap:10px}
+  .scene.on{display:grid}
+  .cap h2{font-size:24px}
+  .beat{font-size:15.5px;max-width:none}
+  .code{font-size:12px;max-width:none}
+  .vis>svg{height:auto}
+  .quiz{grid-template-columns:1fr}
+  .qc{height:128px}
+  .count{min-width:3.6em;font-size:15px}
+  .top h1 small{display:block;margin:2px 0 0}
+}
+@media (prefers-reduced-motion:reduce){
+  .scene.on *{animation-duration:1ms !important;animation-delay:0s !important;animation-iteration-count:1 !important}
+  .scene.on .beat,.scene.on .cap h2,.scene.on .code{animation:none !important}
+  .wipe{display:none}
+  .qc-in{transition:none}
+}
+.stage.paused .scene *{animation-play-state:paused !important}
+
+.quiz6 .qc{height:clamp(96px,11.6cqw,140px)}
+.quiz6 .qc-f strong{font-size:clamp(14px,1.6cqw,18px)}
+.qc:nth-child(5) .qc-b{background:var(--sun)} .qc:nth-child(6) .qc-b{background:var(--teal)}
+@media (max-width:760px){.quiz6 .qc{height:118px}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="pid" viewBox="0 0 60 64">
+      <path d="M30 12 V5" style="stroke:var(--ink);stroke-width:3;stroke-linecap:round"/>
+      <circle cx="30" cy="4.5" r="3.6" style="fill:var(--sun);stroke:var(--ink);stroke-width:2"/>
+      <rect x="4" y="12" width="52" height="48" rx="13" style="fill:var(--pc,var(--teal));stroke:var(--ink);stroke-width:3"/>
+      <circle cx="21" cy="32" r="7.5" style="fill:#fff;stroke:var(--ink);stroke-width:2"/>
+      <circle cx="39" cy="32" r="7.5" style="fill:#fff;stroke:var(--ink);stroke-width:2"/>
+      <circle cx="22.5" cy="33" r="3.4" style="fill:#16203F"/>
+      <circle cx="40.5" cy="33" r="3.4" style="fill:#16203F"/>
+      <path d="M22 46 Q30 53 38 46" style="fill:none;stroke:#16203F;stroke-width:3;stroke-linecap:round"/>
+    </symbol>
+    <symbol id="pod" viewBox="0 0 100 72">
+      <path d="M26 10 Q16 1 5 6" style="fill:none;stroke:var(--teal);stroke-width:3.5;stroke-linecap:round"/>
+      <rect x="3" y="7" width="94" height="62" rx="31" style="fill:var(--podf,var(--wash));stroke:var(--teal);stroke-width:4"/>
+      <use href="#pid" x="30" y="16" width="40" height="43"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="app">
+  <header class="top">
+    <h1>Kubernetes, unboxed <small>Day 9: Kubernetes fundamentals for AI infrastructure</small></h1>
+    <div class="chap" id="chap" aria-hidden="true">Why Kubernetes</div>
+  </header>
+
+  <main class="stage" id="stage" aria-roledescription="animated explainer">
+
+<!-- 1 -->
+<section class="scene" data-title="Kubernetes, unboxed" data-chapter="Why Kubernetes" data-dur="10500">
+  <div class="cap">
+    <h2>Kubernetes, unboxed</h2>
+    <p class="beat" style="--d:.6s;--d2:3.4s">On Day 7, Pid learned to live in a container.</p>
+    <p class="beat" style="--d:3.4s;--d2:6.4s">Now there are many Pids, spread across many machines.</p>
+    <p class="beat" style="--d:6.4s">Kubernetes keeps them running the way you asked, even when things break.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="A dial set to 6 replicas sits above three nodes holding six Pods. One Pod vanishes and a replacement appears automatically.">
+    <g class="fx-pop" style="--d:.4s">
+      <circle cx="300" cy="104" r="74" class="f-stage ol w4"/>
+      <path d="M259 145 A58 58 0 1 1 341 145" class="ln s-slab w12"/>
+      <path d="M259 145 A58 58 0 1 1 341 145" pathLength="1" class="ln s-teal w12 fx-draw" style="--d:1s;--t:1.2s"/>
+      <text x="300" y="118" text-anchor="middle" class="d" font-size="44">6</text>
+      <text x="300" y="142" text-anchor="middle" class="m mu" font-size="12">replicas</text>
+    </g>
+    <text x="300" y="206" text-anchor="middle" class="d fx-in" font-size="16" style="--d:1.2s">desired state</text>
+    <path d="M300 216 L115 256 M300 216 V256 M300 216 L485 256" class="ln s-mu w2 fx-in" style="--d:1.4s"/>
+    <g class="fx-up" style="--d:.8s"><rect x="30" y="256" width="170" height="172" rx="16" class="f-stage ol"/><text x="44" y="282" class="d" font-size="15">node 1</text></g>
+    <g class="fx-up" style="--d:1s"><rect x="215" y="256" width="170" height="172" rx="16" class="f-stage ol"/><text x="229" y="282" class="d" font-size="15">node 2</text></g>
+    <g class="fx-up" style="--d:1.2s"><rect x="400" y="256" width="170" height="172" rx="16" class="f-stage ol"/><text x="414" y="282" class="d" font-size="15">node 3</text></g>
+    <g class="fx-pop" style="--d:1.6s"><use href="#pod" x="40" y="306" width="72" height="52"/></g>
+    <g class="fx-pop" style="--d:1.8s"><use href="#pod" x="118" y="306" width="72" height="52"/></g>
+    <g class="fx-pop" style="--d:2s"><use href="#pod" x="225" y="306" width="72" height="52"/></g>
+    <g class="fx-pop" style="--d:2.2s"><g class="fx-poof" style="--d:6.6s"><use href="#pod" x="303" y="306" width="72" height="52"/></g></g>
+    <g class="fx-pop" style="--d:2.4s"><use href="#pod" x="410" y="306" width="72" height="52"/></g>
+    <g class="fx-pop" style="--d:2.6s"><use href="#pod" x="488" y="306" width="72" height="52"/></g>
+    <circle cx="339" cy="332" r="30" fill="none" class="s-sun w4 fx-span" style="--d:6.7s;--d2:7.3s"/>
+    <g class="fx-pop" style="--d:7.6s"><use href="#pod" x="303" y="306" width="72" height="52" style="--pc:var(--sun)"/></g>
+    <g class="fx-pop" style="--d:8s"><rect x="218" y="380" width="164" height="30" rx="15" class="f-sun ol"/><text x="300" y="400" text-anchor="middle" class="oa bd" font-size="13.5">replaced automatically</text></g>
+  </svg></div>
+</section>
+
+<!-- 2 -->
+<section class="scene" data-title="Too many moving parts" data-chapter="Why Kubernetes" data-dur="11500">
+  <div class="cap">
+    <h2>Too many moving parts</h2>
+    <p class="beat" style="--d:.6s;--d2:3.4s">Picture an AI service: dozens of inference replicas, workers, databases, metrics agents.</p>
+    <p class="beat" style="--d:3.4s;--d2:7s">Without an orchestrator, someone has to answer these questions, all day, every day.</p>
+    <p class="beat" style="--d:7s">Kubernetes answers them continuously, for you.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="A stressed Pid is surrounded by six operations questions. Each question gets a check mark once Kubernetes takes over.">
+    <g class="fx-pop" style="--d:.6s"><use href="#pid" x="255" y="178" width="90" height="96" style="--pc:var(--berry)"/></g>
+    <g class="fx-in" style="--d:7s"><use href="#pid" x="255" y="178" width="90" height="96"/></g>
+    <path d="M352 196 q-8 11 0 15 q8 -4 0 -15 Z" class="f-wash ol fx-span" style="--d:1s;--d2:7s"/>
+    <g font-size="14.5" text-anchor="middle">
+      <g class="fx-pop" style="--d:1.2s"><polygon points="220,58 246,70 220,82" class="f-stage ol"/><rect x="14" y="40" width="210" height="56" rx="16" class="f-stage ol"/><text x="119" y="73">Which machine runs it?</text></g>
+      <g class="fx-pop" style="--d:1.6s"><polygon points="380,58 354,70 380,82" class="f-stage ol"/><rect x="376" y="40" width="210" height="56" rx="16" class="f-stage ol"/><text x="481" y="73">A machine died. Now?</text></g>
+      <g class="fx-pop" style="--d:2s"><polygon points="220,204 246,216 220,228" class="f-stage ol"/><rect x="14" y="186" width="210" height="56" rx="16" class="f-stage ol"/><text x="119" y="219">A container crashed!</text></g>
+      <g class="fx-pop" style="--d:2.4s"><polygon points="380,204 354,216 380,228" class="f-stage ol"/><rect x="376" y="186" width="210" height="56" rx="16" class="f-stage ol"/><text x="481" y="219">We need 5 more replicas</text></g>
+      <g class="fx-pop" style="--d:2.8s"><polygon points="220,350 246,362 220,374" class="f-stage ol"/><rect x="14" y="332" width="210" height="56" rx="16" class="f-stage ol"/><text x="119" y="365">Its IP changed. Where?</text></g>
+      <g class="fx-pop" style="--d:3.2s"><polygon points="380,350 354,362 380,374" class="f-stage ol"/><rect x="376" y="332" width="210" height="56" rx="16" class="f-stage ol"/><text x="481" y="365">New version, no downtime?</text></g>
+    </g>
+    <g class="fx-pop" style="--d:7.2s"><circle cx="216" cy="42" r="12" class="f-teal ol"/><path d="M210 42 l4 4 l7 -8" class="ln s-ink w3"/></g>
+    <g class="fx-pop" style="--d:7.4s"><circle cx="578" cy="42" r="12" class="f-teal ol"/><path d="M572 42 l4 4 l7 -8" class="ln s-ink w3"/></g>
+    <g class="fx-pop" style="--d:7.6s"><circle cx="216" cy="188" r="12" class="f-teal ol"/><path d="M210 188 l4 4 l7 -8" class="ln s-ink w3"/></g>
+    <g class="fx-pop" style="--d:7.8s"><circle cx="578" cy="188" r="12" class="f-teal ol"/><path d="M572 188 l4 4 l7 -8" class="ln s-ink w3"/></g>
+    <g class="fx-pop" style="--d:8s"><circle cx="216" cy="334" r="12" class="f-teal ol"/><path d="M210 334 l4 4 l7 -8" class="ln s-ink w3"/></g>
+    <g class="fx-pop" style="--d:8.2s"><circle cx="578" cy="334" r="12" class="f-teal ol"/><path d="M572 334 l4 4 l7 -8" class="ln s-ink w3"/></g>
+    <g class="fx-pop" style="--d:8.6s"><rect x="170" y="420" width="260" height="38" rx="19" class="f-sun ol"/><text x="300" y="445" text-anchor="middle" class="d oa" font-size="16">handled continuously</text></g>
+  </svg></div>
+</section>
+
+<!-- 3 -->
+<section class="scene" data-title="From starting to keeping" data-chapter="Why Kubernetes" data-dur="11500">
+  <div class="cap">
+    <h2>From starting things to keeping things</h2>
+    <p class="beat" style="--d:.6s;--d2:3.4s">Docker runs containers. Compose coordinates them on one host.</p>
+    <p class="beat" style="--d:3.4s;--d2:6.4s">Kubernetes orchestrates workloads across a whole cluster.</p>
+    <p class="beat" style="--d:6.4s">The real shift: from “start this” to “keep it like this.”</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="A staircase from Docker (one container) to Docker Compose (one host) to Kubernetes (a cluster). Below, an imperative command card contrasts with a declarative card that is kept true continuously.">
+    <g class="fx-up" style="--d:.8s">
+      <use href="#pid" x="85" y="142" width="40" height="43"/>
+      <rect x="20" y="190" width="170" height="44" rx="10" class="f-sun ol"/><text x="105" y="218" text-anchor="middle" class="d oa" font-size="17">Docker</text>
+      <text x="105" y="256" text-anchor="middle" class="mu" font-size="13">run containers</text>
+    </g>
+    <g class="fx-up" style="--d:2s">
+      <rect x="240" y="98" width="120" height="54" rx="10" class="f-stage ol"/>
+      <use href="#pid" x="250" y="110" width="28" height="30"/><use href="#pid" x="286" y="110" width="28" height="30" style="--pc:var(--sun)"/><use href="#pid" x="322" y="110" width="28" height="30" style="--pc:var(--berry)"/>
+      <rect x="215" y="160" width="170" height="74" rx="10" class="f-teal ol"/><text x="300" y="202" text-anchor="middle" class="d oa" font-size="16">Docker Compose</text>
+      <text x="300" y="256" text-anchor="middle" class="mu" font-size="13">many containers, one host</text>
+    </g>
+    <g class="fx-up" style="--d:3.4s">
+      <rect x="414" y="74" width="50" height="46" rx="8" class="f-stage ol"/><use href="#pid" x="427" y="84" width="24" height="26"/>
+      <rect x="470" y="74" width="50" height="46" rx="8" class="f-stage ol"/><use href="#pid" x="483" y="84" width="24" height="26" style="--pc:var(--sun)"/>
+      <rect x="526" y="74" width="50" height="46" rx="8" class="f-stage ol"/><use href="#pid" x="539" y="84" width="24" height="26" style="--pc:var(--berry)"/>
+      <rect x="410" y="130" width="170" height="104" rx="10" class="f-grape ol"/><text x="495" y="188" text-anchor="middle" class="d og" font-size="18">Kubernetes</text>
+      <text x="495" y="256" text-anchor="middle" class="mu" font-size="13">a whole cluster</text>
+    </g>
+    <g class="fx-up" style="--d:6.6s">
+      <rect x="14" y="292" width="280" height="170" rx="16" class="f-stage ol"/>
+      <text x="30" y="324" class="d" font-size="18">Imperative</text>
+      <text x="30" y="360" font-size="16">“Start this container.”</text>
+      <text x="30" y="386" class="mu" font-size="13">a one-time command</text>
+      <rect x="30" y="410" width="110" height="30" rx="15" class="f-slab ol"/><text x="85" y="430" text-anchor="middle" font-size="13">do it once</text>
+    </g>
+    <g class="fx-up" style="--d:7.2s">
+      <rect x="306" y="292" width="280" height="170" rx="16" class="f-stage ol"/>
+      <text x="322" y="324" class="d" font-size="18">Declarative</text>
+      <text x="322" y="354" font-size="15">“4 healthy replicas,</text>
+      <text x="322" y="376" font-size="15">of this image,</text>
+      <text x="322" y="398" font-size="15">reachable by this Service.”</text>
+      <rect x="322" y="414" width="190" height="30" rx="15" class="f-teal ol"/><text x="417" y="434" text-anchor="middle" class="oa" font-size="13">kept true, continuously</text>
+    </g>
+    <rect x="300" y="286" width="292" height="182" rx="20" fill="none" class="s-sun w5 fx-pop" style="--d:8.2s"/>
+  </svg></div>
+</section>
+
+<!-- 4 -->
+<section class="scene" data-title="Desired state, actual state" data-chapter="Why Kubernetes" data-dur="13000">
+  <div class="cap">
+    <h2>Desired state, actual state</h2>
+    <p class="beat" style="--d:.6s;--d2:3.2s">You declare the desired state: <code>replicas: 3</code>. Like setting a thermostat.</p>
+    <p class="beat" style="--d:3.2s;--d2:5.8s">A Pod disappears. The actual state drops to 2.</p>
+    <p class="beat" style="--d:5.8s;--d2:8.6s">A controller spots the gap and creates one new Pod.</p>
+    <p class="beat" style="--d:8.6s">Compare, correct, repeat. That loop is called reconciliation.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="A dial shows desired 3 replicas. A spinning controller compares it with the actual Pods. One Pod vanishes, the controller creates a new one, and a chart shows actual replicas dropping from 3 to 2 and returning to 3.">
+    <g class="fx-pop" style="--d:.6s">
+      <circle cx="90" cy="100" r="56" class="f-stage ol w4"/>
+      <path d="M60.3 129.7 A42 42 0 1 1 119.7 129.7" class="ln s-slab w8"/>
+      <path d="M60.3 129.7 A42 42 0 1 1 119.7 129.7" pathLength="1" class="ln s-teal w8 fx-draw" style="--d:1s"/>
+      <text x="90" y="114" text-anchor="middle" class="d" font-size="40">3</text>
+      <text x="90" y="180" text-anchor="middle" class="d" font-size="15">desired</text>
+      <text x="90" y="200" text-anchor="middle" class="m mu" font-size="12.5">replicas: 3</text>
+    </g>
+    <g class="fx-pop" style="--d:.8s">
+      <circle cx="270" cy="100" r="46" class="f-sun ol"/>
+      <text x="270" y="97" text-anchor="middle" class="d oa" font-size="15">controller</text>
+      <text x="270" y="116" text-anchor="middle" class="oa" font-size="13">compares</text>
+    </g>
+    <g class="s4-spin fx-in" style="--d:.8s">
+      <path d="M270 38 A62 62 0 0 1 332 100" class="ln s-ink w3"/><path d="M325 92 L332 102 L339 92" class="ln s-ink w3"/>
+      <path d="M270 162 A62 62 0 0 1 208 100" class="ln s-ink w3"/><path d="M201 108 L208 98 L215 108" class="ln s-ink w3"/>
+    </g>
+    <path d="M150 100 H196 M190 94 L198 100 L190 106" class="ln s-ink w3 fx-in" style="--d:1.2s"/>
+    <text x="173" y="88" text-anchor="middle" class="mu fx-in" font-size="13" style="--d:1.2s">want</text>
+    <path d="M398 100 H346 M352 94 L344 100 L352 106" class="ln s-ink w3 fx-in" style="--d:1.4s"/>
+    <text x="372" y="88" text-anchor="middle" class="mu fx-in" font-size="13" style="--d:1.4s">see</text>
+    <g class="fx-up" style="--d:1s"><rect x="400" y="40" width="190" height="150" rx="14" class="f-wash ol"/><text x="414" y="64" class="d" font-size="15">actual</text></g>
+    <text x="576" y="64" text-anchor="end" class="bd fx-span" font-size="14" style="--d:1.2s;--d2:3.4s">3 Pods</text>
+    <text x="576" y="64" text-anchor="end" class="bad fx-span" font-size="14" style="--d:3.4s;--d2:6.2s">2 Pods</text>
+    <text x="576" y="64" text-anchor="end" class="good fx-in" font-size="14" style="--d:6.2s">3 Pods</text>
+    <g class="fx-pop" style="--d:1.2s"><use href="#pod" x="408" y="96" width="56" height="40"/></g>
+    <g class="fx-pop" style="--d:1.3s"><use href="#pod" x="467" y="96" width="56" height="40"/></g>
+    <g class="fx-pop" style="--d:1.4s"><g class="fx-poof" style="--d:3.3s"><use href="#pod" x="526" y="96" width="56" height="40"/></g></g>
+    <g class="fx-pop" style="--d:6.1s"><use href="#pod" x="526" y="96" width="56" height="40" style="--pc:var(--sun)"/></g>
+    <path d="M286 166 C320 214 440 220 520 146" pathLength="1" class="ln s-teal w3 fx-draw" style="--d:5.6s;--t:.6s"/>
+    <path d="M510 146 L521 144 L519 156" class="ln s-teal w3 fx-in" style="--d:6.1s"/>
+    <text x="398" y="228" text-anchor="middle" class="bd fx-in" font-size="14" style="--d:5.8s">create 1 Pod</text>
+    <g class="fx-in" style="--d:1.2s">
+      <text x="40" y="266" class="d" font-size="15">Replicas over time</text>
+      <path d="M432 262 H456" class="ln s-grape w3 dash"/><text x="462" y="266" font-size="13">desired</text>
+      <path d="M512 262 H536" class="ln s-teal w4"/><text x="542" y="266" font-size="13">actual</text>
+      <path d="M60 280 V430 H570" class="ln s-ink w2"/>
+      <text x="50" y="322" text-anchor="end" class="mu" font-size="13">3</text>
+      <text x="50" y="359" text-anchor="end" class="mu" font-size="13">2</text>
+      <text x="50" y="434" text-anchor="end" class="mu" font-size="13">0</text>
+      <text x="570" y="450" text-anchor="end" class="mu" font-size="13">time</text>
+      <path d="M60 317.5 H560" class="ln s-grape w3 dash"/>
+    </g>
+    <rect x="200" y="317.5" width="160" height="37.5" class="f-berry fx-span" style="--d:3.5s;--d2:6.3s;fill-opacity:.25"/>
+    <text x="280" y="343" text-anchor="middle" class="bad fx-span" font-size="13" style="--d:3.6s;--d2:6.3s">gap</text>
+    <path d="M60 317.5 H200 V355 H360 V317.5 H560" pathLength="1" class="ln s-teal w4 fx-draw s4-draw"/>
+  </svg></div>
+</section>
+
+<!-- 5 -->
+<section class="scene" data-title="Meet the crew" data-chapter="Architecture" data-dur="12500">
+  <div class="cap">
+    <h2>Meet the crew</h2>
+    <p class="beat" style="--d:.6s;--d2:3.4s">A cluster has a control plane (the brains) and worker nodes (the muscle).</p>
+    <p class="beat" style="--d:3.4s;--d2:6.6s">Control plane: API server, scheduler, controller manager, and etcd.</p>
+    <p class="beat" style="--d:6.6s;--d2:9.4s">Each worker node runs a kubelet, a container runtime, and your Pods.</p>
+    <p class="beat" style="--d:9.4s">In Minikube, one machine plays both roles.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="The control plane holds four cards: API server (front door), scheduler (picks a node), controller manager (closes gaps), and etcd (remembers state). The worker node holds the kubelet, the container runtime and Pods.">
+    <g class="fx-in" style="--d:.6s"><rect x="10" y="40" width="290" height="360" rx="18" class="f-wash ol"/><text x="26" y="70" class="d" font-size="18">Control plane</text><text x="26" y="92" class="mu" font-size="13">the brains</text></g>
+    <g class="fx-in" style="--d:.9s"><rect x="316" y="40" width="274" height="360" rx="18" class="f-wash ol"/><text x="332" y="70" class="d" font-size="18">Worker node</text><text x="332" y="92" class="mu" font-size="13">the muscle</text></g>
+    <g class="fx-pop" style="--d:3.6s">
+      <rect x="24" y="108" width="126" height="134" rx="14" class="f-stage ol"/>
+      <rect x="73" y="126" width="28" height="40" rx="3" class="f-sun ol"/><circle cx="94" cy="148" r="2.6" class="f-ink"/>
+      <text x="87" y="192" text-anchor="middle" class="d" font-size="14">API server</text>
+      <text x="87" y="216" text-anchor="middle" class="mu" font-size="13">front door</text>
+    </g>
+    <g class="fx-pop" style="--d:4s">
+      <rect x="162" y="108" width="126" height="134" rx="14" class="f-stage ol"/>
+      <path d="M225 168 C209 148 209 128 225 128 C241 128 241 148 225 168 Z" class="f-berry ol"/><circle cx="225" cy="141" r="5" class="f-stage"/>
+      <text x="225" y="192" text-anchor="middle" class="d" font-size="14">scheduler</text>
+      <text x="225" y="216" text-anchor="middle" class="mu" font-size="13">picks a node</text>
+    </g>
+    <g class="fx-pop" style="--d:4.4s">
+      <rect x="24" y="252" width="126" height="134" rx="14" class="f-stage ol"/>
+      <circle cx="87" cy="290" r="20" class="f-teal ol"/>
+      <path d="M75 290 A12 12 0 1 1 87 302" class="ln s-ink w3"/><path d="M81 296 L87 302 L81 308" class="ln s-ink w3"/>
+      <text x="87" y="330" text-anchor="middle" class="d" font-size="14">controller</text>
+      <text x="87" y="347" text-anchor="middle" class="d" font-size="14">manager</text>
+      <text x="87" y="369" text-anchor="middle" class="mu" font-size="13">closes gaps</text>
+    </g>
+    <g class="fx-pop" style="--d:4.8s">
+      <rect x="162" y="252" width="126" height="134" rx="14" class="f-stage ol"/>
+      <rect x="207" y="278" width="36" height="30" class="f-grape"/>
+      <ellipse cx="225" cy="308" rx="18" ry="6" class="f-grape ol"/>
+      <path d="M207 278 V308 M243 278 V308" class="ln s-ink"/>
+      <ellipse cx="225" cy="278" rx="18" ry="6" class="f-grape ol"/>
+      <text x="225" y="336" text-anchor="middle" class="d" font-size="14">etcd</text>
+      <text x="225" y="360" text-anchor="middle" class="mu" font-size="13">remembers state</text>
+    </g>
+    <g class="fx-pop" style="--d:6.8s">
+      <rect x="330" y="108" width="246" height="64" rx="14" class="f-stage ol"/>
+      <rect x="346" y="124" width="28" height="34" rx="3" class="f-stage ol"/><rect x="354" y="119" width="12" height="8" rx="2" class="f-sun ol"/>
+      <path d="M352 138 H368 M352 146 H364" class="ln s-ink w2"/>
+      <text x="388" y="136" class="d" font-size="15">kubelet</text>
+      <text x="388" y="156" class="mu" font-size="13">node agent</text>
+    </g>
+    <g class="fx-pop" style="--d:7.2s">
+      <rect x="330" y="182" width="246" height="56" rx="14" class="f-stage ol"/>
+      <rect x="346" y="196" width="28" height="28" rx="6" class="f-teal ol"/><path d="M353 204 H367 M353 210 H367 M353 216 H367" class="ln s-ink w2"/>
+      <text x="388" y="206" class="d" font-size="15">container runtime</text>
+      <text x="388" y="226" class="mu" font-size="13">runs the containers</text>
+    </g>
+    <g class="fx-in" style="--d:7.4s"><rect x="330" y="250" width="246" height="136" rx="14" fill="none" class="s-mu w2 dash"/><text x="344" y="274" class="d" font-size="15">Pods</text></g>
+    <g class="fx-pop" style="--d:7.6s"><use href="#pod" x="342" y="300" width="70" height="50"/></g>
+    <g class="fx-pop" style="--d:7.8s"><use href="#pod" x="418" y="300" width="70" height="50" style="--pc:var(--sun)"/></g>
+    <g class="fx-pop" style="--d:8s"><use href="#pod" x="494" y="300" width="70" height="50" style="--pc:var(--berry)"/></g>
+    <rect x="4" y="34" width="592" height="372" rx="22" fill="none" class="s-sun w4 dash fx-in" style="--d:9.4s"/>
+    <g class="fx-pop" style="--d:9.6s"><rect x="130" y="420" width="340" height="38" rx="19" class="f-sun ol"/><text x="300" y="445" text-anchor="middle" class="d oa" font-size="15">Minikube: one machine, both roles</text></g>
+  </svg></div>
+</section>
+
+<!-- 6 -->
+<section class="scene" data-title="Everything goes through the front door" data-chapter="Architecture" data-dur="11500">
+  <div class="cap">
+    <h2>Everything goes through the front door</h2>
+    <p class="beat" style="--d:.6s;--d2:3.2s"><code>kubectl get pods</code> talks to the API server over HTTPS, not straight to the scheduler or a kubelet.</p>
+    <p class="beat" style="--d:3.2s;--d2:6.2s">The API server is the hub. The scheduler, controllers, and kubelets all talk to it.</p>
+    <p class="beat" style="--d:6.2s">etcd is its durable memory: the store where cluster state lives.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="kubectl sends a request over HTTPS to the API server at the center. Spokes connect the scheduler, controller manager and two kubelets to it. Below, etcd stores the cluster state.">
+    <g class="fx-pop" style="--d:.5s"><circle cx="300" cy="230" r="62" class="f-sun ol w4"/><text x="300" y="228" text-anchor="middle" class="d oa" font-size="18">API server</text><text x="300" y="250" text-anchor="middle" class="oa" font-size="13">the hub</text></g>
+    <g class="fx-up" style="--d:.8s"><rect x="8" y="196" width="118" height="68" rx="10" class="f-term ol"/><text x="20" y="223" class="m tt" font-size="13">$ kubectl</text><text x="20" y="245" class="m tt" font-size="13">get pods</text></g>
+    <path d="M126 230 H238" pathLength="1" class="ln s-ink w3 fx-draw" style="--d:1s;--t:.4s"/>
+    <text x="182" y="220" text-anchor="middle" class="bd fx-in" font-size="13" style="--d:1.2s">HTTPS</text>
+    <circle r="7" class="f-berry ol hop" style="--x0:130px;--y0:230px;--x1:234px;--y1:230px;--d:1.4s;--t:.8s"/>
+    <circle r="7" class="f-teal ol hop" style="--x0:234px;--y0:230px;--x1:130px;--y1:230px;--d:2.3s;--t:.8s"/>
+    <path d="M70 196 C68 130 80 76 104 68" class="ln s-mu w2 dash fx-in" style="--d:2.4s"/>
+    <g class="fx-pop" style="--d:2.6s"><circle cx="74" cy="128" r="11" class="f-berry ol"/><path d="M69 123 l10 10 M79 123 l-10 10" class="ln s-ink w3"/></g>
+    <text x="92" y="150" class="bad fx-in" font-size="13" style="--d:2.7s">not directly</text>
+    <g class="fx-pop" style="--d:3.2s"><rect x="105" y="45" width="150" height="42" rx="21" class="f-stage ol"/><text x="180" y="72" text-anchor="middle" class="d" font-size="15">scheduler</text></g>
+    <g class="fx-pop" style="--d:3.4s"><rect x="335" y="45" width="170" height="42" rx="21" class="f-stage ol"/><text x="420" y="71" text-anchor="middle" class="d" font-size="14">controller manager</text></g>
+    <g class="fx-pop" style="--d:3.6s"><rect x="448" y="209" width="144" height="42" rx="21" class="f-stage ol"/><text x="520" y="235" text-anchor="middle" class="d" font-size="14">kubelet, node A</text></g>
+    <g class="fx-pop" style="--d:3.8s"><rect x="430" y="330" width="150" height="42" rx="21" class="f-stage ol"/><text x="505" y="356" text-anchor="middle" class="d" font-size="14">kubelet, node B</text></g>
+    <path d="M180 87 L260 182" pathLength="1" class="ln s-ink w3 fx-draw" style="--d:3.6s;--t:.4s"/>
+    <path d="M420 87 L340 182" pathLength="1" class="ln s-ink w3 fx-draw" style="--d:3.8s;--t:.4s"/>
+    <path d="M448 230 H362" pathLength="1" class="ln s-ink w3 fx-draw" style="--d:4s;--t:.4s"/>
+    <path d="M430 351 L345 272" pathLength="1" class="ln s-ink w3 fx-draw" style="--d:4.2s;--t:.4s"/>
+    <circle r="6" class="f-grape hop" style="--x0:180px;--y0:87px;--x1:260px;--y1:182px;--d:4.4s;--t:.9s;--n:2"/>
+    <circle r="6" class="f-grape hop" style="--x0:420px;--y0:87px;--x1:340px;--y1:182px;--d:4.7s;--t:.9s;--n:2"/>
+    <circle r="6" class="f-grape hop" style="--x0:448px;--y0:230px;--x1:362px;--y1:230px;--d:5s;--t:.9s;--n:2"/>
+    <circle r="6" class="f-grape hop" style="--x0:430px;--y0:351px;--x1:345px;--y1:272px;--d:5.3s;--t:.9s;--n:2"/>
+    <path d="M300 292 V368" pathLength="1" class="ln s-ink w4 fx-draw" style="--d:6.2s;--t:.4s"/>
+    <g class="fx-pop" style="--d:6.4s">
+      <rect x="250" y="380" width="100" height="50" class="f-grape"/>
+      <ellipse cx="300" cy="430" rx="50" ry="12" class="f-grape ol"/>
+      <path d="M250 380 V430 M350 380 V430" class="ln s-ink"/>
+      <ellipse cx="300" cy="380" rx="50" ry="12" class="f-grape ol"/>
+      <text x="300" y="416" text-anchor="middle" class="d og" font-size="18">etcd</text>
+    </g>
+    <text x="364" y="404" class="fx-in" font-size="14" style="--d:6.8s">durable memory</text>
+    <text x="364" y="424" class="mu fx-in" font-size="13" style="--d:7s">cluster state lives here</text>
+    <circle r="6" class="f-sun ol hop" style="--x0:300px;--y0:296px;--x1:300px;--y1:366px;--d:7s;--t:.9s;--n:3"/>
+  </svg></div>
+</section>
+
+<!-- 7 -->
+<section class="scene" data-title="Where vs. make it run" data-chapter="Architecture" data-dur="12500">
+  <div class="cap">
+    <h2>Where vs. make it run</h2>
+    <p class="beat" style="--d:.6s;--d2:3.4s">A new Pod waits, Pending, with no node assigned.</p>
+    <p class="beat" style="--d:3.4s;--d2:6.4s">The scheduler checks free resources and constraints, then picks a node.</p>
+    <p class="beat" style="--d:6.4s;--d2:9.4s">The kubelet on that node works with the runtime to start the containers.</p>
+    <p class="beat" style="--d:9.4s">Scheduler = where. kubelet = make it run there.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="A pending Pod hovers above three nodes. The scheduler rejects node A as too full, considers node C, and picks node B. The Pod drops into node B, where the kubelet starts it.">
+    <g class="s7-move"><g class="fx-out" style="--d:7.3s"><g class="fx-pop" style="--d:.6s">
+      <rect x="260" y="32" width="80" height="56" rx="28" class="f-wash s-mu w3 dash"/>
+      <text x="300" y="70" text-anchor="middle" class="d mu" font-size="26">?</text>
+    </g></g></g>
+    <text x="352" y="66" class="bd fx-span" font-size="14" style="--d:1s;--d2:5.6s">Pending: no node yet</text>
+    <g class="fx-pop" style="--d:3.4s">
+      <rect x="20" y="126" width="174" height="42" rx="21" class="f-sun ol"/>
+      <path d="M42 160 C32 148 32 136 42 136 C52 136 52 148 42 160 Z" class="f-berry ol"/>
+      <text x="58" y="153" class="m oa bd" font-size="14">kube-scheduler</text>
+    </g>
+    <g class="fx-up" style="--d:.8s">
+      <rect x="20" y="240" width="180" height="200" rx="16" class="f-stage ol"/><text x="34" y="268" class="d" font-size="16">node A</text>
+      <text x="34" y="294" class="mu" font-size="13">free CPU</text><rect x="34" y="302" width="152" height="16" rx="8" class="f-wash ol"/><rect x="35" y="303" width="18" height="14" rx="7" class="f-berry"/>
+      <use href="#pod" x="70" y="332" width="80" height="58"/>
+      <rect x="34" y="404" width="110" height="26" rx="13" class="f-slab ol"/><text x="89" y="422" text-anchor="middle" class="m" font-size="13">kubelet</text>
+    </g>
+    <g class="fx-up" style="--d:1s">
+      <rect x="210" y="240" width="180" height="200" rx="16" class="f-stage ol"/><text x="224" y="268" class="d" font-size="16">node B</text>
+      <text x="224" y="294" class="mu" font-size="13">free CPU</text><rect x="224" y="302" width="152" height="16" rx="8" class="f-wash ol"/><rect x="225" y="303" width="122" height="14" rx="7" class="f-teal"/>
+      <rect x="260" y="334" width="80" height="56" rx="28" fill="none" class="s-mu w2 dash fx-out" style="--d:7.4s"/>
+      <rect x="224" y="404" width="110" height="26" rx="13" class="f-slab ol"/>
+      <text x="279" y="422" text-anchor="middle" class="m fx-out" font-size="13" style="--d:6.4s">kubelet</text>
+    </g>
+    <g class="fx-up" style="--d:1.2s">
+      <rect x="400" y="240" width="180" height="200" rx="16" class="f-stage ol"/><text x="414" y="268" class="d" font-size="16">node C</text>
+      <text x="414" y="294" class="mu" font-size="13">free CPU</text><rect x="414" y="302" width="152" height="16" rx="8" class="f-wash ol"/><rect x="415" y="303" width="68" height="14" rx="7" class="f-sun"/>
+      <rect x="450" y="334" width="80" height="56" rx="28" fill="none" class="s-mu w2 dash"/>
+      <rect x="414" y="404" width="110" height="26" rx="13" class="f-slab ol"/><text x="469" y="422" text-anchor="middle" class="m" font-size="13">kubelet</text>
+    </g>
+    <rect x="15" y="235" width="190" height="210" rx="20" fill="none" class="s-berry w5 fx-span" style="--d:3.9s;--d2:4.5s"/>
+    <g class="fx-span" style="--d:3.9s;--d2:4.5s"><circle cx="186" cy="254" r="12" class="f-berry ol"/><path d="M181 249 l10 10 M191 249 l-10 10" class="ln s-ink w3"/></g>
+    <rect x="395" y="235" width="190" height="210" rx="20" fill="none" class="s-sun w5 fx-span" style="--d:4.5s;--d2:5.1s"/>
+    <text x="490" y="230" text-anchor="middle" class="bd fx-span" font-size="13" style="--d:4.5s;--d2:5.1s">fits</text>
+    <rect x="205" y="235" width="190" height="210" rx="20" fill="none" class="s-teal w5 fx-pop" style="--d:5.1s"/>
+    <g class="fx-pop" style="--d:5.2s"><rect x="255" y="212" width="90" height="24" rx="12" class="f-teal ol"/><text x="300" y="229" text-anchor="middle" class="oa bd" font-size="13">chosen</text></g>
+    <rect x="224" y="404" width="110" height="26" rx="13" class="f-teal ol fx-in" style="--d:6.4s"/>
+    <text x="279" y="422" text-anchor="middle" class="m oa bd fx-in" font-size="13" style="--d:6.4s">kubelet</text>
+    <text x="378" y="268" text-anchor="end" class="mu fx-span" font-size="12.5" style="--d:6.6s;--d2:7.4s">pulling image…</text>
+    <g class="fx-pop" style="--d:7.4s"><use href="#pod" x="260" y="333" width="80" height="58" style="--podf:var(--stage)"/></g>
+    <text x="378" y="268" text-anchor="end" class="good fx-in" font-size="13" style="--d:7.7s">Running ✓</text>
+    <g class="fx-pop" style="--d:9.4s"><rect x="372" y="112" width="218" height="38" rx="19" class="f-sun ol"/><text x="481" y="137" text-anchor="middle" class="d oa" font-size="16">Scheduler = where</text></g>
+    <g class="fx-pop" style="--d:9.8s"><rect x="372" y="158" width="218" height="38" rx="19" class="f-teal ol"/><text x="481" y="183" text-anchor="middle" class="d oa" font-size="16">kubelet = make it run</text></g>
+  </svg></div>
+</section>
+
+<!-- 8 -->
+<section class="scene" data-title="See it in the events" data-chapter="Architecture" data-dur="10500">
+  <div class="cap">
+    <h2>See it in the events</h2>
+    <p class="beat" style="--d:.6s;--d2:3s"><code>kubectl describe pod</code> lists what happened, in order.</p>
+    <p class="beat" style="--d:3s;--d2:6.4s">The first event comes from the scheduler. The rest come from the kubelet.</p>
+    <p class="beat" style="--d:6.4s">The architecture diagram becomes evidence you can check.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="Two swimlanes over time. The scheduler lane shows Scheduled. The kubelet lane shows Pulling, Pulled, Created and Started. A terminal lists the same events from kubectl describe pod.">
+    <g class="fx-in" style="--d:.5s">
+      <text x="14" y="86" class="d" font-size="15">scheduler</text>
+      <text x="14" y="166" class="d" font-size="15">kubelet</text>
+      <rect x="104" y="50" width="486" height="60" rx="12" class="f-wash ol"/>
+      <rect x="104" y="130" width="486" height="60" rx="12" class="f-wash ol"/>
+      <path d="M104 210 H580 M572 204 L580 210 L572 216" class="ln s-mu w2"/>
+      <text x="586" y="230" text-anchor="end" class="mu" font-size="13">time</text>
+    </g>
+    <rect x="104" y="50" width="486" height="60" rx="12" fill="none" class="s-sun w4 fx-in" style="--d:3.2s"/>
+    <rect x="104" y="130" width="486" height="60" rx="12" fill="none" class="s-teal w4 fx-in" style="--d:3.6s"/>
+    <g class="m" font-size="13" text-anchor="middle">
+      <g class="fx-pop" style="--d:1s"><rect x="112" y="60" width="88" height="40" rx="10" class="f-sun ol"/><text x="156" y="85" class="oa bd">Scheduled</text></g>
+      <g class="fx-pop" style="--d:1.9s"><rect x="206" y="140" width="88" height="40" rx="10" class="f-teal ol"/><text x="250" y="165" class="oa bd">Pulling</text></g>
+      <g class="fx-pop" style="--d:2.8s"><rect x="300" y="140" width="88" height="40" rx="10" class="f-teal ol"/><text x="344" y="165" class="oa bd">Pulled</text></g>
+      <g class="fx-pop" style="--d:3.7s"><rect x="394" y="140" width="88" height="40" rx="10" class="f-teal ol"/><text x="438" y="165" class="oa bd">Created</text></g>
+      <g class="fx-pop" style="--d:4.6s"><rect x="488" y="140" width="88" height="40" rx="10" class="f-teal ol"/><text x="532" y="165" class="oa bd">Started</text></g>
+    </g>
+    <g class="fx-in" style="--d:.7s">
+      <rect x="10" y="244" width="580" height="224" rx="14" class="f-term ol"/>
+      <text x="26" y="270" class="m tm" font-size="13">$ kubectl describe pod day9-nginx</text>
+      <g class="m tm" font-size="13"><text x="26" y="300" class="tm">REASON</text><text x="140" y="300" class="tm">FROM</text><text x="318" y="300" class="tm">MESSAGE</text></g>
+    </g>
+    <g class="m" font-size="14">
+      <g class="fx-in" style="--d:1s"><text x="26" y="332" class="tt">Scheduled</text><text x="140" y="332" class="sunt">default-scheduler</text><text x="318" y="332" class="tt">assigned to minikube</text></g>
+      <g class="fx-in" style="--d:1.9s"><text x="26" y="360" class="tt">Pulling</text><text x="140" y="360" class="good">kubelet</text><text x="318" y="360" class="tt">pulling nginx:alpine</text></g>
+      <g class="fx-in" style="--d:2.8s"><text x="26" y="388" class="tt">Pulled</text><text x="140" y="388" class="good">kubelet</text><text x="318" y="388" class="tt">image pulled</text></g>
+      <g class="fx-in" style="--d:3.7s"><text x="26" y="416" class="tt">Created</text><text x="140" y="416" class="good">kubelet</text><text x="318" y="416" class="tt">container created</text></g>
+      <g class="fx-in" style="--d:4.6s"><text x="26" y="444" class="tt">Started</text><text x="140" y="444" class="good">kubelet</text><text x="318" y="444" class="tt">container started</text></g>
+    </g>
+    <g class="fx-pop" style="--d:6.6s"><rect x="440" y="252" width="140" height="28" rx="14" class="f-sun ol"/><text x="510" y="271" text-anchor="middle" class="oa bd" font-size="13">real evidence</text></g>
+  </svg></div>
+</section>
+
+<!-- 9 -->
+<section class="scene" data-title="Pods: the smallest unit" data-chapter="Pods and controllers" data-dur="11500">
+  <div class="cap">
+    <h2>Pods: the smallest thing Kubernetes schedules</h2>
+    <p class="beat" style="--d:.6s;--d2:3.2s">Kubernetes schedules Pods, not bare containers. Usually one container per Pod.</p>
+    <p class="beat" style="--d:3.2s;--d2:6.2s">Sometimes a sidecar joins. Containers in a Pod share its network identity and can share volumes.</p>
+    <p class="beat" style="--d:6.2s">Pods get IPs from the Pod network, separate from the node’s own IP.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="A pea-pod shaped Pod holds one nginx container. A second Pod holds an app and a sidecar sharing one IP and a volume. Below, a Minikube node at 192.168.49.2 holds Pods at 10.244.0.5 and 10.244.0.6 on the Pod network.">
+    <g class="fx-pop" style="--d:.8s">
+      <path d="M62 30 Q48 12 30 18" class="ln s-teal w3"/>
+      <rect x="14" y="24" width="272" height="112" rx="56" class="f-wash s-teal w4"/>
+      <use href="#pid" x="44" y="46" width="56" height="60"/>
+      <text x="112" y="76" class="d" font-size="16">Pod: web-abc123</text>
+      <text x="112" y="100" class="m mu" font-size="12.5">1 container: nginx</text>
+    </g>
+    <g class="fx-pop" style="--d:3.4s">
+      <path d="M354 30 Q340 12 322 18" class="ln s-teal w3"/>
+      <rect x="306" y="24" width="280" height="112" rx="56" class="f-wash s-teal w4"/>
+      <use href="#pid" x="336" y="46" width="56" height="60"/>
+      <use href="#pid" x="398" y="62" width="40" height="43" style="--pc:var(--sun)"/>
+      <text x="448" y="80" class="d" font-size="15">app + sidecar</text>
+      <text x="448" y="102" class="mu" font-size="13">one Pod</text>
+    </g>
+    <g class="fx-pop" style="--d:4s"><rect x="470" y="10" width="104" height="26" rx="13" class="f-sun ol"/><text x="522" y="28" text-anchor="middle" class="oa bd" font-size="13">one Pod IP</text></g>
+    <path d="M364 106 L406 168 M418 105 L424 166" pathLength="1" class="ln s-ink w2 fx-draw" style="--d:4.6s;--t:.4s"/>
+    <g class="fx-pop" style="--d:4.4s">
+      <rect x="394" y="172" width="48" height="26" class="f-slab"/>
+      <ellipse cx="418" cy="198" rx="24" ry="6" class="f-slab ol"/>
+      <path d="M394 172 V198 M442 172 V198" class="ln s-ink"/>
+      <ellipse cx="418" cy="172" rx="24" ry="6" class="f-slab ol"/>
+    </g>
+    <text x="452" y="192" class="fx-in" font-size="13" style="--d:4.8s">shared volume</text>
+    <g class="fx-in" style="--d:6.2s"><rect x="14" y="226" width="572" height="240" rx="18" class="f-stage ol"/><text x="32" y="256" class="d" font-size="17">Minikube node</text></g>
+    <g class="fx-pop" style="--d:6.5s"><rect x="342" y="238" width="228" height="30" rx="15" class="f-slab ol"/><text x="456" y="258" text-anchor="middle" class="m" font-size="13">node IP 192.168.49.2</text></g>
+    <g class="fx-in" style="--d:6.7s"><rect x="32" y="280" width="536" height="170" rx="16" class="f-wash s-mu w2 dash"/><text x="48" y="304" class="mu" font-size="14">Pod network</text></g>
+    <g class="fx-pop" style="--d:7s"><use href="#pod" x="130" y="318" width="110" height="79"/></g>
+    <g class="fx-pop" style="--d:7.3s"><use href="#pod" x="360" y="318" width="110" height="79" style="--pc:var(--sun)"/></g>
+    <text x="185" y="426" text-anchor="middle" class="m bd fx-in" font-size="15" style="--d:7.4s">10.244.0.5</text>
+    <text x="415" y="426" text-anchor="middle" class="m bd fx-in" font-size="15" style="--d:7.7s">10.244.0.6</text>
+  </svg></div>
+</section>
+
+<!-- 10 -->
+<section class="scene" data-title="Deleted Pods: gone or replaced?" data-chapter="Pods and controllers" data-dur="12500">
+  <div class="cap">
+    <h2>Deleted Pods: gone or replaced?</h2>
+    <p class="beat" style="--d:.6s;--d2:3.2s">A bare Pod has no controller watching over it.</p>
+    <p class="beat" style="--d:3.2s;--d2:6.2s">Delete it, and it’s simply gone.</p>
+    <p class="beat" style="--d:6.2s;--d2:9.4s">Delete a Deployment’s Pod, and the ReplicaSet sees 2 of 3 and creates a new one.</p>
+    <p class="beat" style="--d:9.4s">Not restarted: replaced, with a new name and often a new IP.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="Left: a bare Pod with no controller is deleted and stays gone. Right: a Deployment and ReplicaSet manage three Pods; one is deleted, the count drops to 2 of 3, and a new Pod with a new IP replaces it.">
+    <path d="M236 20 V460" class="ln s-mu w2 dash"/>
+    <text x="118" y="36" text-anchor="middle" class="d" font-size="18">Bare Pod</text>
+    <g class="fx-in" style="--d:1.2s"><rect x="48" y="54" width="140" height="34" rx="10" fill="none" class="s-mu w2 dash"/><text x="118" y="76" text-anchor="middle" class="mu" font-size="13">no controller</text></g>
+    <g class="fx-pop" style="--d:.8s"><g class="fx-poof" style="--d:3.8s"><use href="#pod" x="63" y="112" width="110" height="79"/></g></g>
+    <text x="118" y="214" text-anchor="middle" class="m" font-size="14">day9-nginx</text>
+    <polygon points="118,112 128,138 154,132 136,152 154,172 128,166 118,192 108,166 82,172 100,152 82,132 108,138" class="f-sun ol fx-span" style="--d:3.8s;--d2:4.4s"/>
+    <rect x="66" y="119" width="104" height="71" rx="35" fill="none" class="s-mu w3 dash fx-in" style="--d:4.4s"/>
+    <text x="118" y="262" text-anchor="middle" class="d bad fx-in" font-size="17" style="--d:4.6s">gone for good</text>
+    <g class="fx-in" style="--d:4.8s"><text x="118" y="292" text-anchor="middle" class="mu" font-size="13">no controller asks</text><text x="118" y="310" text-anchor="middle" class="mu" font-size="13">for it back</text></g>
+    <g class="fx-up" style="--d:3.2s"><rect x="24" y="396" width="188" height="34" rx="17" class="f-stage ol"/><text x="118" y="418" text-anchor="middle" class="m" font-size="12.5">kubectl delete pod</text></g>
+    <text x="423" y="36" text-anchor="middle" class="d" font-size="18">Deployment-managed</text>
+    <g class="fx-up" style="--d:.8s"><rect x="343" y="52" width="160" height="34" rx="10" class="f-grape ol"/><text x="423" y="74" text-anchor="middle" class="d og" font-size="15">Deployment</text></g>
+    <path d="M423 86 V108" class="ln s-ink fx-in" style="--d:.9s"/>
+    <g class="fx-up" style="--d:1s"><rect x="323" y="108" width="200" height="48" rx="12" class="f-sun ol"/><text x="423" y="129" text-anchor="middle" class="d oa" font-size="15">ReplicaSet</text><text x="423" y="148" text-anchor="middle" class="m oa" font-size="12.5">desired: 3</text></g>
+    <rect x="530" y="114" width="58" height="36" rx="10" class="f-stage ol fx-in" style="--d:1.4s"/>
+    <text x="559" y="138" text-anchor="middle" class="d fx-span" font-size="17" style="--d:1.4s;--d2:6.8s">3/3</text>
+    <text x="559" y="138" text-anchor="middle" class="d bad fx-span" font-size="17" style="--d:6.8s;--d2:7.9s">2/3</text>
+    <text x="559" y="138" text-anchor="middle" class="d good fx-in" font-size="17" style="--d:7.9s">3/3</text>
+    <path d="M423 156 V172 M300 172 H546 M300 172 V188 M423 172 V188 M546 172 V188" class="ln s-ink fx-in" style="--d:1.2s"/>
+    <g class="fx-pop" style="--d:1.4s"><use href="#pod" x="252" y="188" width="96" height="69"/></g>
+    <g class="fx-pop" style="--d:1.6s"><g class="fx-poof" style="--d:6.6s"><use href="#pod" x="375" y="188" width="96" height="69"/></g></g>
+    <g class="fx-pop" style="--d:1.8s"><use href="#pod" x="498" y="188" width="96" height="69"/></g>
+    <polygon points="423,188 433,212 457,206 441,224 457,242 433,236 423,260 413,236 389,242 405,224 389,206 413,212" class="f-sun ol fx-span" style="--d:6.6s;--d2:7.2s"/>
+    <g class="fx-pop" style="--d:7.6s"><use href="#pod" x="375" y="188" width="96" height="69" style="--pc:var(--sun)"/></g>
+    <g class="m" font-size="13" text-anchor="middle">
+      <text x="300" y="278" class="fx-in" style="--d:1.6s">10.244.0.7</text>
+      <text x="423" y="278" class="fx-span" style="--d:1.6s;--d2:7s">10.244.0.8</text>
+      <text x="546" y="278" class="fx-in" style="--d:1.8s">10.244.0.9</text>
+    </g>
+    <g class="fx-in" style="--d:7.9s"><rect x="371" y="264" width="104" height="22" rx="11" class="f-sun"/><text x="423" y="280" text-anchor="middle" class="m oa bd" font-size="13">10.244.0.12</text></g>
+    <text x="423" y="312" text-anchor="middle" class="m fx-in" font-size="12" style="--d:8.2s">new name: day9-web-…-x7k2p</text>
+    <g class="fx-span" style="--d:6.2s;--d2:9.2s"><rect x="329" y="396" width="188" height="34" rx="17" class="f-stage ol"/><text x="423" y="418" text-anchor="middle" class="m" font-size="12.5">kubectl delete pod</text></g>
+    <g class="fx-pop" style="--d:9.4s"><rect x="303" y="394" width="240" height="38" rx="19" class="f-teal ol"/><text x="423" y="419" text-anchor="middle" class="d oa" font-size="16">replaced, not restarted</text></g>
+  </svg></div>
+</section>
+
+<!-- 11 -->
+<section class="scene" data-title="Deployment, ReplicaSet, Pods" data-chapter="Pods and controllers" data-dur="12500">
+  <div class="cap">
+    <h2>Deployment, ReplicaSet, Pods</h2>
+    <p class="beat" style="--d:.6s;--d2:3.4s">A Deployment manages a ReplicaSet. The ReplicaSet keeps the Pod count right.</p>
+    <p class="beat" style="--d:3.4s;--d2:6.2s">Names nest like a family tree. Never treat the random suffixes as permanent.</p>
+    <p class="beat" style="--d:6.2s;--d2:9s">DESIRED: should exist. CURRENT: do exist. READY: are reporting Ready.</p>
+    <p class="beat" style="--d:9s">You work with Deployments. ReplicaSets come along automatically.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="Name chips build up: day9-web for the Deployment, plus a hash for the ReplicaSet, plus a short suffix for the Pod, which changes when the Pod is replaced. A kubectl get rs table shows DESIRED 3 while CURRENT and READY catch up to 3.">
+    <g class="d" font-size="15">
+      <text x="14" y="70" class="fx-in" style="--d:.8s">Deployment</text>
+      <text x="14" y="120" class="fx-in" style="--d:1.6s">ReplicaSet</text>
+      <text x="14" y="170" class="fx-in" style="--d:2.6s">Pod</text>
+    </g>
+    <g class="m" font-size="13" text-anchor="middle">
+      <g class="fx-pop" style="--d:.8s"><rect x="124" y="48" width="82" height="32" rx="8" class="f-grape ol"/><text x="165" y="69" class="og bd">day9-web</text></g>
+      <g class="fx-pop" style="--d:1.6s"><rect x="124" y="98" width="82" height="32" rx="8" class="f-grape ol"/><text x="165" y="119" class="og bd">day9-web</text></g>
+      <g class="fx-pop" style="--d:1.8s"><rect x="210" y="98" width="108" height="32" rx="8" class="f-sun ol"/><text x="264" y="119" class="oa bd">-674f9d5654</text></g>
+      <g class="fx-pop" style="--d:2.6s"><rect x="124" y="148" width="82" height="32" rx="8" class="f-grape ol"/><text x="165" y="169" class="og bd">day9-web</text></g>
+      <g class="fx-pop" style="--d:2.6s"><rect x="210" y="148" width="108" height="32" rx="8" class="f-sun ol"/><text x="264" y="169" class="oa bd">-674f9d5654</text></g>
+      <g class="fx-pop" style="--d:2.8s"><rect x="322" y="148" width="72" height="32" rx="8" class="f-teal ol"/></g>
+      <text x="358" y="169" class="oa bd fx-span" style="--d:2.8s;--d2:4.4s">-r9kwl</text>
+      <text x="358" y="169" class="oa bd fx-in" style="--d:4.6s">-x7k2p</text>
+    </g>
+    <rect x="318" y="144" width="80" height="40" rx="11" fill="none" class="s-berry w4 fx-span" style="--d:4.4s;--d2:5.6s"/>
+    <text x="406" y="169" class="mu fx-in" font-size="13" style="--d:4.8s">changes when replaced</text>
+    <g class="fx-in" style="--d:6s">
+      <rect x="10" y="214" width="580" height="124" rx="14" class="f-term ol"/>
+      <text x="26" y="242" class="m tm" font-size="13">$ kubectl get rs</text>
+      <g class="m" font-size="13"><text x="26" y="276" class="tm">NAME</text><text x="330" y="276" text-anchor="middle" class="tm">DESIRED</text><text x="420" y="276" text-anchor="middle" class="tm">CURRENT</text><text x="510" y="276" text-anchor="middle" class="tm">READY</text></g>
+    </g>
+    <g class="m" font-size="16">
+      <text x="26" y="314" class="tt fx-in" font-size="14" style="--d:6.2s">day9-web-674f9d5654</text>
+      <text x="330" y="314" text-anchor="middle" class="tt fx-in" style="--d:6.4s">3</text>
+      <text x="420" y="314" text-anchor="middle" class="bad fx-span" style="--d:6.4s;--d2:7.2s">2</text>
+      <text x="420" y="314" text-anchor="middle" class="tt fx-in" style="--d:7.2s">3</text>
+      <text x="510" y="314" text-anchor="middle" class="bad fx-span" style="--d:6.4s;--d2:7.6s">1</text>
+      <text x="510" y="314" text-anchor="middle" class="sunt fx-span" style="--d:7.6s;--d2:8.2s">2</text>
+      <text x="510" y="314" text-anchor="middle" class="tt fx-in" style="--d:8.2s">3</text>
+    </g>
+    <g font-size="13" text-anchor="middle">
+      <g class="fx-pop" style="--d:6.6s"><path d="M330 352 V328" class="ln s-ink w2"/><rect x="287" y="352" width="86" height="30" rx="15" class="f-sun ol"/><text x="330" y="372" class="oa">should exist</text></g>
+      <g class="fx-pop" style="--d:7s"><path d="M420 352 V328" class="ln s-ink w2"/><rect x="377" y="352" width="86" height="30" rx="15" class="f-teal ol"/><text x="420" y="372" class="oa">do exist</text></g>
+      <g class="fx-pop" style="--d:7.4s"><path d="M510 352 V328" class="ln s-ink w2"/><rect x="467" y="352" width="86" height="30" rx="15" class="f-grape ol"/><text x="510" y="372" class="og">are Ready</text></g>
+    </g>
+    <g class="fx-pop" style="--d:9.2s"><rect x="40" y="414" width="520" height="40" rx="20" class="f-sun ol"/><text x="300" y="440" text-anchor="middle" class="d oa" font-size="15">Work with Deployments. ReplicaSets come along.</text></g>
+  </svg></div>
+</section>
+
+<!-- 12 -->
+<section class="scene" data-title="Scale out" data-chapter="Scaling and resources" data-dur="11500">
+  <div class="cap">
+    <h2>Scale out: more copies, same recipe</h2>
+    <p class="beat" style="--d:.6s;--d2:3.2s"><code>kubectl scale --replicas=3</code> turns 1 Pod into 3, all from the same template.</p>
+    <p class="beat" style="--d:3.2s;--d2:6.4s">Horizontal scaling = how many copies. Vertical scaling = how big each one is.</p>
+    <p class="beat" style="--d:6.4s">Inference replicas often scale out. Heavy jobs may need bigger Pods.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="A Pod template produces three identical Pods. Below, horizontal scaling grows a row from 2 Pods to 5 Pods, while vertical scaling makes one Pod bigger, from 1 CPU to 4 CPUs.">
+    <g class="fx-up" style="--d:.6s">
+      <rect x="14" y="36" width="160" height="132" rx="14" class="f-stage ol"/>
+      <text x="30" y="62" class="d" font-size="15">Pod template</text>
+      <text x="30" y="86" class="m mu" font-size="12">image:</text>
+      <text x="30" y="104" class="m" font-size="13">nginx:alpine</text>
+      <use href="#pod" x="58" y="114" width="64" height="46"/>
+    </g>
+    <path d="M182 100 H224 M216 92 L226 100 L216 108" class="ln s-ink w3 fx-in" style="--d:1.2s"/>
+    <text x="203" y="86" text-anchor="middle" class="d fx-in" font-size="16" style="--d:1.6s">×3</text>
+    <g class="fx-pop" style="--d:.8s"><use href="#pod" x="232" y="60" width="110" height="79"/></g>
+    <g class="fx-pop" style="--d:1.8s"><use href="#pod" x="352" y="60" width="110" height="79"/></g>
+    <g class="fx-pop" style="--d:2.1s"><use href="#pod" x="472" y="60" width="110" height="79"/></g>
+    <text x="407" y="172" text-anchor="middle" class="m fx-span" font-size="15" style="--d:.8s;--d2:1.8s">replicas: 1</text>
+    <text x="407" y="172" text-anchor="middle" class="m bd fx-in" font-size="15" style="--d:1.8s">replicas: 3</text>
+    <g class="fx-up" style="--d:3.2s">
+      <rect x="14" y="210" width="280" height="254" rx="16" class="f-wash ol"/>
+      <text x="30" y="240" class="d" font-size="18">Horizontal</text>
+      <text x="30" y="262" class="mu" font-size="13">how many replicas?</text>
+    </g>
+    <g class="fx-up" style="--d:3.4s">
+      <rect x="306" y="210" width="280" height="254" rx="16" class="f-wash ol"/>
+      <text x="322" y="240" class="d" font-size="18">Vertical</text>
+      <text x="322" y="262" class="mu" font-size="13">how big is each one?</text>
+    </g>
+    <g class="fx-pop" style="--d:3.6s"><use href="#pod" x="32" y="296" width="46" height="33"/></g>
+    <g class="fx-pop" style="--d:3.7s"><use href="#pod" x="84" y="296" width="46" height="33"/></g>
+    <g class="fx-pop" style="--d:4.2s"><use href="#pod" x="136" y="296" width="46" height="33"/></g>
+    <g class="fx-pop" style="--d:4.4s"><use href="#pod" x="188" y="296" width="46" height="33"/></g>
+    <g class="fx-pop" style="--d:4.6s"><use href="#pod" x="240" y="296" width="46" height="33"/></g>
+    <text x="154" y="372" text-anchor="middle" class="d fx-span" font-size="20" style="--d:3.6s;--d2:4.4s">2 Pods</text>
+    <text x="154" y="372" text-anchor="middle" class="d fx-in" font-size="20" style="--d:4.6s">5 Pods</text>
+    <text x="154" y="398" text-anchor="middle" class="mu fx-in" font-size="13" style="--d:4.6s">more requests, redundancy</text>
+    <g class="fx-pop" style="--d:3.8s"><g class="fx-grow" style="--d:4.4s"><use href="#pod" x="401" y="290" width="90" height="65"/></g></g>
+    <text x="446" y="392" text-anchor="middle" class="d fx-span" font-size="20" style="--d:3.8s;--d2:4.6s">1 CPU</text>
+    <text x="446" y="392" text-anchor="middle" class="d fx-in" font-size="20" style="--d:4.8s">4 CPUs</text>
+    <text x="446" y="416" text-anchor="middle" class="mu fx-in" font-size="13" style="--d:4.8s">more CPU or memory per Pod</text>
+    <g class="fx-pop" style="--d:6.6s"><rect x="64" y="418" width="180" height="28" rx="14" class="f-sun ol"/><text x="154" y="437" text-anchor="middle" class="oa bd" font-size="13">inference replicas</text></g>
+    <g class="fx-pop" style="--d:6.9s"><rect x="356" y="428" width="180" height="26" rx="13" class="f-sun ol"/><text x="446" y="446" text-anchor="middle" class="oa bd" font-size="13">big per-Pod jobs</text></g>
+  </svg></div>
+</section>
+
+<!-- 13 -->
+<section class="scene" data-title="Requests and limits" data-chapter="Scaling and resources" data-dur="12500">
+  <div class="cap">
+    <h2>Requests and limits</h2>
+    <p class="beat" style="--d:.6s;--d2:3.4s">A request is what the scheduler sets aside when it places the Pod.</p>
+    <p class="beat" style="--d:3.4s;--d2:6.4s">A limit is the most the container may use.</p>
+    <p class="beat" style="--d:6.4s;--d2:9.2s">CPU comes in millicores: 1000m = 1 CPU.</p>
+    <p class="beat" style="--d:9.2s">No requests or limits at all? The Pod can land in the BestEffort QoS class.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="A resources block requests 2 CPUs and 4Gi memory with limits of 4 CPUs and 8Gi. Bars show the request reserved, live usage moving below the limit line. A bar splits 1 CPU into 500m and two 250m parts. A Pod with no requests or limits is BestEffort.">
+    <g class="fx-in" style="--d:.4s">
+      <rect x="10" y="20" width="230" height="182" rx="14" class="f-term ol"/>
+      <g class="m" font-size="14">
+        <text x="24" y="48" class="tt">resources:</text>
+        <text x="40" y="69" class="good">requests:</text>
+        <text x="56" y="90" class="tt">cpu: "2"</text>
+        <text x="56" y="111" class="tt">memory: "4Gi"</text>
+        <text x="40" y="136" class="bad">limits:</text>
+        <text x="56" y="157" class="tt">cpu: "4"</text>
+        <text x="56" y="178" class="tt">memory: "8Gi"</text>
+      </g>
+    </g>
+    <g class="fx-in" style="--d:.8s">
+      <text x="262" y="54" class="d" font-size="15">CPU</text>
+      <rect x="330" y="36" width="252" height="26" rx="13" class="f-wash ol"/>
+      <g font-size="13" text-anchor="middle"><text x="330" y="80" class="mu">0</text><text x="372" y="80" class="mu">1</text><text x="414" y="80" class="mu">2</text><text x="456" y="80" class="mu">3</text><text x="498" y="80" class="mu">4</text><text x="540" y="80" class="mu">5</text><text x="582" y="80" class="mu">6</text></g>
+      <text x="262" y="148" class="d" font-size="15">Memory</text>
+      <rect x="330" y="130" width="252" height="26" rx="13" class="f-wash ol"/>
+      <g font-size="13" text-anchor="middle"><text x="330" y="174" class="mu">0</text><text x="380" y="174" class="mu">2</text><text x="431" y="174" class="mu">4</text><text x="481" y="174" class="mu">6</text><text x="532" y="174" class="mu">8</text><text x="582" y="174" class="mu">10 Gi</text></g>
+    </g>
+    <rect x="331.5" y="37.5" width="82.5" height="23" rx="11.5" class="f-teal fx-gx" style="--d:1.2s;opacity:.55"/>
+    <text x="372" y="26" text-anchor="middle" class="good fx-in" font-size="13" style="--d:1.4s">request: 2</text>
+    <rect x="331.5" y="131.5" width="99" height="23" rx="11.5" class="f-teal fx-gx" style="--d:1.6s;opacity:.55"/>
+    <text x="381" y="120" text-anchor="middle" class="good fx-in" font-size="13" style="--d:1.8s">request: 4Gi</text>
+    <g class="fx-pop" style="--d:3.4s"><path d="M498 30 V68" class="ln s-berry w4"/><text x="498" y="26" text-anchor="middle" class="bad" font-size="13">limit: 4</text></g>
+    <g class="fx-pop" style="--d:3.6s"><path d="M532 124 V162" class="ln s-berry w4"/><text x="532" y="120" text-anchor="middle" class="bad" font-size="13">limit: 8Gi</text></g>
+    <rect x="331.5" y="45" width="166" height="8" rx="4" class="f-grape fx-wob" style="--d:3.8s"/>
+    <rect x="331.5" y="139" width="200" height="8" rx="4" class="f-grape fx-wob" style="--d:4s"/>
+    <text x="582" y="196" text-anchor="end" class="mu fx-in" font-size="12.5" style="--d:4.2s">purple = live usage, kept under the limit</text>
+    <g class="fx-in" style="--d:6.4s">
+      <text x="14" y="238" class="d" font-size="16">Millicores</text>
+      <rect x="14" y="250" width="572" height="46" rx="12" class="f-wash ol"/>
+      <text x="14" y="318" class="mu" font-size="13">0</text>
+      <text x="300" y="318" text-anchor="middle" class="mu" font-size="13">0.5 CPU</text>
+      <text x="586" y="318" text-anchor="end" class="bd" font-size="13">1 CPU = 1000m</text>
+    </g>
+    <rect x="15.5" y="251.5" width="284.5" height="43" rx="10" class="f-teal fx-gx" style="--d:6.6s"/>
+    <rect x="300" y="251.5" width="143" height="43" class="f-sun fx-gx" style="--d:7s"/>
+    <rect x="443" y="251.5" width="141.5" height="43" rx="10" class="f-grape fx-gx" style="--d:7.4s"/>
+    <text x="158" y="280" text-anchor="middle" class="d oa fx-in" font-size="18" style="--d:7s">500m</text>
+    <text x="371" y="280" text-anchor="middle" class="d oa fx-in" font-size="18" style="--d:7.4s">250m</text>
+    <text x="514" y="280" text-anchor="middle" class="d og fx-in" font-size="18" style="--d:7.8s">250m</text>
+    <g class="fx-pop" style="--d:9.4s">
+      <rect x="14" y="346" width="572" height="112" rx="16" class="f-stage ol"/>
+      <use href="#pod" x="34" y="366" width="100" height="72"/>
+      <text x="156" y="384" class="d" font-size="18">No requests, no limits</text>
+      <text x="156" y="414" class="m" font-size="15">QoS class: BestEffort</text>
+      <text x="156" y="440" class="mu" font-size="13">More on QoS in the scheduling lessons.</text>
+    </g>
+  </svg></div>
+</section>
+
+<!-- 14 -->
+<section class="scene" data-title="Pod IPs don’t stay put" data-chapter="Services" data-dur="13000">
+  <div class="cap">
+    <h2>Pod IPs don’t stay put</h2>
+    <p class="beat" style="--d:.6s;--d2:3.2s">Three Pods, three IPs. A client hard-codes one of them.</p>
+    <p class="beat" style="--d:3.2s;--d2:6s">That Pod is replaced. The new one gets a new IP, and the client’s calls fail.</p>
+    <p class="beat" style="--d:6s;--d2:9.2s">A Service gives the group one stable name and ClusterIP.</p>
+    <p class="beat" style="--d:9.2s">Clients call the Service. Pods behind it can come and go.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="A client calls Pod IP 10.244.0.8 directly. That Pod is replaced by one at 10.244.0.12 and the call fails. A Service named day9-web-service appears between the client and the Pods; requests flow through it even when another Pod is replaced.">
+    <g class="fx-pop" style="--d:.5s"><use href="#pid" x="40" y="196" width="66" height="70"/></g>
+    <text x="73" y="290" text-anchor="middle" class="d fx-in" font-size="15" style="--d:.6s">client</text>
+    <g class="fx-pop" style="--d:.7s"><use href="#pod" x="440" y="40" width="100" height="72"/></g>
+    <g class="fx-pop" style="--d:.8s"><g class="fx-poof" style="--d:3.4s"><use href="#pod" x="440" y="196" width="100" height="72"/></g></g>
+    <g class="fx-pop" style="--d:.9s"><g class="fx-poof" style="--d:9.6s"><use href="#pod" x="440" y="352" width="100" height="72"/></g></g>
+    <g class="fx-pop" style="--d:4.2s"><use href="#pod" x="440" y="196" width="100" height="72" style="--pc:var(--sun)"/></g>
+    <g class="fx-pop" style="--d:10.1s"><use href="#pod" x="440" y="352" width="100" height="72" style="--pc:var(--sun)"/></g>
+    <g class="m" font-size="13" text-anchor="middle">
+      <text x="490" y="132" class="fx-in" style="--d:.8s">10.244.0.7</text>
+      <text x="490" y="288" class="fx-span" style="--d:.9s;--d2:3.6s">10.244.0.8</text>
+      <text x="490" y="288" class="bd fx-in" style="--d:4.3s">10.244.0.12</text>
+      <text x="490" y="444" class="fx-span" style="--d:1s;--d2:9.8s">10.244.0.9</text>
+      <text x="490" y="444" class="bd fx-in" style="--d:10.2s">10.244.0.14</text>
+    </g>
+    <g class="fx-out" style="--d:5.8s">
+      <path d="M110 232 H436" pathLength="1" class="ln s-ink w3 fx-draw" style="--d:1.2s;--t:.6s"/>
+      <text x="272" y="218" text-anchor="middle" class="m fx-in" font-size="13" style="--d:1.6s">calls 10.244.0.8</text>
+      <path d="M110 232 H436" class="ln s-berry w4 fx-in" style="--d:4.8s"/>
+      <g class="fx-pop" style="--d:4.9s"><circle cx="272" cy="232" r="14" class="f-berry ol"/><path d="M266 226 l12 12 M278 226 l-12 12" class="ln s-ink w3"/></g>
+      <text x="272" y="268" text-anchor="middle" class="bad fx-in" font-size="14" style="--d:5s">connection fails</text>
+    </g>
+    <g class="fx-pop" style="--d:6.2s">
+      <rect x="200" y="186" width="160" height="96" rx="16" class="f-grape ol"/>
+      <text x="280" y="218" text-anchor="middle" class="d og" font-size="18">Service</text>
+      <text x="280" y="242" text-anchor="middle" class="m og" font-size="12">day9-web-service</text>
+      <text x="280" y="264" text-anchor="middle" class="og" font-size="13">stable ClusterIP</text>
+    </g>
+    <path d="M110 234 H200" pathLength="1" class="ln s-ink w3 fx-draw" style="--d:6.6s;--t:.3s"/>
+    <path d="M360 234 L440 80" pathLength="1" class="ln s-ink w3 fx-draw" style="--d:6.8s;--t:.4s"/>
+    <path d="M360 234 H440" pathLength="1" class="ln s-ink w3 fx-draw" style="--d:6.9s;--t:.4s"/>
+    <path d="M360 234 L440 388" pathLength="1" class="ln s-ink w3 fx-draw" style="--d:7s;--t:.4s"/>
+    <circle r="7" class="f-sun ol hop3" style="--x0:112px;--y0:234px;--x1:280px;--y1:234px;--x2:440px;--y2:80px;--d:7.5s;--t:1.4s"/>
+    <circle r="7" class="f-sun ol hop3" style="--x0:112px;--y0:234px;--x1:280px;--y1:234px;--x2:440px;--y2:388px;--d:8.3s;--t:1.4s"/>
+    <circle r="7" class="f-sun ol hop3" style="--x0:112px;--y0:234px;--x1:280px;--y1:234px;--x2:440px;--y2:234px;--d:9.1s;--t:1.4s"/>
+    <circle r="7" class="f-sun ol hop3" style="--x0:112px;--y0:234px;--x1:280px;--y1:234px;--x2:440px;--y2:388px;--d:10.3s;--t:1.4s"/>
+    <g class="fx-pop" style="--d:10.6s"><rect x="20" y="410" width="350" height="38" rx="19" class="f-sun ol"/><text x="195" y="435" text-anchor="middle" class="d oa" font-size="15">same name, changing backends</text></g>
+  </svg></div>
+</section>
+
+<!-- 15 -->
+<section class="scene" data-title="Labels and selectors" data-chapter="Services" data-dur="12500">
+  <div class="cap">
+    <h2>Labels and selectors</h2>
+    <p class="beat" style="--d:.6s;--d2:3.4s">A Service doesn’t track Pod names. Its selector matches Pod labels.</p>
+    <p class="beat" style="--d:3.4s;--d2:6.4s"><code>app=day9-web</code> attracts two Pods. The database Pod isn’t selected.</p>
+    <p class="beat" style="--d:6.4s;--d2:9.4s">Typo trap: selector <code>app=inference</code>, but Pods labeled <code>app=model-server</code>.</p>
+    <p class="beat" style="--d:9.4s">The Service exists, yet it has zero backends.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="A Service drawn as a magnet with selector app=day9-web attracts two Pods labeled app=day9-web but not a Pod labeled app=database. Below, a selector app=inference finds no Pods labeled app=model-server, so the Service has zero backends.">
+    <text x="86" y="40" text-anchor="middle" class="d fx-in" font-size="17" style="--d:.6s">Service</text>
+    <g class="fx-pop" style="--d:.6s">
+      <path d="M128 70 H86 A46 46 0 0 0 86 162 H128" class="ln s-ink" style="stroke-width:30;stroke-linecap:butt"/>
+      <path d="M128 70 H86 A46 46 0 0 0 86 162 H128" class="ln s-berry" style="stroke-width:24;stroke-linecap:butt"/>
+      <rect x="106" y="57" width="26" height="26" rx="3" class="f-slab ol"/>
+      <rect x="106" y="149" width="26" height="26" rx="3" class="f-slab ol"/>
+    </g>
+    <g class="fx-up" style="--d:1s"><rect x="14" y="196" width="190" height="30" rx="15" class="f-grape ol"/><text x="109" y="216" text-anchor="middle" class="m og" font-size="12">selector: app=day9-web</text></g>
+    <g class="fx-pop" style="--d:1.4s"><use href="#pod" x="300" y="24" width="84" height="60"/><rect x="394" y="39" width="150" height="28" rx="6" class="f-teal ol"/><circle cx="405" cy="53" r="3.5" class="f-stage ol"/><text x="476" y="58" text-anchor="middle" class="m oa" font-size="13">app=day9-web</text></g>
+    <g class="fx-pop" style="--d:1.7s"><use href="#pod" x="300" y="98" width="84" height="60" style="--pc:var(--sun)"/><rect x="394" y="113" width="150" height="28" rx="6" class="f-teal ol"/><circle cx="405" cy="127" r="3.5" class="f-stage ol"/><text x="476" y="132" text-anchor="middle" class="m oa" font-size="13">app=day9-web</text></g>
+    <g class="fx-pop" style="--d:2s"><use href="#pod" x="300" y="172" width="84" height="60" style="--pc:var(--grape)"/><rect x="394" y="187" width="150" height="28" rx="6" class="f-slab ol"/><circle cx="405" cy="201" r="3.5" class="f-stage ol"/><text x="476" y="206" text-anchor="middle" class="m" font-size="13">app=database</text></g>
+    <path d="M136 70 C200 70 240 54 298 54" pathLength="1" class="ln s-teal w3 fx-draw" style="--d:3.6s;--t:.5s"/>
+    <path d="M136 162 C200 162 240 128 298 128" pathLength="1" class="ln s-teal w3 fx-draw" style="--d:3.8s;--t:.5s"/>
+    <g class="fx-pop" style="--d:4.2s"><circle cx="556" cy="53" r="11" class="f-teal ol"/><path d="M551 53 l3 3 l6 -7" class="ln s-ink w3"/></g>
+    <g class="fx-pop" style="--d:4.4s"><circle cx="556" cy="127" r="11" class="f-teal ol"/><path d="M551 127 l3 3 l6 -7" class="ln s-ink w3"/></g>
+    <path d="M136 162 C200 200 250 202 298 202" class="ln s-mu w2 dash fx-in" style="--d:4.8s"/>
+    <g class="fx-pop" style="--d:5s"><circle cx="556" cy="201" r="11" class="f-berry ol"/><path d="M551 196 l10 10 M561 196 l-10 10" class="ln s-ink w3"/></g>
+    <text x="470" y="238" text-anchor="middle" class="bad fx-in" font-size="13" style="--d:5.2s">no match</text>
+    <path d="M10 254 H590" class="ln s-mu w2 dash fx-in" style="--d:6.2s"/>
+    <g class="fx-in" style="--d:6.4s"><rect x="10" y="266" width="580" height="202" rx="16" class="f-wash s-berry w3 dash"/><text x="26" y="294" class="d" font-size="17">Typo trap</text></g>
+    <g class="fx-pop" style="--d:6.6s"><rect x="26" y="312" width="200" height="34" rx="17" class="f-grape ol"/><text x="126" y="334" text-anchor="middle" class="m og" font-size="12">selector: app=inference</text></g>
+    <g class="fx-pop" style="--d:7s"><use href="#pod" x="300" y="300" width="70" height="50"/><rect x="380" y="311" width="170" height="28" rx="6" class="f-teal ol"/><text x="465" y="330" text-anchor="middle" class="m oa" font-size="13">app=model-server</text></g>
+    <g class="fx-pop" style="--d:7.3s"><use href="#pod" x="300" y="370" width="70" height="50" style="--pc:var(--sun)"/><rect x="380" y="381" width="170" height="28" rx="6" class="f-teal ol"/><text x="465" y="400" text-anchor="middle" class="m oa" font-size="13">app=model-server</text></g>
+    <text x="262" y="372" text-anchor="middle" class="d mu fx-pop" font-size="40" style="--d:8s">?</text>
+    <g class="fx-pop" style="--d:9.6s"><rect x="26" y="364" width="200" height="32" rx="16" class="f-stage ol"/><text x="126" y="385" text-anchor="middle" font-size="14">Service exists <tspan class="good">✓</tspan></text></g>
+    <g class="fx-pop" style="--d:10s"><rect x="26" y="408" width="200" height="32" rx="16" class="f-berry ol"/><text x="126" y="429" text-anchor="middle" class="oa bd" font-size="14">backends: 0 ✗</text></g>
+  </svg></div>
+</section>
+
+<!-- 16 -->
+<section class="scene" data-title="Names in, endpoints out" data-chapter="Services" data-dur="12500">
+  <div class="cap">
+    <h2>Names in, endpoints out</h2>
+    <p class="beat" style="--d:.6s;--d2:3.4s">An EndpointSlice lists the ready Pod IPs behind a Service, and updates as Pods change.</p>
+    <p class="beat" style="--d:3.4s;--d2:6.6s">Inside the cluster, clients just use the name: <code>http://day9-web-service</code>.</p>
+    <p class="beat" style="--d:6.6s">CoreDNS turns the name into the Service’s address. The Service forwards to a ready Pod.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="A Service points to an EndpointSlice roster of Pod IPs; when one Pod is replaced, its row changes to 10.244.0.12. Below, a client Pod asks CoreDNS for the Service name, gets the Service address, and its request goes through the Service to a backend Pod.">
+    <g class="fx-up" style="--d:.5s"><rect x="10" y="56" width="160" height="80" rx="14" class="f-grape ol"/><text x="90" y="88" text-anchor="middle" class="d og" font-size="17">Service</text><text x="90" y="112" text-anchor="middle" class="m og" font-size="11.5">day9-web-service</text></g>
+    <path d="M174 96 H210 M202 88 L212 96 L202 104" class="ln s-ink w3 fx-in" style="--d:1s"/>
+    <g class="fx-up" style="--d:.8s">
+      <rect x="216" y="24" width="190" height="176" rx="12" class="f-stage ol"/>
+      <rect x="281" y="16" width="60" height="18" rx="6" class="f-sun ol"/>
+      <text x="311" y="60" text-anchor="middle" class="d" font-size="15">EndpointSlice</text>
+      <path d="M230 112 H392 M230 148 H392" class="ln s-slab w2"/>
+    </g>
+    <rect x="226" y="117" width="172" height="26" rx="6" class="f-sun fx-in" style="--d:2.8s"/>
+    <g class="m" font-size="14">
+      <text x="236" y="100" class="fx-in" style="--d:1.2s">10.244.0.7</text>
+      <text x="236" y="136" class="fx-span" style="--d:1.3s;--d2:2.4s">10.244.0.8</text>
+      <text x="236" y="136" class="oa bd fx-in" style="--d:2.8s">10.244.0.12</text>
+      <text x="236" y="172" class="fx-in" style="--d:1.4s">10.244.0.9</text>
+    </g>
+    <g class="fx-in" style="--d:1.5s">
+      <circle cx="380" cy="95" r="9" class="f-teal ol"/><path d="M376 95 l3 3 l5 -6" class="ln s-ink w2"/>
+      <circle cx="380" cy="167" r="9" class="f-teal ol"/><path d="M376 167 l3 3 l5 -6" class="ln s-ink w2"/>
+    </g>
+    <g class="fx-span" style="--d:1.5s;--d2:2.4s"><circle cx="380" cy="131" r="9" class="f-teal ol"/><path d="M376 131 l3 3 l5 -6" class="ln s-ink w2"/></g>
+    <g class="fx-pop" style="--d:3s"><circle cx="380" cy="131" r="9" class="f-teal ol"/><path d="M376 131 l3 3 l5 -6" class="ln s-ink w2"/></g>
+    <path d="M410 112 H440 M432 104 L442 112 L432 120" class="ln s-ink w3 fx-in" style="--d:1.4s"/>
+    <g class="fx-pop" style="--d:1.2s"><use href="#pod" x="450" y="30" width="72" height="52"/></g>
+    <g class="fx-pop" style="--d:1.3s"><g class="fx-poof" style="--d:2.2s"><use href="#pod" x="450" y="92" width="72" height="52"/></g></g>
+    <g class="fx-pop" style="--d:2.6s"><use href="#pod" x="450" y="92" width="72" height="52" style="--pc:var(--sun)"/></g>
+    <g class="fx-pop" style="--d:1.4s"><use href="#pod" x="450" y="154" width="72" height="52"/></g>
+    <text x="486" y="226" text-anchor="middle" class="mu fx-in" font-size="13" style="--d:1.6s">ready backends</text>
+    <path d="M10 246 H590" class="ln s-mu w2 dash fx-in" style="--d:3.4s"/>
+    <g class="fx-pop" style="--d:3.6s"><rect x="14" y="262" width="156" height="58" rx="14" class="f-sun ol"/><text x="92" y="288" text-anchor="middle" class="d oa" font-size="17">CoreDNS</text><text x="92" y="308" text-anchor="middle" class="oa" font-size="13">name lookup</text></g>
+    <g class="fx-pop" style="--d:3.4s"><use href="#pod" x="14" y="350" width="100" height="72"/></g>
+    <text x="64" y="440" text-anchor="middle" class="fx-in" font-size="14" style="--d:3.6s">client Pod</text>
+    <g class="fx-pop" style="--d:3.8s"><rect x="300" y="358" width="140" height="58" rx="14" class="f-grape ol"/><text x="370" y="384" text-anchor="middle" class="d og" font-size="16">Service</text><text x="370" y="403" text-anchor="middle" class="og" font-size="12.5">stable address</text></g>
+    <g class="fx-pop" style="--d:4s"><use href="#pod" x="482" y="351" width="104" height="75" style="--pc:var(--sun)"/></g>
+    <text x="534" y="440" text-anchor="middle" class="fx-in" font-size="14" style="--d:4.1s">backend Pod</text>
+    <g class="fx-in" style="--d:6.8s"><path d="M46 354 V324 M40 330 L46 322 L52 330" class="ln s-ink w3"/><circle cx="28" cy="338" r="10" class="f-grape"/><text x="28" y="343" text-anchor="middle" class="og bd" font-size="12">1</text></g>
+    <g class="fx-in" style="--d:7.4s"><path d="M84 322 V350 M78 344 L84 352 L90 344" class="ln s-grape w3"/><circle cx="104" cy="338" r="10" class="f-grape"/><text x="104" y="343" text-anchor="middle" class="og bd" font-size="12">2</text></g>
+    <path d="M118 386 H294" pathLength="1" class="ln s-ink w3 fx-draw" style="--d:8s;--t:.5s"/>
+    <path d="M286 378 L296 386 L286 394" class="ln s-ink w3 fx-in" style="--d:8.4s"/>
+    <g class="fx-in" style="--d:8s"><circle cx="206" cy="370" r="10" class="f-grape"/><text x="206" y="375" text-anchor="middle" class="og bd" font-size="12">3</text></g>
+    <path d="M444 386 H476 M468 378 L478 386 L468 394" class="ln s-ink w3 fx-in" style="--d:8.6s"/>
+    <g class="fx-in" style="--d:8.6s"><circle cx="460" cy="364" r="10" class="f-grape"/><text x="460" y="369" text-anchor="middle" class="og bd" font-size="12">4</text></g>
+    <circle r="7" class="f-sun ol hop3" style="--x0:120px;--y0:386px;--x1:370px;--y1:386px;--x2:500px;--y2:386px;--d:8.9s;--t:1.6s;--n:2"/>
+    <g class="fx-up" style="--d:4.4s"><rect x="134" y="434" width="300" height="34" rx="12" class="f-term ol"/><text x="148" y="456" class="m tt" font-size="12.5">$ curl -s http://day9-web-service</text></g>
+    <text x="442" y="456" class="good fx-in" font-size="13" style="--d:10.4s">✓ nginx answers</text>
+  </svg></div>
+</section>
+
+<!-- 17 -->
+<section class="scene" data-title="Reading Kubernetes YAML" data-chapter="Declarative YAML" data-dur="12500">
+  <div class="cap">
+    <h2>Reading Kubernetes YAML</h2>
+    <p class="beat" style="--d:.6s;--d2:4.2s">Read top-down. Each field answers a question: which API, what kind, what name?</p>
+    <p class="beat" style="--d:4.2s;--d2:7.6s"><code>spec</code> holds the state you want: how many replicas, which Pods to match, what new Pods look like.</p>
+    <p class="beat" style="--d:7.6s;--d2:9.6s">The selector and the template labels must match.</p>
+    <p class="beat" style="--d:9.6s">A Service finds these Pods with the same label.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="A Deployment YAML file is highlighted field by field, each with a question: which API group and version, what kind of object, what it is called, what state is wanted, how many Pods, which Pods it matches, and what new Pods look like. The selector label and template label are linked as a required match.">
+    <g class="fx-in" style="--d:.3s"><rect x="10" y="12" width="320" height="456" rx="14" class="f-term ol"/></g>
+    <rect x="16" y="24" width="308" height="22" rx="5" class="hl fx-span" style="--d:1.4s;--d2:2.2s"/>
+    <rect x="16" y="48" width="308" height="22" rx="5" class="hl fx-span" style="--d:2.2s;--d2:3s"/>
+    <rect x="16" y="72" width="308" height="46" rx="5" class="hl fx-span" style="--d:3s;--d2:3.8s"/>
+    <rect x="16" y="120" width="308" height="22" rx="5" class="hl fx-span" style="--d:4.4s;--d2:5.2s"/>
+    <rect x="16" y="144" width="308" height="22" rx="5" class="hl fx-span" style="--d:5.2s;--d2:6s"/>
+    <rect x="16" y="168" width="308" height="70" rx="5" class="hl fx-span" style="--d:6s;--d2:6.8s"/>
+    <rect x="16" y="240" width="308" height="190" rx="5" class="hl fx-span" style="--d:6.8s;--d2:7.6s"/>
+    <g class="m tt fx-in" font-size="13" style="--d:.5s">
+      <text x="24" y="40" class="tt"><tspan class="sunt">apiVersion:</tspan> apps/v1</text>
+      <text x="24" y="64" class="tt"><tspan class="sunt">kind:</tspan> Deployment</text>
+      <text x="24" y="88" class="tt"><tspan class="sunt">metadata:</tspan></text>
+      <text x="39.6" y="112" class="tt"><tspan class="sunt">name:</tspan> day9-yaml-web</text>
+      <text x="24" y="136" class="tt"><tspan class="sunt">spec:</tspan></text>
+      <text x="39.6" y="160" class="tt"><tspan class="sunt">replicas:</tspan> 4</text>
+      <text x="39.6" y="184" class="tt"><tspan class="sunt">selector:</tspan></text>
+      <text x="55.2" y="208" class="tt"><tspan class="sunt">matchLabels:</tspan></text>
+      <text x="70.8" y="232" class="tt"><tspan class="sunt">app:</tspan> day9-yaml-web</text>
+      <text x="39.6" y="256" class="tt"><tspan class="sunt">template:</tspan></text>
+      <text x="55.2" y="280" class="tt"><tspan class="sunt">metadata:</tspan></text>
+      <text x="70.8" y="304" class="tt"><tspan class="sunt">labels:</tspan></text>
+      <text x="86.4" y="328" class="tt"><tspan class="sunt">app:</tspan> day9-yaml-web</text>
+      <text x="55.2" y="352" class="tt"><tspan class="sunt">spec:</tspan></text>
+      <text x="70.8" y="376" class="tt"><tspan class="sunt">containers:</tspan></text>
+      <text x="70.8" y="400" class="tt">- <tspan class="sunt">name:</tspan> nginx</text>
+      <text x="86.4" y="424" class="tt"><tspan class="sunt">image:</tspan> nginx:alpine</text>
+    </g>
+    <g font-size="12.5">
+      <g class="fx-up" style="--d:1.4s"><path d="M330 34 H346" class="ln s-mu w2"/><rect x="346" y="23" width="244" height="22" rx="11" class="f-stage ol"/><text x="360" y="39">Which API group and version?</text></g>
+      <g class="fx-up" style="--d:2.2s"><path d="M330 58 H346" class="ln s-mu w2"/><rect x="346" y="47" width="244" height="22" rx="11" class="f-stage ol"/><text x="360" y="63">What kind of object?</text></g>
+      <g class="fx-up" style="--d:3s"><path d="M330 106 H346" class="ln s-mu w2"/><rect x="346" y="95" width="244" height="22" rx="11" class="f-stage ol"/><text x="360" y="111">What’s the object called?</text></g>
+      <g class="fx-up" style="--d:4.4s"><path d="M330 130 H346" class="ln s-mu w2"/><rect x="346" y="119" width="244" height="22" rx="11" class="f-sun ol"/><text x="360" y="135" class="oa bd">What state do I want?</text></g>
+      <g class="fx-up" style="--d:5.2s"><path d="M330 154 H346" class="ln s-mu w2"/><rect x="346" y="143" width="244" height="22" rx="11" class="f-stage ol"/><text x="360" y="159">How many Pods?</text></g>
+      <g class="fx-up" style="--d:6s"><path d="M330 178 H346" class="ln s-mu w2"/><rect x="346" y="167" width="244" height="22" rx="11" class="f-stage ol"/><text x="360" y="183">Which Pods does it match?</text></g>
+      <g class="fx-up" style="--d:6.8s"><path d="M330 250 H346" class="ln s-mu w2"/><rect x="346" y="239" width="244" height="22" rx="11" class="f-stage ol"/><text x="360" y="255">What should new Pods look like?</text></g>
+    </g>
+    <rect x="62" y="216" width="200" height="22" rx="5" fill="none" class="s-teal w3 fx-pop" style="--d:7.8s"/>
+    <rect x="78" y="312" width="200" height="22" rx="5" fill="none" class="s-teal w3 fx-pop" style="--d:8s"/>
+    <path d="M264 227 C318 227 318 323 280 323" pathLength="1" class="ln s-teal w3 fx-draw" style="--d:8.2s;--t:.5s"/>
+    <g class="fx-pop" style="--d:8.4s"><rect x="346" y="268" width="170" height="26" rx="13" class="f-teal ol"/><text x="431" y="286" text-anchor="middle" class="oa bd" font-size="13">these must match</text></g>
+    <g class="fx-pop" style="--d:9.8s"><rect x="346" y="314" width="244" height="46" rx="14" class="f-grape ol"/><text x="360" y="333" class="og bd" font-size="13">Service selector</text><text x="360" y="351" class="m og" font-size="12">app: day9-yaml-web</text></g>
+  </svg></div>
+</section>
+
+<!-- 18 -->
+<section class="scene" data-title="Change the file, not the cluster" data-chapter="Declarative YAML" data-dur="12500">
+  <div class="cap">
+    <h2>Change the file, not the cluster</h2>
+    <p class="beat" style="--d:.6s;--d2:3.2s">Edit the YAML: <code>replicas: 2</code> becomes <code>replicas: 4</code>.</p>
+    <p class="beat" style="--d:3.2s;--d2:6s"><code>kubectl diff</code> previews the change. <code>kubectl apply</code> makes it so.</p>
+    <p class="beat" style="--d:6s;--d2:9s">The template didn’t change, so no new ReplicaSet: the existing one adds 2 Pods.</p>
+    <p class="beat" style="--d:9s">Treat the file as the source of truth. Live edits make file and cluster drift apart.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="A YAML file changes replicas from 2 to 4. kubectl diff shows the change and kubectl apply reports configured. The same ReplicaSet grows from 2 to 4 Pods. Below, a file saying 4 and a cluster running 6 show drift.">
+    <g class="fx-up" style="--d:.4s"><rect x="10" y="20" width="280" height="84" rx="12" class="f-stage ol"/><text x="26" y="44" class="m mu" font-size="13">day9-app.yaml</text></g>
+    <g class="fx-span" style="--d:.6s;--d2:1.9s"><text x="26" y="84" class="m" font-size="18">replicas: 2</text><path d="M22 78 H150" pathLength="1" class="ln s-berry w3 fx-draw" style="--d:1.2s;--t:.4s"/></g>
+    <rect x="20" y="64" width="138" height="28" rx="6" class="f-sun fx-in" style="--d:1.9s"/>
+    <text x="26" y="84" class="m oa bd fx-in" font-size="18" style="--d:1.9s">replicas: 4</text>
+    <g class="fx-up" style="--d:3.2s"><rect x="10" y="116" width="280" height="92" rx="12" class="f-term ol"/><text x="24" y="138" class="m tm" font-size="12">$ kubectl diff -f day9-app.yaml</text></g>
+    <text x="24" y="166" class="m bad fx-in" font-size="14" style="--d:3.5s">- replicas: 2</text>
+    <text x="24" y="192" class="m good fx-in" font-size="14" style="--d:3.8s">+ replicas: 4</text>
+    <g class="fx-up" style="--d:4.6s"><rect x="306" y="20" width="284" height="70" rx="12" class="f-term ol"/><text x="320" y="42" class="m tm" font-size="12">$ kubectl apply -f day9-app.yaml</text></g>
+    <text x="320" y="72" class="m tt fx-in" font-size="13" style="--d:4.9s">…/day9-yaml-web <tspan class="sunt">configured</tspan></text>
+    <g font-size="13">
+      <g class="fx-up" style="--d:5.1s"><rect x="306" y="104" width="104" height="28" rx="14" class="f-teal ol"/><text x="358" y="123" text-anchor="middle" class="m oa">created</text><text x="420" y="123">didn’t exist, now does</text></g>
+      <g class="fx-up" style="--d:5.3s"><rect x="306" y="138" width="104" height="28" rx="14" class="f-sun ol"/><text x="358" y="157" text-anchor="middle" class="m oa">configured</text><text x="420" y="157">desired config changed</text></g>
+      <g class="fx-up" style="--d:5.5s"><rect x="306" y="172" width="104" height="28" rx="14" class="f-slab ol"/><text x="358" y="191" text-anchor="middle" class="m">unchanged</text><text x="420" y="191">already matched</text></g>
+    </g>
+    <rect x="300" y="132" width="290" height="40" rx="20" fill="none" class="s-sun w4 fx-pop" style="--d:5.8s"/>
+    <g class="fx-in" style="--d:.6s"><rect x="10" y="222" width="580" height="116" rx="16" class="f-wash ol"/><text x="26" y="248" class="d" font-size="15">Same ReplicaSet</text></g>
+    <g class="fx-pop" style="--d:6.2s"><rect x="354" y="232" width="222" height="26" rx="13" class="f-sun ol"/><text x="465" y="250" text-anchor="middle" class="oa bd" font-size="13">template unchanged</text></g>
+    <g class="fx-pop" style="--d:.8s"><use href="#pod" x="40" y="262" width="100" height="72"/></g>
+    <g class="fx-pop" style="--d:1s"><use href="#pod" x="175" y="262" width="100" height="72"/></g>
+    <g class="fx-pop" style="--d:6.6s"><use href="#pod" x="310" y="262" width="100" height="72"/></g>
+    <g class="fx-pop" style="--d:6.9s"><use href="#pod" x="445" y="262" width="100" height="72"/></g>
+    <g class="fx-up" style="--d:9.2s"><rect x="10" y="352" width="230" height="110" rx="14" class="f-stage ol"/><text x="26" y="378" class="mu" font-size="13">the file says</text><text x="26" y="412" class="m bd" font-size="18">replicas: 4</text></g>
+    <g class="fx-up" style="--d:9.4s"><rect x="360" y="352" width="230" height="110" rx="14" class="f-stage ol"/><text x="376" y="378" class="mu" font-size="13">the cluster has</text><text x="376" y="412" class="m bd" font-size="18">replicas: 6</text><text x="376" y="438" class="mu" font-size="12.5">after a live kubectl scale</text></g>
+    <path d="M248 408 L262 396 L276 420 L290 396 L304 420 L318 396 L332 420 L352 408" pathLength="1" class="ln s-berry w3 fx-draw" style="--d:9.6s;--t:.5s"/>
+    <g class="fx-pop" style="--d:9.9s"><rect x="266" y="430" width="68" height="26" rx="13" class="f-berry ol"/><text x="300" y="448" text-anchor="middle" class="oa bd" font-size="14">drift</text></g>
+  </svg></div>
+</section>
+
+<!-- 19 -->
+<section class="scene" data-title="Rolling update" data-chapter="Rollouts" data-dur="13500">
+  <div class="cap">
+    <h2>Rolling update</h2>
+    <p class="beat" style="--d:.6s;--d2:3.2s">Change the image: <code>nginx:alpine</code> becomes <code>nginx:1.29-alpine</code>.</p>
+    <p class="beat" style="--d:3.2s;--d2:6.6s">The Pod template changed, so the Deployment creates a new ReplicaSet.</p>
+    <p class="beat" style="--d:6.6s;--d2:10s">New Pods scale up, old ones scale down, and traffic follows the Ready Pods.</p>
+    <p class="beat" style="--d:10s">The old ReplicaSet stays at 0, keeping rollout history.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="A Deployment manages an old ReplicaSet running nginx:alpine and a new one running nginx:1.29-alpine. New Pods appear one at a time as old Pods disappear. A step chart shows the old ReplicaSet falling from 4 to 0 while the new one rises from 0 to 4.">
+    <g class="fx-up" style="--d:.4s"><rect x="210" y="10" width="180" height="38" rx="12" class="f-grape ol"/><text x="300" y="35" text-anchor="middle" class="d og" font-size="16">Deployment</text></g>
+    <path d="M300 48 V62 H154 V80" class="ln s-ink fx-in" style="--d:.5s"/>
+    <path d="M300 62 H446 V80" class="ln s-ink fx-in" style="--d:3.2s"/>
+    <g class="fx-up" style="--d:.6s"><rect x="14" y="80" width="280" height="150" rx="14" class="f-wash ol"/><text x="28" y="104" class="d" font-size="15">Old ReplicaSet</text><text x="28" y="124" class="m mu" font-size="13">nginx:alpine</text></g>
+    <g class="d" font-size="22" text-anchor="end">
+      <text x="280" y="110" class="fx-span" style="--d:.8s;--d2:4.5s">4</text>
+      <text x="280" y="110" class="fx-span" style="--d:4.5s;--d2:5.5s">3</text>
+      <text x="280" y="110" class="fx-span" style="--d:5.5s;--d2:6.5s">2</text>
+      <text x="280" y="110" class="fx-span" style="--d:6.5s;--d2:7.5s">1</text>
+      <text x="280" y="110" class="fx-in" style="--d:7.5s">0</text>
+    </g>
+    <g class="fx-pop" style="--d:.8s"><g class="fx-poof" style="--d:7.5s"><use href="#pod" x="28" y="156" width="58" height="42"/></g></g>
+    <g class="fx-pop" style="--d:.9s"><g class="fx-poof" style="--d:6.5s"><use href="#pod" x="94" y="156" width="58" height="42"/></g></g>
+    <g class="fx-pop" style="--d:1s"><g class="fx-poof" style="--d:5.5s"><use href="#pod" x="160" y="156" width="58" height="42"/></g></g>
+    <g class="fx-pop" style="--d:1.1s"><g class="fx-poof" style="--d:4.5s"><use href="#pod" x="226" y="156" width="58" height="42"/></g></g>
+    <g class="fx-pop" style="--d:3.2s"><rect x="306" y="80" width="280" height="150" rx="14" class="f-wash ol"/><text x="320" y="104" class="d" font-size="15">New ReplicaSet</text><text x="320" y="124" class="m mu" font-size="13">nginx:1.29-alpine</text></g>
+    <g class="d" font-size="22" text-anchor="end">
+      <text x="572" y="110" class="fx-span" style="--d:3.4s;--d2:4s">0</text>
+      <text x="572" y="110" class="fx-span" style="--d:4s;--d2:5s">1</text>
+      <text x="572" y="110" class="fx-span" style="--d:5s;--d2:6s">2</text>
+      <text x="572" y="110" class="fx-span" style="--d:6s;--d2:7s">3</text>
+      <text x="572" y="110" class="fx-in" style="--d:7s">4</text>
+    </g>
+    <g class="fx-pop" style="--d:4s"><use href="#pod" x="320" y="156" width="58" height="42" style="--pc:var(--sun)"/></g>
+    <g class="fx-pop" style="--d:5s"><use href="#pod" x="386" y="156" width="58" height="42" style="--pc:var(--sun)"/></g>
+    <g class="fx-pop" style="--d:6s"><use href="#pod" x="452" y="156" width="58" height="42" style="--pc:var(--sun)"/></g>
+    <g class="fx-pop" style="--d:7s"><use href="#pod" x="518" y="156" width="58" height="42" style="--pc:var(--sun)"/></g>
+    <g class="fx-pop" style="--d:10s"><rect x="54" y="196" width="200" height="26" rx="13" class="f-sun ol"/><text x="154" y="214" text-anchor="middle" class="oa bd" font-size="12.5">kept at 0 for history</text></g>
+    <g class="fx-in" style="--d:3.4s">
+      <text x="14" y="264" class="d" font-size="15">Pods per ReplicaSet during the rollout</text>
+      <path d="M436 260 H460" class="ln s-berry w4"/><text x="466" y="264" font-size="13">old</text>
+      <path d="M502 260 H526" class="ln s-teal w4"/><text x="532" y="264" font-size="13">new</text>
+      <path d="M60 276 V440 H566" class="ln s-ink w2"/>
+      <text x="50" y="285" text-anchor="end" class="mu" font-size="13">4</text>
+      <text x="50" y="365" text-anchor="end" class="mu" font-size="13">2</text>
+      <text x="50" y="445" text-anchor="end" class="mu" font-size="13">0</text>
+      <text x="566" y="460" text-anchor="end" class="mu" font-size="13">time</text>
+    </g>
+    <clipPath id="s19clip"><rect class="fx-clip" x="56" y="268" width="510" height="180" style="--d:3.6s;--t:4.8s"/></clipPath>
+    <g clip-path="url(#s19clip)">
+      <path d="M60 280 H151.6 V320 H257.9 V360 H364.1 V400 H470.4 V440 H562" class="ln s-berry w4"/>
+      <path d="M60 440 H98.5 V400 H204.75 V360 H311 V320 H417.25 V280 H562" class="ln s-teal w4"/>
+    </g>
+  </svg></div>
+</section>
+
+<!-- 20 -->
+<section class="scene" data-title="Rollback adds history" data-chapter="Rollouts" data-dur="12500">
+  <div class="cap">
+    <h2>Rollback adds history</h2>
+    <p class="beat" style="--d:.6s;--d2:3.2s"><code>kubectl rollout undo</code> brings back the previous Pod template.</p>
+    <p class="beat" style="--d:3.2s;--d2:6.4s">It doesn’t erase history: the rollback is recorded as a new revision.</p>
+    <p class="beat" style="--d:6.4s">With YAML in Git, prefer reverting the file and re-applying, so file and cluster stay in sync.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="A timeline shows revision 1 with nginx:alpine and revision 2 with nginx:1.29-alpine. An undo reuses revision 1’s template as a new revision 3, which becomes live, while revision 2 stays in history. Below, a live undo leaves file and cluster different, while git revert plus kubectl apply keeps them matching.">
+    <path d="M30 142 H570" class="ln s-mu w3 fx-in" style="--d:.4s"/>
+    <g class="fx-up" style="--d:.6s"><rect x="20" y="96" width="160" height="92" rx="14" class="f-stage ol"/><text x="100" y="130" text-anchor="middle" class="d" font-size="16">revision 1</text><text x="100" y="156" text-anchor="middle" class="m" font-size="13">nginx:alpine</text></g>
+    <g class="fx-up" style="--d:.9s"><rect x="220" y="96" width="160" height="92" rx="14" class="f-stage ol"/><text x="300" y="130" text-anchor="middle" class="d" font-size="16">revision 2</text><text x="300" y="156" text-anchor="middle" class="m" font-size="12.5">nginx:1.29-alpine</text></g>
+    <g class="s20-live"><g class="fx-in" style="--d:1.2s"><path d="M-10 -8 L10 -8 L0 6 Z" class="f-teal ol"/><text y="-14" text-anchor="middle" class="d" font-size="14">live</text></g></g>
+    <path d="M246 96 C228 44 142 44 116 92" class="ln s-grape w3 dash fx-in" style="--d:2s"/>
+    <path d="M110 82 L116 94 L124 85" class="ln s-grape w3 fx-in" style="--d:2s"/>
+    <text x="180" y="34" text-anchor="middle" class="fx-in" font-size="13" style="--d:2.2s">undo: reuse revision 1’s template</text>
+    <g class="fx-sr" style="--d:3.2s"><rect x="420" y="96" width="160" height="92" rx="14" class="f-stage ol"/><text x="500" y="130" text-anchor="middle" class="d" font-size="16">revision 3</text><text x="500" y="156" text-anchor="middle" class="m" font-size="13">nginx:alpine</text></g>
+    <g class="fx-pop" style="--d:3.4s"><rect x="455" y="80" width="90" height="24" rx="12" class="f-sun ol"/><text x="500" y="97" text-anchor="middle" class="oa bd" font-size="13">rollback</text></g>
+    <g class="fx-in" style="--d:4.4s"><rect x="20" y="96" width="160" height="92" rx="14" class="f-stage s-mu w3 dash"/><text x="100" y="130" text-anchor="middle" class="d mu" font-size="16">revision 1</text><text x="100" y="156" text-anchor="middle" class="mu" font-size="13">reused as rev 3</text></g>
+    <g class="fx-pop" style="--d:4.8s"><rect x="236" y="196" width="128" height="26" rx="13" class="f-teal ol"/><text x="300" y="214" text-anchor="middle" class="oa bd" font-size="12.5">still in history</text></g>
+    <path d="M10 246 H590" class="ln s-mu w2 dash fx-in" style="--d:6.2s"/>
+    <text x="14" y="278" class="d fx-in" font-size="16" style="--d:6.4s">Managing the app as YAML in Git?</text>
+    <g class="fx-up" style="--d:6.6s"><rect x="14" y="296" width="190" height="38" rx="19" class="f-term ol"/><text x="109" y="320" text-anchor="middle" class="m tt" font-size="12.5">kubectl rollout undo</text></g>
+    <path d="M208 315 H230 M224 309 L232 315 L224 321" class="ln s-ink w3 fx-in" style="--d:6.9s"/>
+    <g class="fx-up" style="--d:7s"><rect x="236" y="296" width="150" height="38" rx="19" class="f-stage ol"/><text x="311" y="320" text-anchor="middle" font-size="13">cluster: alpine</text></g>
+    <path d="M390 315 H404 M398 309 L406 315 L398 321" class="ln s-ink w3 fx-in" style="--d:7.3s"/>
+    <g class="fx-pop" style="--d:7.4s"><rect x="410" y="296" width="176" height="38" rx="19" class="f-berry ol"/><text x="498" y="320" text-anchor="middle" class="oa bd" font-size="13">file and cluster differ</text></g>
+    <g class="fx-up" style="--d:7.8s"><rect x="14" y="358" width="110" height="38" rx="19" class="f-term ol"/><text x="69" y="382" text-anchor="middle" class="m tt" font-size="13">git revert</text></g>
+    <path d="M128 377 H144 M138 371 L146 377 L138 383" class="ln s-ink w3 fx-in" style="--d:8s"/>
+    <g class="fx-up" style="--d:8.1s"><rect x="150" y="358" width="150" height="38" rx="19" class="f-term ol"/><text x="225" y="382" text-anchor="middle" class="m tt" font-size="13">kubectl apply</text></g>
+    <path d="M304 377 H322 M316 371 L324 377 L316 383" class="ln s-ink w3 fx-in" style="--d:8.3s"/>
+    <g class="fx-pop" style="--d:8.4s"><rect x="330" y="358" width="256" height="38" rx="19" class="f-teal ol"/><text x="458" y="382" text-anchor="middle" class="oa bd" font-size="14">file and cluster match ✓</text></g>
+    <g class="fx-pop" style="--d:8.8s"><rect x="388" y="408" width="140" height="26" rx="13" class="f-sun ol"/><text x="458" y="426" text-anchor="middle" class="oa bd" font-size="13">preferred</text></g>
+  </svg></div>
+</section>
+
+<!-- 21 -->
+<section class="scene" data-title="The whole chain" data-chapter="Putting it together" data-dur="12000">
+  <div class="cap">
+    <h2>The whole chain</h2>
+    <p class="beat" style="--d:.6s;--d2:3.4s">You declare objects. The API server accepts the desired state.</p>
+    <p class="beat" style="--d:3.4s;--d2:6.4s">Controllers create ReplicaSets and Pods. The scheduler picks a node; the kubelet starts the containers.</p>
+    <p class="beat" style="--d:6.4s">A Service and DNS give clients stable access to whichever Pods match.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="A flow: YAML or kubectl to the API server, to controllers, to Pod objects, to the scheduler, to the kubelet, to a running container. A client reaches the container through a Service and DNS. A summary card lists who does what.">
+    <g text-anchor="middle">
+      <g class="fx-pop" style="--d:.6s"><rect x="10" y="30" width="120" height="62" rx="14" class="f-term ol"/><text x="70" y="66" class="d tt" font-size="14">YAML / kubectl</text></g>
+      <g class="fx-pop" style="--d:1.4s"><rect x="164" y="30" width="120" height="62" rx="14" class="f-sun ol"/><text x="224" y="66" class="d oa" font-size="15">API server</text></g>
+      <g class="fx-pop" style="--d:3.8s"><rect x="318" y="30" width="120" height="62" rx="14" class="f-stage ol"/><text x="378" y="58" class="d" font-size="15">Controllers</text><text x="378" y="78" class="mu" font-size="12.5">Deployment, RS</text></g>
+      <g class="fx-pop" style="--d:4.6s"><rect x="472" y="30" width="120" height="62" rx="14" class="f-stage ol"/><text x="532" y="66" class="d" font-size="15">Pod objects</text></g>
+      <g class="fx-pop" style="--d:5.2s"><rect x="472" y="160" width="120" height="62" rx="14" class="f-stage ol"/><text x="532" y="188" class="d" font-size="15">Scheduler</text><text x="532" y="208" class="mu" font-size="12.5">picks a node</text></g>
+      <g class="fx-pop" style="--d:5.8s"><rect x="318" y="160" width="120" height="62" rx="14" class="f-stage ol"/><text x="378" y="188" class="d" font-size="15">kubelet</text><text x="378" y="208" class="mu" font-size="12.5">on that node</text></g>
+      <g class="fx-pop" style="--d:6.2s"><rect x="164" y="160" width="120" height="62" rx="14" class="f-teal ol"/><text x="224" y="188" class="d oa" font-size="15">Running</text><text x="224" y="208" class="d oa" font-size="15">container</text></g>
+      <g class="fx-pop" style="--d:6.6s"><rect x="10" y="290" width="120" height="62" rx="14" class="f-stage ol"/><text x="70" y="326" class="d" font-size="15">Client</text></g>
+      <g class="fx-pop" style="--d:7.2s"><rect x="164" y="290" width="120" height="62" rx="14" class="f-grape ol"/><text x="224" y="318" class="d og" font-size="14">Service + DNS</text><text x="224" y="338" class="og" font-size="12.5">stable name</text></g>
+    </g>
+    <path d="M132 61 H160 M152 54 L161 61 L152 68" class="ln s-ink w3 fx-in" style="--d:1.2s"/>
+    <path d="M286 61 H314 M306 54 L315 61 L306 68" class="ln s-ink w3 fx-in" style="--d:3.6s"/>
+    <path d="M440 61 H468 M460 54 L469 61 L460 68" class="ln s-ink w3 fx-in" style="--d:4.4s"/>
+    <path d="M532 94 V156 M525 148 L532 157 L539 148" class="ln s-ink w3 fx-in" style="--d:5s"/>
+    <path d="M470 191 H442 M450 184 L441 191 L450 198" class="ln s-ink w3 fx-in" style="--d:5.6s"/>
+    <path d="M316 191 H288 M296 184 L287 191 L296 198" class="ln s-ink w3 fx-in" style="--d:6s"/>
+    <path d="M132 321 H160 M152 314 L161 321 L152 328" class="ln s-ink w3 fx-in" style="--d:7s"/>
+    <path d="M224 288 V226 M217 234 L224 225 L231 234" class="ln s-ink w3 fx-in" style="--d:7.6s"/>
+    <rect x="158" y="154" width="132" height="74" rx="18" fill="none" class="s-sun w5 fx-pop" style="--d:7.9s"/>
+    <g class="fx-up" style="--d:8.2s"><rect x="318" y="258" width="272" height="204" rx="16" class="f-wash ol"/><text x="334" y="288" class="d" font-size="15">In one breath</text></g>
+    <g font-size="14">
+      <text x="334" y="316" class="fx-in" style="--d:8.4s">I declare it.</text>
+      <text x="334" y="340" class="fx-in" style="--d:8.6s">The API server accepts it.</text>
+      <text x="334" y="364" class="fx-in" style="--d:8.8s">Controllers create Pods.</text>
+      <text x="334" y="388" class="fx-in" style="--d:9s">The scheduler places them.</text>
+      <text x="334" y="412" class="fx-in" style="--d:9.2s">The kubelet runs them.</text>
+      <text x="334" y="436" class="fx-in" style="--d:9.4s">A Service finds them.</text>
+    </g>
+  </svg></div>
+</section>
+
+<!-- 22 -->
+<section class="scene" data-title="Unreachable? Follow the chain" data-chapter="Putting it together" data-dur="13000">
+  <div class="cap">
+    <h2>Unreachable? Follow the chain</h2>
+    <p class="beat" style="--d:.6s;--d2:3.4s">Don’t guess. Walk the relationships in order.</p>
+    <p class="beat" style="--d:3.4s;--d2:7s">Classic case: Deployment 3/3, Pods Running, Service exists… but no endpoints.</p>
+    <p class="beat" style="--d:7s;--d2:9.6s">Next check: compare the Service selector with the Pod labels.</p>
+    <p class="beat" style="--d:9.6s">Ask which relationship connects two objects, then check that link.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="Eight troubleshooting steps from Deployment to a test client Pod. Steps one to five pass, the EndpointSlice step fails, and the selector step is flagged. A status panel shows endpoints none, and the selector app=inference does not equal the Pod label app=model-server.">
+    <g font-size="12.5">
+      <g class="fx-pop" style="--d:.8s"><rect x="10" y="28" width="134" height="62" rx="12" class="f-stage ol"/><circle cx="28" cy="46" r="11" class="f-grape"/><text x="28" y="50" text-anchor="middle" class="og bd" font-size="12">1</text><text x="44" y="52">Deployment</text><text x="44" y="72">healthy?</text></g>
+      <g class="fx-pop" style="--d:.95s"><rect x="158" y="28" width="134" height="62" rx="12" class="f-stage ol"/><circle cx="176" cy="46" r="11" class="f-grape"/><text x="176" y="50" text-anchor="middle" class="og bd" font-size="12">2</text><text x="192" y="52">ReplicaSet</text><text x="192" y="72">count right?</text></g>
+      <g class="fx-pop" style="--d:1.1s"><rect x="306" y="28" width="134" height="62" rx="12" class="f-stage ol"/><circle cx="324" cy="46" r="11" class="f-grape"/><text x="324" y="50" text-anchor="middle" class="og bd" font-size="12">3</text><text x="340" y="52">Pods Running</text><text x="340" y="72">and Ready?</text></g>
+      <g class="fx-pop" style="--d:1.25s"><rect x="454" y="28" width="134" height="62" rx="12" class="f-stage ol"/><circle cx="472" cy="46" r="11" class="f-grape"/><text x="472" y="50" text-anchor="middle" class="og bd" font-size="12">4</text><text x="488" y="52">Events</text><text x="488" y="72">and logs?</text></g>
+      <g class="fx-pop" style="--d:1.4s"><rect x="454" y="118" width="134" height="62" rx="12" class="f-stage ol"/><circle cx="472" cy="136" r="11" class="f-grape"/><text x="472" y="140" text-anchor="middle" class="og bd" font-size="12">5</text><text x="488" y="142">Service</text><text x="488" y="162">exists?</text></g>
+      <g class="fx-pop" style="--d:1.55s"><rect x="306" y="118" width="134" height="62" rx="12" class="f-stage ol"/><circle cx="324" cy="136" r="11" class="f-grape"/><text x="324" y="140" text-anchor="middle" class="og bd" font-size="12">6</text><text x="340" y="142">Selector</text><text x="340" y="162">matches labels?</text></g>
+      <g class="fx-pop" style="--d:1.7s"><rect x="158" y="118" width="134" height="62" rx="12" class="f-stage ol"/><circle cx="176" cy="136" r="11" class="f-grape"/><text x="176" y="140" text-anchor="middle" class="og bd" font-size="12">7</text><text x="192" y="142">EndpointSlice</text><text x="192" y="162">has backends?</text></g>
+      <g class="fx-pop" style="--d:1.85s"><rect x="10" y="118" width="134" height="62" rx="12" class="f-stage ol"/><circle cx="28" cy="136" r="11" class="f-grape"/><text x="28" y="140" text-anchor="middle" class="og bd" font-size="12">8</text><text x="44" y="142">Test from</text><text x="44" y="162">a client Pod</text></g>
+    </g>
+    <path d="M146 59 H156 M294 59 H304 M442 59 H452 M521 92 V116 M452 149 H442 M304 149 H294 M156 149 H146" class="ln s-ink w3 fx-in" style="--d:2s"/>
+    <g class="fx-pop" style="--d:3.6s"><circle cx="138" cy="32" r="11" class="f-teal ol"/><path d="M133 32 l3 3 l6 -7" class="ln s-ink w3"/></g>
+    <g class="fx-pop" style="--d:3.8s"><circle cx="286" cy="32" r="11" class="f-teal ol"/><path d="M281 32 l3 3 l6 -7" class="ln s-ink w3"/></g>
+    <g class="fx-pop" style="--d:4s"><circle cx="434" cy="32" r="11" class="f-teal ol"/><path d="M429 32 l3 3 l6 -7" class="ln s-ink w3"/></g>
+    <g class="fx-pop" style="--d:4.2s"><circle cx="582" cy="32" r="11" class="f-teal ol"/><path d="M577 32 l3 3 l6 -7" class="ln s-ink w3"/></g>
+    <g class="fx-pop" style="--d:4.6s"><circle cx="582" cy="122" r="11" class="f-teal ol"/><path d="M577 122 l3 3 l6 -7" class="ln s-ink w3"/></g>
+    <g class="fx-pop" style="--d:5.4s"><circle cx="286" cy="122" r="11" class="f-berry ol"/><path d="M281 117 l10 10 M291 117 l-10 10" class="ln s-ink w3"/></g>
+    <rect x="302" y="114" width="142" height="70" rx="16" fill="none" class="s-sun w5 fx-pop" style="--d:7s"/>
+    <g class="fx-pop" style="--d:7.1s"><circle cx="434" cy="122" r="11" class="f-sun ol"/><text x="434" y="127" text-anchor="middle" class="d oa" font-size="14">?</text></g>
+    <g class="fx-in" style="--d:3.4s"><rect x="10" y="206" width="280" height="150" rx="14" class="f-term ol"/></g>
+    <g class="m" font-size="14">
+      <g class="fx-in" style="--d:3.6s"><text x="26" y="238" class="tt">Deployment</text><text x="138" y="238" class="tt">3/3 Ready</text><text x="272" y="238" text-anchor="end" class="good">✓</text></g>
+      <g class="fx-in" style="--d:4s"><text x="26" y="268" class="tt">Pods</text><text x="138" y="268" class="tt">Running</text><text x="272" y="268" text-anchor="end" class="good">✓</text></g>
+      <g class="fx-in" style="--d:4.4s"><text x="26" y="298" class="tt">Service</text><text x="138" y="298" class="tt">exists</text><text x="272" y="298" text-anchor="end" class="good">✓</text></g>
+      <g class="fx-in" style="--d:5.2s"><text x="26" y="328" class="tt">Endpoints</text><text x="138" y="328" class="sunt">&lt;none&gt;</text><text x="272" y="328" text-anchor="end" class="bad">✗</text></g>
+    </g>
+    <g class="fx-up" style="--d:7.2s"><rect x="306" y="206" width="284" height="150" rx="14" class="f-wash ol"/><text x="322" y="232" class="mu" font-size="13">Service selector</text><rect x="322" y="240" width="180" height="30" rx="15" class="f-grape ol"/><text x="412" y="260" text-anchor="middle" class="m og" font-size="13">app=inference</text></g>
+    <g class="fx-up" style="--d:7.5s"><text x="322" y="296" class="mu" font-size="13">Pod labels</text><rect x="322" y="304" width="180" height="30" rx="15" class="f-teal ol"/><text x="412" y="324" text-anchor="middle" class="m oa" font-size="13">app=model-server</text></g>
+    <text x="548" y="306" text-anchor="middle" class="d bad fx-pop" font-size="44" style="--d:7.8s">≠</text>
+    <g class="fx-up" style="--d:8s"><rect x="10" y="372" width="580" height="40" rx="12" class="f-term ol"/><text x="26" y="398" class="m tt" font-size="14">$ kubectl describe svc &lt;service&gt;</text></g>
+    <g class="fx-up" style="--d:8.3s"><rect x="10" y="422" width="580" height="40" rx="12" class="f-term ol"/><text x="26" y="448" class="m tt" font-size="14">$ kubectl get pods --show-labels</text></g>
+  </svg></div>
+</section>
+
+<!-- 23 -->
+<section class="scene" data-title="The whole picture" data-chapter="Putting it together" data-dur="12000">
+  <div class="cap">
+    <h2>The whole picture</h2>
+    <p class="beat" style="--d:.6s;--d2:3.4s">Kubernetes is a desired-state control system: declare it, and controllers keep it true.</p>
+    <p class="beat" style="--d:3.4s;--d2:6.4s">Deployments roll out, ReplicaSets keep count, the scheduler places, kubelets run.</p>
+    <p class="beat" style="--d:6.4s;--d2:9.2s">Pods are disposable. Services give stable access through labels.</p>
+    <p class="beat" style="--d:9.2s">Next up: Kubernetes networking, in more depth.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="Pid in a Pod at the center, linked to six ideas: desired state, controllers, scheduler, kubelet, Services and troubleshooting.">
+    <path d="M300 236 V60" pathLength="1" class="ln s-mu w3 fx-draw" style="--d:1s;--t:.5s"/>
+    <path d="M300 236 L120 120" pathLength="1" class="ln s-mu w3 fx-draw" style="--d:3.6s;--t:.5s"/>
+    <path d="M300 236 L480 120" pathLength="1" class="ln s-mu w3 fx-draw" style="--d:4s;--t:.5s"/>
+    <path d="M300 236 L120 330" pathLength="1" class="ln s-mu w3 fx-draw" style="--d:4.4s;--t:.5s"/>
+    <path d="M300 236 L480 330" pathLength="1" class="ln s-mu w3 fx-draw" style="--d:6.6s;--t:.5s"/>
+    <path d="M300 236 V410" pathLength="1" class="ln s-mu w3 fx-draw" style="--d:7s;--t:.5s"/>
+    <g class="fx-pop" style="--d:.5s"><g class="fx-bob" style="--d:1.2s"><use href="#pod" x="220" y="182" width="160" height="115" style="--podf:var(--stage)"/></g></g>
+    <g class="fx-pop" style="--d:1.3s"><rect x="210" y="22" width="180" height="58" rx="16" class="f-stage ol"/><circle cx="232" cy="51" r="10" class="f-sun ol"/><text x="250" y="47" class="d" font-size="16">Desired state</text><text x="250" y="68" class="mu" font-size="13">declare it</text></g>
+    <g class="fx-pop" style="--d:3.9s"><rect x="20" y="91" width="180" height="58" rx="16" class="f-stage ol"/><circle cx="42" cy="120" r="10" class="f-teal ol"/><text x="60" y="116" class="d" font-size="16">Controllers</text><text x="60" y="137" class="mu" font-size="13">keep it true</text></g>
+    <g class="fx-pop" style="--d:4.3s"><rect x="400" y="91" width="180" height="58" rx="16" class="f-stage ol"/><circle cx="422" cy="120" r="10" class="f-berry ol"/><text x="440" y="116" class="d" font-size="16">Scheduler</text><text x="440" y="137" class="mu" font-size="13">picks where</text></g>
+    <g class="fx-pop" style="--d:4.7s"><rect x="20" y="301" width="180" height="58" rx="16" class="f-stage ol"/><circle cx="42" cy="330" r="10" class="f-grape ol"/><text x="60" y="326" class="d" font-size="16">kubelet</text><text x="60" y="347" class="mu" font-size="13">makes it run</text></g>
+    <g class="fx-pop" style="--d:6.9s"><rect x="400" y="301" width="180" height="58" rx="16" class="f-stage ol"/><circle cx="422" cy="330" r="10" class="f-sun ol"/><text x="440" y="326" class="d" font-size="16">Services</text><text x="440" y="347" class="mu" font-size="13">stable access</text></g>
+    <g class="fx-pop" style="--d:7.3s"><rect x="210" y="391" width="180" height="58" rx="16" class="f-stage ol"/><circle cx="232" cy="420" r="10" class="f-teal ol"/><text x="250" y="416" class="d" font-size="16">Troubleshoot</text><text x="250" y="437" class="mu" font-size="13">follow the chain</text></g>
+    <g>
+      <rect x="208" y="158" width="12" height="12" rx="2" class="f-sun ol fx-pop" style="--d:9.2s"/>
+      <rect x="378" y="152" width="12" height="12" rx="2" class="f-teal ol fx-pop" style="--d:9.3s"/>
+      <circle cx="196" cy="268" r="7" class="f-berry ol fx-pop" style="--d:9.35s"/>
+      <rect x="398" y="268" width="12" height="12" rx="2" class="f-grape ol fx-pop" style="--d:9.4s"/>
+      <circle cx="254" cy="132" r="6" class="f-teal ol fx-pop" style="--d:9.45s"/>
+      <circle cx="350" cy="128" r="7" class="f-berry ol fx-pop" style="--d:9.5s"/>
+      <rect x="184" y="210" width="11" height="11" rx="2" class="f-grape ol fx-pop" style="--d:9.55s"/>
+      <circle cx="416" cy="218" r="6" class="f-sun ol fx-pop" style="--d:9.6s"/>
+      <circle cx="236" cy="314" r="6" class="f-teal ol fx-pop" style="--d:9.65s"/>
+      <rect x="362" y="312" width="11" height="11" rx="2" class="f-sun ol fx-pop" style="--d:9.7s"/>
+    </g>
+  </svg></div>
+</section>
+
+<!-- 24 -->
+<section class="scene" data-title="Quick check" data-chapter="Putting it together" data-dur="0">
+  <div class="cap">
+    <h2>Quick check</h2>
+    <p class="beat" style="--d:.4s">Answer out loud first, then tap a card to flip it.</p>
+    <p class="beat" style="--d:.8s">Stuck on one? Jump back with the dots below.</p>
+    <button class="pill-btn" type="button" data-restart>Watch again from the start</button>
+  </div>
+  <div class="vis">
+    <div class="quiz quiz6">
+      <button class="qc" type="button" aria-pressed="false"><span class="qc-in"><span class="qc-f"><strong>A bare Pod is deleted. Does it come back?</strong><span>Tap to flip</span></span><span class="qc-b">No. No controller has a desired count that requires it.</span></span></button>
+      <button class="qc" type="button" aria-pressed="false"><span class="qc-in"><span class="qc-f"><strong>Who picks the node? Who starts the containers?</strong><span>Tap to flip</span></span><span class="qc-b">The scheduler picks the node. The kubelet on that node runs the containers.</span></span></button>
+      <button class="qc" type="button" aria-pressed="false"><span class="qc-in"><span class="qc-f"><strong><code>replicas: 2</code> to <code>5</code>: new ReplicaSet?</strong><span>Tap to flip</span></span><span class="qc-b">No. The template didn’t change, so the existing ReplicaSet just adds Pods.</span></span></button>
+      <button class="qc" type="button" aria-pressed="false"><span class="qc-in"><span class="qc-f"><strong>What does create a new ReplicaSet?</strong><span>Tap to flip</span></span><span class="qc-b">A Pod-template change, such as a new image.</span></span></button>
+      <button class="qc" type="button" aria-pressed="false"><span class="qc-in"><span class="qc-f"><strong>Pods healthy, Service exists, no endpoints. First check?</strong><span>Tap to flip</span></span><span class="qc-b">Compare the Service selector with the Pod labels.</span></span></button>
+      <button class="qc" type="button" aria-pressed="false"><span class="qc-in"><span class="qc-f"><strong>Why use a Service name, not a Pod IP?</strong><span>Tap to flip</span></span><span class="qc-b">Pod IPs change when Pods are replaced. The Service name stays stable.</span></span></button>
+    </div>
+  </div>
+</section>
+
+    <div class="wipe" id="wipe" aria-hidden="true"><svg viewBox="0 0 60 64" style="--pc:var(--stage)"><use href="#pid"/></svg></div>
+  </main>
+
+  <div class="bar">
+    <button class="btn" id="prev" type="button" aria-label="Previous scene"><svg viewBox="0 0 24 24"><path d="M6 5h2.5v14H6zM20 5v14L9.5 12z"/></svg></button>
+    <button class="btn play" id="play" type="button" aria-label="Pause"><svg class="i-pause" viewBox="0 0 24 24"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg><svg class="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15L20 12z"/></svg></button>
+    <button class="btn" id="next" type="button" aria-label="Next scene"><svg viewBox="0 0 24 24"><path d="M15.5 5H18v14h-2.5zM4 5v14l10.5-7z"/></svg></button>
+    <button class="btn" id="replay" type="button" aria-label="Replay this scene"><svg viewBox="0 0 24 24"><path d="M12 5V1.5L7 6l5 4.5V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z"/></svg></button>
+    <div class="prog" aria-hidden="true"><i id="fill"></i></div>
+    <div class="count" id="count">1 / 24</div>
+  </div>
+  <nav class="rail" id="rail" aria-label="Scenes"></nav>
+  <p class="hint">Keys: ← → to move between scenes, space to pause.</p>
+  <p class="sr" id="live" aria-live="polite"></p>
+</div>
+
+<script>
+(() => {
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const stage = document.getElementById('stage');
+  const scenes = Array.from(stage.querySelectorAll('.scene'));
+  const wipe = document.getElementById('wipe');
+  const btnPlay = document.getElementById('play');
+  const btnPrev = document.getElementById('prev');
+  const btnNext = document.getElementById('next');
+  const btnReplay = document.getElementById('replay');
+  const fill = document.getElementById('fill');
+  const count = document.getElementById('count');
+  const chapEl = document.getElementById('chap');
+  const rail = document.getElementById('rail');
+  const live = document.getElementById('live');
+  const accents = ['var(--sun)', 'var(--teal)', 'var(--berry)', 'var(--grape)'];
+  const chapters = [];
+  const dots = [];
+
+  // chapters + rail
+  scenes.forEach((s, i) => {
+    let ch = chapters.find(c => c.name === s.dataset.chapter);
+    if (!ch) { ch = { name: s.dataset.chapter, idx: [] }; chapters.push(ch); }
+    ch.idx.push(i);
+    s.dataset.ci = chapters.indexOf(ch);
+  });
+  chapters.forEach(ch => {
+    const grp = document.createElement('div');
+    grp.className = 'ch';
+    const name = document.createElement('span');
+    name.className = 'ch-name';
+    name.textContent = ch.name;
+    const wrap = document.createElement('span');
+    wrap.className = 'dots';
+    ch.idx.forEach(i => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'dot';
+      b.setAttribute('aria-label', 'Scene ' + (i + 1) + ': ' + scenes[i].dataset.title);
+      b.addEventListener('click', () => go(i));
+      wrap.append(b);
+      dots[i] = b;
+    });
+    grp.append(name, wrap);
+    rail.append(grp);
+    ch.el = grp;
+  });
+
+
+  // quiz cards
+  stage.querySelectorAll('.qc').forEach(b => b.addEventListener('click', () => {
+    b.setAttribute('aria-pressed', b.getAttribute('aria-pressed') === 'true' ? 'false' : 'true');
+  }));
+  stage.querySelector('[data-restart]').addEventListener('click', () => {
+    stage.querySelectorAll('.qc').forEach(b => b.setAttribute('aria-pressed', 'false'));
+    go(0); setPlaying(true, false);
+  });
+
+  // playback
+  let cur = 0, playing = false, elapsed = 0, last = performance.now(), swapT = null;
+
+  function activate(i) {
+    scenes.forEach((s, j) => {
+      s.classList.remove('on');
+      s.setAttribute('aria-hidden', String(j !== i));
+    });
+    void scenes[i].offsetWidth;
+    scenes[i].classList.add('on');
+  }
+
+  function update() {
+    const s = scenes[cur];
+    count.textContent = (cur + 1) + ' / ' + scenes.length;
+    chapEl.textContent = s.dataset.chapter;
+    chapEl.style.setProperty('--cc', accents[s.dataset.ci % accents.length]);
+    dots.forEach((d, i) => {
+      d.classList.toggle('done', i < cur);
+      d.classList.toggle('cur', i === cur);
+      if (i === cur) d.setAttribute('aria-current', 'step'); else d.removeAttribute('aria-current');
+    });
+    chapters.forEach((c, ci) => c.el.classList.toggle('cur', ci === +s.dataset.ci));
+    btnPrev.disabled = cur === 0;
+    btnNext.disabled = cur === scenes.length - 1;
+    live.textContent = 'Scene ' + (cur + 1) + ' of ' + scenes.length + ': ' + s.dataset.title;
+  }
+
+  function go(i, useWipe = true) {
+    if (i < 0 || i >= scenes.length) return;
+    cur = i;
+    elapsed = 0;
+    stage.classList.remove('paused');
+    update();
+    clearTimeout(swapT);
+    if (useWipe && !reduce) {
+      wipe.style.setProperty('--wc', accents[scenes[i].dataset.ci % accents.length]);
+      wipe.classList.remove('run');
+      void wipe.offsetWidth;
+      wipe.classList.add('run');
+      elapsed = -340;
+      swapT = setTimeout(() => activate(i), 340);
+    } else {
+      activate(i);
+    }
+  }
+  wipe.addEventListener('animationend', () => wipe.classList.remove('run'));
+
+  function setPlaying(v, freeze = true) {
+    playing = v;
+    stage.classList.toggle('paused', !v && freeze);
+    btnPlay.classList.toggle('paused', !v);
+    btnPlay.setAttribute('aria-label', v ? 'Pause' : 'Play');
+    if (v && +scenes[cur].dataset.dur && elapsed >= +scenes[cur].dataset.dur) go(cur);
+  }
+
+  function tick(now) {
+    const dt = Math.min(100, now - last);
+    last = now;
+    const dur = +scenes[cur].dataset.dur || 0;
+    if (playing && !dur && elapsed >= 0) setPlaying(false, false);
+    if (playing && dur) {
+      elapsed += dt;
+      if (elapsed >= dur) {
+        if (cur < scenes.length - 1) go(cur + 1);
+        else setPlaying(false, false);
+      }
+    }
+    const p = dur ? Math.max(0, Math.min(1, elapsed / dur)) : 1;
+    fill.style.transform = 'scaleX(' + p + ')';
+    requestAnimationFrame(tick);
+  }
+
+  btnPlay.addEventListener('click', () => setPlaying(!playing));
+  btnPrev.addEventListener('click', () => go(cur - 1));
+  btnNext.addEventListener('click', () => go(cur + 1));
+  btnReplay.addEventListener('click', () => go(cur));
+  document.addEventListener('keydown', e => {
+    if (e.altKey || e.ctrlKey || e.metaKey) return;
+    if (e.key === 'ArrowRight') { go(cur + 1); e.preventDefault(); }
+    else if (e.key === 'ArrowLeft') { go(cur - 1); e.preventDefault(); }
+    else if (e.key === ' ' || e.key === 'k') {
+      if (e.target.closest && e.target.closest('button')) return;
+      setPlaying(!playing); e.preventDefault();
+    }
+  });
+
+  go(0, false);
+  setPlaying(!reduce, false);
+  requestAnimationFrame(tick);
+
+  // Deterministic export hooks for html_to_mp4.py.
+  const exportDurations=scenes.map(s=>(+s.dataset.dur||0)/1000);
+  window.__total=exportDurations.reduce((sum,d)=>sum+d,0);
+  window.__seek=seconds=>{
+    let local=Math.max(0,Math.min(window.__total,seconds)),i=0;
+    while(i<scenes.length-1&&local>=exportDurations[i])local-=exportDurations[i++];
+    if(cur!==i)go(i,false);
+    setPlaying(false,false);
+    clearTimeout(swapT);wipe.classList.remove('run');
+    elapsed=local*1000;activate(i);
+    const dur=exportDurations[i]||0;
+    fill.style.transform='scaleX('+ (dur?Math.min(1,local/dur):1) +')';
+    void scenes[i].offsetWidth;
+    scenes[i].getAnimations({subtree:true}).forEach(animation=>{animation.currentTime=elapsed});
+  };
+})();
+</script>
+</body>
+</html>

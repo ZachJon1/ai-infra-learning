@@ -1,0 +1,1012 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>How Linux runs services: systemd, journald &amp; cgroups</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#D7E5FB; --stage:#EEF4FF; --text:#1D1B3B; --muted:#4A4E7C; --wire:#1D1B3B;
+  --line:#1D1B3B; --shadow:#1D1B3B; --paper:#FFFFFF; --term:#25234D; --termEdge:#1D1B3B; --termText:#E9E7FF;
+  --foot:#1D1B3B; --yellow:#FFD23F; --tomato:#FF6B5B; --mint:#46D3A2; --blue:#5B8CFF; --lilac:#B9A0FF; --grey:#D9DEEE;
+  --font:"Fredoka","Nunito","Trebuchet MS",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:light;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#14162E; --stage:#1E2142; --text:#EEF0FF; --muted:#A8ADDA; --wire:#BCC1F2;
+    --shadow:#07081A; --paper:#F7F5FF; --term:#0D0E24; --termEdge:#6E73BE; --termText:#E9E7FF; --grey:#C9CEE6; --foot:#9297CF;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#14162E; --stage:#1E2142; --text:#EEF0FF; --muted:#A8ADDA; --wire:#BCC1F2;
+  --shadow:#07081A; --paper:#F7F5FF; --term:#0D0E24; --termEdge:#6E73BE; --termText:#E9E7FF; --grey:#C9CEE6; --foot:#9297CF;
+  color-scheme:dark;
+}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*,*::before,*::after{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--text);font-family:var(--font);overflow:hidden;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--blue);outline-offset:3px;border-radius:10px}
+
+.app{height:100%;display:flex;flex-direction:column;max-width:1400px;margin:0 auto;padding:12px clamp(8px,2vw,24px) 10px}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:2px 4px 10px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:clamp(.92rem,1.6vw,1.05rem);min-width:0}
+.brand svg{flex:none}
+.brand span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.btn{display:inline-flex;align-items:center;gap:8px;border:3px solid var(--line);background:var(--paper);color:#1D1B3B;border-radius:14px;padding:6px 14px;font-weight:600;cursor:pointer;box-shadow:3px 3px 0 var(--shadow);transition:transform .12s, box-shadow .12s}
+.btn:hover{transform:translate(-1px,-1px);box-shadow:4px 4px 0 var(--shadow)}
+.btn:active{transform:translate(2px,2px);box-shadow:1px 1px 0 var(--shadow)}
+
+.stage{position:relative;flex:1;min-height:0;background:var(--stage);border:3px solid var(--line);border-radius:26px;box-shadow:6px 6px 0 var(--shadow);overflow:hidden}
+.scene{position:absolute;inset:0;display:grid;grid-template-columns:minmax(250px,32%) 1fr;grid-template-rows:auto 1fr;grid-template-areas:"head vis" "cap vis";column-gap:clamp(12px,2vw,28px);padding:clamp(18px,3vw,40px);opacity:0;visibility:hidden;transform:translateX(40px) scale(.985);transition:opacity .55s ease, transform .6s cubic-bezier(.2,.8,.2,1), visibility 0s linear .6s}
+.scene.cur{opacity:1;visibility:visible;transform:none;transition:opacity .55s ease .08s, transform .6s cubic-bezier(.2,.8,.2,1) .08s, visibility 0s}
+.scene.gone{transform:translateX(-40px) scale(.985)}
+.head{grid-area:head;align-self:end}
+.kick{display:inline-flex;align-items:center;gap:8px;margin:0 0 12px;font-size:.92rem;font-weight:600;color:#1D1B3B;background:var(--chip,var(--yellow));border:2.5px solid var(--line);border-radius:999px;padding:3px 12px 3px 4px}
+.kick b{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--paper);border:2px solid var(--line);font-size:.8rem}
+h2{margin:0;font-size:clamp(1.55rem,2.9vw,2.6rem);line-height:1.08;font-weight:600;letter-spacing:-.01em;text-wrap:balance}
+.cap{grid-area:cap;align-self:start;margin-top:18px;display:flex;flex-direction:column;gap:10px}
+.ln{margin:0;font-size:clamp(1rem,1.45vw,1.2rem);line-height:1.45;color:var(--muted);padding-left:14px;border-left:4px solid transparent;opacity:0;transform:translateY(10px);transition:opacity .45s, transform .45s, color .45s, border-color .45s;max-width:38ch}
+.ln.show{opacity:1;transform:none}
+.ln.now{color:var(--text);border-left-color:var(--chip,var(--yellow))}
+.ln code,.qa code{font-family:var(--mono);font-size:.84em;background:var(--paper);color:#1D1B3B;border:2px solid var(--line);border-radius:7px;padding:0 5px;white-space:nowrap}
+.vis{grid-area:vis;min-height:0;min-width:0;display:flex;align-items:center;justify-content:center}
+.vis>svg{width:100%;height:100%;max-height:100%;overflow:visible}
+
+/* chapter wipe */
+.wipe{position:absolute;inset:0;z-index:5;pointer-events:none;display:grid;place-items:center;background:var(--chip,var(--yellow));border-radius:23px;transform:translateX(-102%);visibility:hidden}
+.wipe.go{visibility:visible;animation:wipe 1.15s cubic-bezier(.7,0,.3,1) both}
+.wipe span{font-size:clamp(1.4rem,3.4vw,2.6rem);font-weight:700;color:#1D1B3B;text-align:center;padding:0 20px}
+.wipe small{display:block;font-size:.5em;font-weight:600;opacity:.75;margin-bottom:6px}
+@keyframes wipe{0%{transform:translateX(-102%)}38%,62%{transform:translateX(0)}100%{transform:translateX(102%)}}
+
+/* controls */
+.ctrl{padding:12px 4px 2px}
+.prog{display:flex;gap:4px;margin-bottom:10px}
+.seg{flex:1;height:12px;border:2px solid var(--line);border-radius:6px;background:var(--paper);padding:0;cursor:pointer;overflow:hidden;position:relative}
+.seg i{position:absolute;inset:0;width:0;background:var(--blue)}
+.seg.ch0{margin-left:6px}
+.seg:first-child{margin-left:0}
+.bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.ib{width:46px;height:46px;justify-content:center;padding:0;border-radius:14px}
+.ib svg{width:22px;height:22px}
+.play{background:var(--yellow)}
+.count{margin-left:auto;font-weight:600;font-size:.95rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.hint{font-size:.85rem;color:var(--muted)}
+
+/* chapters menu */
+.menu{position:absolute;right:clamp(8px,2vw,24px);top:62px;z-index:10;background:var(--paper);color:#1D1B3B;border:3px solid var(--line);border-radius:18px;box-shadow:5px 5px 0 var(--shadow);padding:8px;width:min(330px,calc(100vw - 24px));max-height:calc(100% - 90px);overflow:auto;display:none}
+.menu.open{display:block}
+.menu button{display:flex;gap:10px;align-items:center;width:100%;text-align:left;border:0;background:none;padding:8px 10px;border-radius:10px;cursor:pointer;font-weight:500;color:#1D1B3B}
+.menu button:hover,.menu button.cur{background:#EEF2FF}
+.menu b{display:inline-grid;place-items:center;flex:none;width:26px;height:26px;border-radius:50%;border:2px solid #1D1B3B;font-size:.8rem}
+
+/* quiz */
+.quiz{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;width:100%;max-height:100%;overflow:auto;padding:4px 10px 10px 4px}
+.qa{position:relative;text-align:left;border:3px solid var(--line);border-radius:18px;background:var(--paper);color:#1D1B3B;box-shadow:4px 4px 0 var(--shadow);padding:14px 16px;cursor:pointer;min-height:150px;display:flex;flex-direction:column;gap:8px;transition:background .3s, transform .15s}
+.qa:hover{transform:translate(-1px,-1px)}
+.qa .tag{align-self:flex-start;font-weight:700;font-size:.85rem;border:2px solid #1D1B3B;border-radius:999px;padding:1px 10px}
+.qa .q{font-weight:500;font-size:1.02rem;line-height:1.35}
+.qa .ans{display:none;font-size:.98rem;line-height:1.4}
+.qa .tap{margin-top:auto;font-size:.85rem;color:#4A4E7C}
+.qa.flip{background:#E3FAF0}
+.qa.flip .ans{display:block}
+.qa.flip .tap{display:none}
+.again{grid-column:1/-1;justify-self:start}
+
+/* ---------- SVG vocabulary ---------- */
+svg text{font-family:var(--font)}
+.o{stroke:var(--line);stroke-width:3;stroke-linejoin:round}
+.shd{fill:var(--shadow)}
+.f-p{fill:var(--paper)} .f-y{fill:var(--yellow)} .f-r{fill:var(--tomato)} .f-m{fill:var(--mint)}
+.f-b{fill:var(--blue)} .f-l{fill:var(--lilac)} .f-k{fill:var(--line)} .f-n{fill:none} .f-ft{fill:var(--foot)} .f-w{fill:var(--wire)} .f-g{fill:var(--grey)}
+.f-t{fill:var(--term);stroke:var(--termEdge);stroke-width:3}
+.f-st{fill:var(--stage)}
+.w{stroke:var(--wire);stroke-width:3;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.wk{stroke:var(--line);stroke-width:3;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.dash{stroke-dasharray:9 8}
+.t{fill:var(--text)} .tk{fill:#1D1B3B} .tm{fill:var(--muted)} .tt{fill:var(--termText)}
+.tr{fill:#E8453A} .tg{fill:#13895F} .tmint{fill:var(--mint)} .tred{fill:var(--tomato)} .tyel{fill:var(--yellow)}
+:root[data-theme="dark"] .tr{fill:#FF8A7D} :root[data-theme="dark"] .tg{fill:#5BE3B1}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .tr{fill:#FF8A7D} :root:not([data-theme="light"]) .tg{fill:#5BE3B1}}
+.mono{font-family:var(--mono)}
+.mid{text-anchor:middle} .end{text-anchor:end}
+.b{font-weight:600} .bb{font-weight:700}
+.s13{font-size:13px}.s14{font-size:14px}.s15{font-size:15px}.s16{font-size:16px}.s17{font-size:17px}.s18{font-size:18px}.s19{font-size:19px}.s20{font-size:20px}.s22{font-size:22px}.s24{font-size:24px}.s26{font-size:26px}.s28{font-size:28px}.s32{font-size:32px}.s36{font-size:36px}.s44{font-size:44px}.s56{font-size:56px}
+
+.a{transform-box:fill-box;transform-origin:center}
+.on .pop{animation:pop .55s var(--d,0s) both}
+.on .fade{animation:fin .5s var(--d,0s) both}
+.on .rise{animation:rise .55s cubic-bezier(.2,.8,.3,1) var(--d,0s) both}
+.on .drop{animation:drop .6s var(--d,0s) both}
+.on .sr{animation:sr .55s cubic-bezier(.2,.8,.3,1) var(--d,0s) both}
+.on .sl{animation:sl .55s cubic-bezier(.2,.8,.3,1) var(--d,0s) both}
+.on .draw{stroke-dasharray:1;animation:draw var(--dur,1s) ease-in-out var(--d,0s) both}
+.on .gx{transform-origin:left center;animation:gx var(--dur,.9s) cubic-bezier(.2,.8,.3,1) var(--d,0s) both}
+.on .gy{transform-origin:center bottom;animation:gy var(--dur,.9s) cubic-bezier(.2,.8,.3,1) var(--d,0s) both}
+.on .bob{animation:bob 2.2s ease-in-out infinite}
+.on .spin{animation:spin var(--dur,2s) linear var(--d,0s) infinite}
+.on .pulse{animation:pulse 1.1s ease-in-out var(--d,0s) infinite}
+.on .stamp{animation:stamp .5s var(--d,0s) both}
+.on .shake{animation:shake .5s var(--d,0s) 3}
+.on .io{animation:fin .4s var(--d,0s) both, fout .4s var(--o,99s) forwards}
+.on .pio{animation:pop .5s var(--d,0s) both, fout .35s var(--o,99s) forwards}
+.on .travel{animation:travel var(--dur,2.4s) linear var(--d,0s) infinite}
+.on .scroll{animation:scrollup var(--dur,8s) linear infinite}
+.on .press{animation:press .5s var(--d,0s) both}
+.on .hop{animation:hop5 7s ease-in-out var(--d,0s) both}
+.on .sweep{animation:sweep 6s ease-in-out var(--d,0s) both}
+.on .bump{animation:bump 3.6s ease-in-out var(--d,0s) both}
+.on .needle{transform-origin:center bottom;animation:needle 4s cubic-bezier(.3,.7,.3,1) var(--d,0s) both}
+.on .fl{transform-origin:center bottom;animation:fillloop 3s linear var(--d,0s) infinite}
+.on .close{animation:closeout .45s ease-in var(--d,0s) forwards}
+@keyframes pop{0%{opacity:0;transform:scale(.3)}60%{opacity:1;transform:scale(1.08)}100%{opacity:1;transform:scale(1)}}
+@keyframes fin{from{opacity:0}to{opacity:1}}
+@keyframes fout{from{opacity:1}to{opacity:0}}
+@keyframes rise{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:none}}
+@keyframes drop{0%{opacity:0;transform:translateY(-70px)}70%{opacity:1;transform:translateY(5px)}100%{opacity:1;transform:none}}
+@keyframes sr{from{opacity:0;transform:translateX(-40px)}to{opacity:1;transform:none}}
+@keyframes sl{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:none}}
+@keyframes draw{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
+@keyframes gx{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes gy{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.14)}}
+@keyframes stamp{0%{opacity:0;transform:scale(2.2) rotate(-14deg)}70%{opacity:1;transform:scale(.95) rotate(-5deg)}100%{opacity:1;transform:scale(1) rotate(-5deg)}}
+@keyframes shake{0%,100%{transform:rotate(0)}25%{transform:rotate(-5deg)}75%{transform:rotate(5deg)}}
+@keyframes travel{0%{opacity:0;transform:translateX(0)}12%,82%{opacity:1}100%{opacity:0;transform:translateX(var(--dx,300px))}}
+@keyframes scrollup{from{transform:translateY(0)}to{transform:translateY(var(--dy,-200px))}}
+@keyframes press{0%,100%{transform:none}35%{transform:translate(3px,3px)}}
+@keyframes fillloop{0%{transform:scaleY(.12)}70%{transform:scaleY(1)}74%,100%{transform:scaleY(.12)}}
+@keyframes closeout{from{opacity:1;transform:scale(1)}to{opacity:0;transform:scale(.2)}}
+@keyframes hop5{
+  0%{transform:translate(0,0)} 6%{transform:translate(77px,-50px)} 12%,24%{transform:translate(155px,0)}
+  30%{transform:translate(232px,-50px)} 36%,48%{transform:translate(310px,0)}
+  54%{transform:translate(387px,-50px)} 60%,72%{transform:translate(465px,0)}
+  78%{transform:translate(542px,-50px)} 84%,100%{transform:translate(620px,0)}}
+@keyframes sweep{0%{transform:translateY(0)} 18%,24%{transform:translateY(64px)} 40%,46%{transform:translateY(128px)} 62%,100%{transform:translateY(192px)}}
+@keyframes bump{0%{transform:translateX(0)} 30%{transform:translateX(205px)} 38%{transform:translateX(178px)} 55%{transform:translateX(205px)} 63%{transform:translateX(184px)} 100%{transform:translateX(184px)}}
+@keyframes needle{0%{transform:rotate(-90deg)} 100%{transform:rotate(84deg)}}
+
+.stage.paused .scene *{animation-play-state:paused !important}
+
+@media (max-width: 899px), (orientation: portrait){
+  .scene{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr) auto;grid-template-areas:"head" "vis" "cap";padding:16px 16px 14px}
+  .head{align-self:start}
+  .kick{margin-bottom:8px;font-size:.82rem}
+  .cap{margin-top:8px;gap:6px}
+  .ln{max-width:none;font-size:.98rem}
+  .ln:not(.now){display:none}
+  .quiz{grid-template-columns:1fr}
+  .hint{display:none}
+}
+@media (max-width: 520px){
+  .app{padding:8px 8px 6px}
+  .stage{border-radius:20px;box-shadow:4px 4px 0 var(--shadow)}
+  .ib{width:42px;height:42px}
+  .brand span{font-size:.88rem}
+  .brand .long{display:none}
+  .prog{gap:2px}
+  .seg{height:9px;border-width:1.5px;border-radius:4px}
+  .seg.ch0{margin-left:3px}
+}
+.brand .short{display:none}
+@media (max-width:520px){.brand .short{display:inline}}
+@media (prefers-reduced-motion: reduce){
+  .scene,.scene.cur,.ln{transition:none !important}
+  .scene *{animation-duration:1ms !important;animation-delay:0s !important;animation-iteration-count:1 !important}
+  .wipe{display:none}
+  .scene .travel{visibility:hidden}
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" style="fill:var(--wire)"/></marker>
+    <marker id="ahk" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" style="fill:var(--line)"/></marker>
+  </defs>
+</svg>
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true"><rect x="3" y="4" width="28" height="27" rx="12" fill="#46D3A2" stroke="#1D1B3B" stroke-width="2.5"/><circle cx="12.5" cy="15" r="3.6" fill="#fff" stroke="#1D1B3B" stroke-width="2"/><circle cx="21.5" cy="15" r="3.6" fill="#fff" stroke="#1D1B3B" stroke-width="2"/><circle cx="13" cy="15.5" r="1.6" fill="#1D1B3B"/><circle cx="22" cy="15.5" r="1.6" fill="#1D1B3B"/><path d="M13 22 Q17 25 21 22" stroke="#1D1B3B" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+      <span class="long">AI Infrastructure, Day 4: how Linux runs services</span><span class="short">Day 4: Linux services</span>
+    </div>
+    <button class="btn" id="chapBtn" aria-expanded="false" aria-controls="menu">
+      <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M3 4h12M3 9h12M3 14h8" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>Chapters</button>
+  </header>
+  <div class="menu" id="menu" role="menu"></div>
+  <main class="stage" id="stage">
+    <div class="wipe" id="wipe"><span></span></div>
+  </main>
+  <nav class="ctrl" aria-label="Player controls">
+    <div class="prog" id="prog"></div>
+    <div class="bar">
+      <button class="btn ib" id="prev" aria-label="Previous scene"><svg viewBox="0 0 24 24"><path d="M15 5 L8 12 L15 19" stroke="#1D1B3B" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <button class="btn ib play" id="play" aria-label="Pause"><svg viewBox="0 0 24 24" id="playIcon"></svg></button>
+      <button class="btn ib" id="next" aria-label="Next scene"><svg viewBox="0 0 24 24"><path d="M9 5 L16 12 L9 19" stroke="#1D1B3B" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <button class="btn ib" id="replay" aria-label="Replay this scene"><svg viewBox="0 0 24 24"><path d="M5 12a7 7 0 1 0 2.2-5.1" stroke="#1D1B3B" stroke-width="2.6" fill="none" stroke-linecap="round"/><path d="M4 4v5h5" stroke="#1D1B3B" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <span class="hint">Space to pause, arrow keys to skip</span>
+      <span class="count" id="count"></span>
+    </div>
+  </nav>
+</div>
+<script>
+/* ---------- tiny SVG toolkit ---------- */
+const S=(x,y,w,h,f='p',rx=14)=>`<rect x="${x+5}" y="${y+5}" width="${w}" height="${h}" rx="${rx}" class="shd"/><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}" class="o f-${f}"/>`;
+const R=(x,y,w,h,cls,rx=0,st='')=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}" class="${cls}"${st?` style="${st}"`:''}/>`;
+const T=(x,y,s,cls='t s20')=>`<text x="${x}" y="${y}" class="${cls}">${s}</text>`;
+const A=(cls,d,inner,o,extra='')=>`<g class="a ${cls}" style="--d:${d}s${o!=null?`;--o:${o}s`:''}${extra}">${inner}</g>`;
+const G=(x,y,inner,s=1)=>`<g transform="translate(${x} ${y})${s!==1?` scale(${s})`:''}">${inner}</g>`;
+const P=(d,cls='w',st='')=>`<path d="${d}" class="${cls}"${st?` style="${st}"`:''}/>`;
+const D=(d,dl,dur=.8,cls='w')=>`<path d="${d}" class="${cls} a draw" pathLength="1" style="--d:${dl}s;--dur:${dur}s"/>`;
+const head=(x,y,ang,dl,ink)=>`<g transform="translate(${x} ${y}) rotate(${ang})"><g class="a fade" style="--d:${dl}s"><path d="M-13 -8 L2 0 L-13 8 z" style="fill:var(${ink?'--line':'--wire'})"/></g></g>`;
+function dA(x1,y1,x2,y2,dl,dur=.45,ink=false){
+  const ang=Math.atan2(y2-y1,x2-x1)*180/Math.PI;
+  return D(`M${x1} ${y1} L${x2} ${y2}`,dl,dur,ink?'wk':'w')+head(x2,y2,ang,dl+dur*.75,ink);
+}
+const cA=(d,x2,y2,ang,dl,dur=.6)=>D(d,dl,dur)+head(x2,y2,ang,dl+dur*.75);
+const cnt=(a,b,t0,t1,dec=0)=>`data-count="${a},${b},${t0},${t1},${dec}"`;
+
+function critter(c='m',pid='',mood='happy',bob=true,bd=0){
+  let eyes, mouth;
+  if(mood==='sleep'){
+    eyes=`<path d="M-26 -14 Q-16 -6 -6 -14 M6 -14 Q16 -6 26 -14" class="wk"/>`;
+    mouth=`<ellipse cx="0" cy="6" rx="5" ry="4" class="f-k"/>`;
+  } else if(mood==='dead'){
+    eyes=`<path d="M-24 -23 L-8 -7 M-8 -23 L-24 -7 M8 -23 L24 -7 M24 -23 L8 -7" class="wk"/>`;
+    mouth=`<path d="M-9 9 Q0 2 9 9" class="wk"/>`;
+  } else {
+    eyes=`<circle cx="-15" cy="-15" r="11" class="o f-p"/><circle cx="15" cy="-15" r="11" class="o f-p"/>`+
+      (mood==='worry'?`<circle cx="-15" cy="-19" r="5" class="f-k"/><circle cx="15" cy="-19" r="5" class="f-k"/><path d="M-27 -33 L-7 -29 M27 -33 L7 -29" class="wk"/>`
+                     :`<circle cx="-13" cy="-13" r="5" class="f-k"/><circle cx="17" cy="-13" r="5" class="f-k"/>`);
+    mouth=mood==='worry'?`<path d="M-9 9 Q0 2 9 9" class="wk"/>`:`<path d="M-9 4 Q0 13 9 4" class="wk"/>`;
+  }
+  const tag=pid?`<rect x="-34" y="16" width="68" height="23" rx="7" class="o f-p" style="stroke-width:2.5"/><text x="0" y="32.5" class="tk mono bb s14 mid">${pid}</text>`:'';
+  return `<g class="${bob?'a bob':''}" style="animation-delay:${bd}s">
+    <rect x="-40" y="-43" width="90" height="88" rx="38" class="shd"/>
+    <rect x="-31" y="30" width="20" height="16" rx="7" class="o f-ft"/><rect x="11" y="30" width="20" height="16" rx="7" class="o f-ft"/>
+    <rect x="-45" y="-48" width="90" height="86" rx="38" class="o f-${c}"/>${eyes}${mouth}${tag}</g>`;
+}
+function bot(badge='PID 1',bd=-.7){
+  return `<g class="a bob" style="animation-delay:${bd}s">
+    <line x1="0" y1="-60" x2="0" y2="-78" class="w"/>
+    <g class="a pulse"><circle cx="0" cy="-86" r="9" class="o f-y"/></g>
+    <rect x="-50" y="-55" width="110" height="105" rx="26" class="shd"/>
+    <rect x="-68" y="-22" width="18" height="36" rx="8" class="o f-b"/><rect x="50" y="-22" width="18" height="36" rx="8" class="o f-b"/>
+    <rect x="-55" y="-60" width="110" height="105" rx="26" class="o f-b"/>
+    <rect x="-40" y="-47" width="80" height="50" rx="14" class="f-k"/>
+    <rect x="-25" y="-36" width="13" height="18" rx="6.5" class="f-m"/><rect x="12" y="-36" width="13" height="18" rx="6.5" class="f-m"/>
+    <path d="M-9 -12 Q0 -6 9 -12" style="stroke:var(--mint);stroke-width:3;fill:none;stroke-linecap:round"/>
+    ${badge?`<rect x="-34" y="12" width="68" height="24" rx="8" class="o f-y" style="stroke-width:2.5"/><text x="0" y="29" class="tk mono bb s14 mid">${badge}</text>`:''}</g>`;
+}
+function notebook(){
+  let r='';for(let i=0;i<4;i++)r+=`<circle cx="${-36+i*24}" cy="-62" r="7" class="o f-p" style="stroke-width:2.5"/>`;
+  let l='';[-28,-10,8,26,44].forEach((y,i)=>l+=`<rect x="-38" y="${y}" width="${i%2?56:76}" height="5" rx="2.5" class="f-k" style="opacity:.55"/>`);
+  return S(-55,-62,110,130,'y',12)+r+l;
+}
+function magnifier(){
+  return `<g transform="rotate(45)"><rect x="34" y="-10" width="50" height="20" rx="10" class="shd"/><rect x="30" y="-10" width="50" height="20" rx="10" class="o f-r"/></g>
+    <circle cx="4" cy="4" r="38" class="shd"/><circle cx="0" cy="0" r="38" class="o f-p"/><circle cx="0" cy="0" r="26" class="f-b" style="opacity:.28"/>`;
+}
+function page(x,y,w,h,f='p'){
+  return `<path d="M${x+5} ${y+5} h${w-30} l30 30 v${h-30} h${-w} z" class="shd"/><path d="M${x} ${y} h${w-30} l30 30 v${h-30} h${-w} z" class="o f-${f}"/><path d="M${x+w-30} ${y} v30 h30" class="wk"/>`;
+}
+function term(x,y,w,h){
+  return `<rect x="${x+5}" y="${y+5}" width="${w}" height="${h}" rx="16" class="shd"/><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="16" class="f-t"/><circle cx="${x+22}" cy="${y+20}" r="6" class="f-r"/><circle cx="${x+42}" cy="${y+20}" r="6" class="f-y"/><circle cx="${x+62}" cy="${y+20}" r="6" class="f-m"/>`;
+}
+const slip=`<rect x="-14" y="-10" width="28" height="20" rx="4" class="o f-p" style="stroke-width:2.5"/><rect x="-8" y="-4" width="16" height="3" class="f-k"/><rect x="-8" y="2" width="10" height="3" class="f-k"/>`;
+const mover=(x,y,dx,d,dur=2.4,inner=slip)=>G(x,y,A('travel',d,inner,null,`;--dx:${dx}px;--dur:${dur}s`));
+const ok=(x,y,r=14)=>`<circle cx="${x}" cy="${y}" r="${r}" class="o f-m"/><path d="M${x-r*.45} ${y+r*.02} l${r*.3} ${r*.32} l${r*.55} ${-r*.62}" class="wk"/>`;
+const no=(x,y,r=14)=>`<circle cx="${x}" cy="${y}" r="${r}" class="o f-r"/><path d="M${x-r*.38} ${y-r*.38} l${r*.76} ${r*.76} M${x+r*.38} ${y-r*.38} l${-r*.76} ${r*.76}" class="wk"/>`;
+function poof(txt){
+  return `<g>${[[-46,8,30],[-14,-18,36],[26,-10,32],[44,16,26],[0,20,34],[-34,26,24]].map(([x,y,r])=>`<circle cx="${x}" cy="${y}" r="${r}" class="o f-p"/>`).join('')}
+    ${[[-46,8,27],[-14,-18,33],[26,-10,29],[44,16,23],[0,20,31],[-34,26,21]].map(([x,y,r])=>`<circle cx="${x}" cy="${y}" r="${r}" class="f-p"/>`).join('')}
+    <text x="0" y="12" class="tk s26 bb mid">${txt}</text></g>`;
+}
+function zzz(d){return A('fade',d,`<text x="0" y="0" class="t s24 bb">z</text><text x="16" y="-18" class="t s20 bb">z</text><text x="28" y="-34" class="t s16 bb">z</text>`)}
+function waves(d,o){return A('io',d,`<path d="M0 -16 Q10 0 0 16 M14 -26 Q30 0 14 26 M28 -36 Q50 0 28 36" class="w"/>`,o)}
+
+const CH=[
+  ['Processes vs services','#FFD23F'],
+  ['systemd and systemctl','#5B8CFF'],
+  ['Unit files','#46D3A2'],
+  ['Logs with journald','#B9A0FF'],
+  ['Reading the evidence','#FFD23F'],
+  ['Break and fix: 203/EXEC','#FF6B5B'],
+  ['Restart policies','#46D3A2'],
+  ['cgroups and limits','#5B8CFF'],
+  ['OOM and containers','#B9A0FF'],
+  ['Troubleshooting like an engineer','#FF6B5B'],
+  ['Wrap-up','#FFD23F']
+];
+const SC=[];
+
+/* ===== 1. Services aren't magic ===== */
+SC.push({ch:0,title:'Services aren’t magic',dur:12,
+beats:[[0,'A Linux service is still just ordinary processes.'],
+       [2.6,'<b>systemd</b> starts them and keeps watch.'],
+       [5.4,'<b>journald</b> keeps their logs, and <b>cgroups</b> keep their resources in check.']],
+svg:`
+${A('fade',7.4,`<rect x="322" y="140" width="160" height="150" rx="34" class="w dash" style="stroke-width:4"/>`)}
+${G(400,215,A('pop',.3,critter('m','72672')))}
+${A('fade',.8,T(400,330,'still just a process','t s22 mid b'))}
+${G(160,215,A('pop',2.6,bot()))}
+${A('fade',3.0,T(160,300,'systemd','t s24 mid bb')+T(160,326,'starts it, watches it','tm s18 mid'))}
+${D('M240 210 C 280 190, 300 190, 336 205',3.3,.6,'w dash')}
+${G(645,150,A('pop',5.4,notebook(),null),.85)}
+${mover(470,190,110,6.0,2.2)}${mover(470,190,110,6.8,2.2)}${mover(470,190,110,7.6,2.2)}
+${A('fade',5.8,T(645,240,'journald','t s24 mid bb')+T(645,266,'keeps its logs','tm s18 mid'))}
+${G(645,350,A('pop',7.6,S(-60,-32,120,64,'p',14)+R(-42,-9,84,18,'f-g',9)+A('gx',8.1,R(-42,-9,52,18,'f-r',9),null,';--dur:1.2s')))}
+${A('fade',8.0,T(645,420,'cgroups','t s24 mid bb')+T(645,446,'measure and limit it','tm s18 mid'))}
+`});
+
+/* ===== 2. Program, process, service ===== */
+SC.push({ch:0,title:'Program, process, service',dur:12,
+beats:[[0,'<b>Program</b>: code sitting on disk.'],
+       [2.0,'Run it and Linux creates a <b>process</b>, a running copy with its own PID.'],
+       [5.0,'A <b>service</b> is a long-running process the operating system manages for you.']],
+svg:`
+${A('pop',.3,page(70,110,120,150)+R(88,160,70,6,'f-k',3,'opacity:.5')+R(88,178,50,6,'f-k',3,'opacity:.5')+R(88,196,76,6,'f-k',3,'opacity:.5')+R(88,214,40,6,'f-k',3,'opacity:.5')+T(88,140,'train.py','tk mono bb s16'))}
+${A('fade',.6,T(130,310,'Program','t s28 mid bb')+T(130,338,'code on disk','tm s18 mid'))}
+${dA(205,190,325,190,2.0)}${A('fade',2.0,T(265,172,'python train.py','t mono s14 mid'))}
+${G(400,195,A('pop',2.4,critter('y','2901')))}
+${A('fade',2.8,T(400,310,'Process','t s28 mid bb')+T(400,338,'running, has a PID','tm s18 mid'))}
+${dA(475,190,590,190,5.0)}${A('fade',5.0,T(532,172,'+ OS policy','t s16 mid b'))}
+${A('pop',5.3,S(612,110,140,160,'l',34))}
+${G(682,200,A('pop',5.6,critter('m','3100',undefined,true,-.5)))}
+${G(742,112,A('pop',6.2,bot('',-.2)),.42)}
+${A('fade',6.0,T(682,310,'Service','t s28 mid bb')+T(682,338,'managed by the OS','tm s18 mid'))}
+${A('rise',7.0,S(160,385,480,58,'y',16)+T(400,421,'Restarts, logs, boot start, limits: handled','tk s20 mid b'))}
+`});
+
+/* ===== 3. Why a supervisor ===== */
+const qs=['Terminal closes?','Server reboots?','Crashes at 2 AM?','Where do logs go?','Hogging CPU or RAM?'];
+SC.push({ch:0,title:'Why services need a supervisor',dur:12.5,
+beats:[[0,'Start a process by hand in a terminal and it’s on its own.'],
+       [2.2,'Who restarts it? Who keeps its logs? Who stops it hogging the machine?'],
+       [8.4,'Close the terminal and it’s gone. That’s why services need a supervisor.']],
+svg:`
+${A('close',8.4,A('pop',.2,term(40,70,400,320)+T(66,140,'$ python serve.py','tt mono s18')+T(66,170,'serving on :8000 …','tt mono s16')+G(240,290,critter('r','5120'))))}
+${G(240,240,A('pop',8.9,poof('gone.')))}
+${qs.map((q,i)=>A('pop',2.2+i*.9,S(480,62+i*72,300,54,i%2?'p':'y',27)+`<circle cx="507" cy="${89+i*72}" r="14" class="o f-p" style="stroke-width:2.5"/>`+T(507,95+i*72,'?','tk s20 bb mid')+T(532,96+i*72,q,'tk s20 b'))).join('')}
+`});
+
+/* ===== 4. systemd is PID 1 ===== */
+const kids=[[150,'docker.service','y',[[105,'containerd'],[195,'dockerd']]],[400,'nginx.service','m',[[355,'worker'],[445,'worker']]],[650,'model.service','l',[[650,'Python / vLLM']]]];
+SC.push({ch:1,title:'systemd is process number 1',dur:12,
+beats:[[0,'At boot, the kernel starts one process first: <b>systemd</b>. It gets PID 1.'],
+       [3.0,'Every service branches off it, and every service is made of real processes.'],
+       [6.6,'systemd isn’t the kernel. It’s a userspace process. Check: <code>ps -p 1 -o pid,comm,args</code>']],
+svg:`
+${A('drop',.2,S(60,20,680,52,'l',16)+T(400,54,'Linux kernel','tk s24 mid bb'))}
+${dA(400,78,400,100,.9,.3)}
+${G(400,180,A('pop',1.2,bot()),.8)}
+${A('fade',1.7,T(470,170,'systemd','t s24 b')+T(470,194,'first userspace process','tm s17'))}
+${D('M400 222 V246 H150 V266 M400 246 V266 M400 246 H650 V266',3.0,.8)}
+${kids.map(([x,n,c,ch],i)=>A('pop',3.5+i*.25,S(x-100,268,200,42,c,12)+T(x,295,n,'tk mono bb s16 mid'))).join('')}
+${D('M150 315 V332 H105 V352 M150 332 H195 V352 M400 315 V332 H355 V352 M400 332 H445 V352 M650 315 V352',4.6,.7)}
+${kids.map(([x,n,c,ch],i)=>ch.map(([cx,l],j)=>G(cx,394,A('pop',5.0+i*.3+j*.15,critter(['y','m','l'][i],'',undefined,true,-(i+j)*.4)),.46)+A('fade',5.3+i*.3,T(cx,452,l,'t s16 mid b'))).join('')).join('')}
+`});
+
+/* ===== 5. systemctl remote ===== */
+const btns=[['start','m',2.0],['stop','r',5.0],['restart','y',7.8],['status','p'],['enable','p'],['disable','p']];
+SC.push({ch:1,title:'systemctl: your remote control',dur:12.5,
+beats:[[0,'<code>systemctl</code> (think “system control”) is how you talk to systemd.'],
+       [2.0,'<code>start</code> runs the service now. <code>stop</code> halts it.'],
+       [7.8,'<code>restart</code> stops then starts it, usually with a brand-new PID.']],
+svg:`
+${A('sr',.2,S(60,36,180,420,'p',30)+`<circle cx="150" cy="64" r="8" class="o f-r"/>`+T(150,100,'systemctl','tk mono bb s20 mid')+
+  btns.map(([b,c,t],i)=>{const g=R(85,118+i*54,130,42,'o f-'+c,12)+T(150,145+i*54,b,'tk mono b s17 mid');return t?A('press',t,g):g}).join(''))}
+${G(262,150,waves(2.0,2.9))}${G(262,312,waves(5.0,5.9))}${G(262,312,waves(7.8,8.7))}
+${G(420,250,A('pop',.8,bot()),.85)}
+${dA(486,250,566,250,1.2,.4)}
+${A('io',.6,`<rect x="600" y="196" width="100" height="100" rx="38" class="w dash"/>`+T(650,256,'?','t s32 bb mid'),2.4)}
+${G(650,250,A('pio',2.4,critter('m','811'),5.3))}
+${G(650,250,A('pio',5.4,critter('m','811','sleep',false)+G(46,-46,zzz(5.8)),7.9))}
+${G(650,250,A('pop',8.3,critter('m','902')))}
+${A('io',2.6,T(650,340,'active (running)','tg s20 mid bb'),5.3)}
+${A('io',5.5,T(650,340,'inactive (dead)','tr s20 mid bb'),7.9)}
+${A('pop',8.5,S(580,322,140,40,'y',12)+T(650,348,'new PID!','tk s20 mid bb'))}
+`});
+
+/* ===== 6. start vs enable ===== */
+SC.push({ch:1,title:'Start now vs start at boot',dur:12,
+beats:[[0,'<code>start</code> = run it now. <code>enable</code> = start it on future boots.'],
+       [3.4,'After a reboot, only enabled services come back. So a service can be running now but disabled.'],
+       [7.2,'Docker is running but not enabled? <code>sudo systemctl enable docker</code>']],
+svg:`
+${A('fade',.2,T(385,62,'now','t s22 mid bb')+T(670,62,'after reboot','t s22 mid bb'))}
+${A('pop',3.0,`<circle cx="530" cy="56" r="24" class="o f-l"/><path d="M530 44 V56 M520 48 A14 14 0 1 0 540 48" class="wk"/>`)}
+${D('M530 88 V450',3.1,.6,'w dash')}
+${A('sr',.4,S(30,138,250,74,'p',16)+T(155,170,'systemctl start','tk mono bb s17 mid')+T(155,196,'run it now','tk s17 mid'))}
+${A('sr',.9,S(30,318,250,74,'y',16)+T(155,350,'systemctl enable --now','tk mono bb s16 mid')+T(155,376,'now and every boot','tk s17 mid'))}
+${G(385,175,A('pop',1.0,critter('m','',undefined,true,-.3)),.72)}
+${G(385,355,A('pop',1.5,critter('b','',undefined,true,-.9)),.72)}
+${A('fade',3.9,P('M440 175 H610','w dash'))}${dA(440,355,610,355,3.9,.5)}
+${A('pop',4.4,`<circle cx="670" cy="175" r="38" class="w dash"/>`+T(670,186,'?','t s32 bb mid'))}
+${A('fade',4.7,T(670,240,'gone','tr s20 mid bb'))}
+${G(670,355,A('pop',4.8,critter('b','',undefined,true,-.9)),.72)}
+${A('fade',5.1,T(670,420,'back!','tg s20 mid bb'))}
+`});
+
+/* ===== 7. The unit file ===== */
+const code7=[[105,'[Unit]',1],[135,'Description=AI Infrastructure Demo'],[165,'After=network.target'],[225,'[Service]',1],[255,'ExecStart=/usr/local/bin/ai-infra-demo.sh'],[285,'Restart=on-failure'],[345,'[Install]',1],[375,'WantedBy=multi-user.target']];
+const notes7=[[70,'y','[Unit]: who and when','Description: a friendly name','After=: start order only',2.0],
+              [195,'m','[Service]: what to run','ExecStart: the program','Restart: what if it crashes',4.8],
+              [320,'l','[Install]: the boot hook','WantedBy: where enable','plugs it in at boot',7.5]];
+SC.push({ch:2,title:'A unit file is a recipe',dur:13,
+beats:[[0,'systemd manages <b>units</b>. A <code>.service</code> unit is a small text recipe.'],
+       [4.6,'Three sections: describe it, say what to run, and say how it hooks into boot.'],
+       [8.6,'It lives in <code>/etc/systemd/system/</code>. Other unit types: .socket, .timer, .mount, .target.']],
+svg:`
+${A('sr',.2,S(20,26,460,420,'p',20)+R(20,26,460,40,'f-g',20)+R(20,46,460,20,'f-g')+`<rect x="20" y="26" width="460" height="420" rx="20" class="o f-n"/>`+T(40,53,'ai-infra-demo.service','tk mono bb s15'))}
+${A('io',1.8,R(30,82,440,96,'f-y',10,'opacity:.6'),4.6)}
+${A('io',4.6,R(30,202,440,96,'f-m',10,'opacity:.6'),7.3)}
+${A('fade',7.3,R(30,322,440,66,'f-l',10,'opacity:.6'))}
+${A('fade',.5,code7.map(([y,s,h])=>T(42,y,s,'tk mono s16'+(h?' bb':''))).join(''))}
+${notes7.map(([y,c,a,b,cc,d])=>A('pop',d,S(505,y,275,100,c,16)+T(522,y+32,a,'tk s18 bb')+T(522,y+60,b,'tk s17')+T(522,y+84,cc,'tk s17'))).join('')}
+`});
+
+/* ===== 8. daemon-reload ===== */
+SC.push({ch:2,title:'Edited it? Reload it.',dur:11.5,
+beats:[[0,'You edit a unit file on disk…'],
+       [3.0,'…but systemd is still using the copy it read earlier.'],
+       [5.5,'<code>sudo systemctl daemon-reload</code> makes it reread. Edit, reload, then restart.']],
+svg:`
+${A('pop',.2,page(60,90,240,270)+T(80,130,'on disk','tm s16 b')+T(80,180,'[Service]','tk mono bb s16')+T(80,212,'ExecStart=…demo.sh','tk mono s16'))}
+${A('io',.4,T(80,244,'Restart=on-failure','tk mono s16'),2.4)}
+${A('fade',2.4,R(72,224,220,30,'f-y',8))}${A('pop',2.5,T(80,244,'Restart=always','tk mono bb s16'))}
+${G(250,250,A('pio',1.4,`<g transform="rotate(35)"><rect x="-10" y="-56" width="20" height="80" rx="4" class="o f-y"/><path d="M-10 24 L0 44 L10 24 z" class="o f-p"/><rect x="-10" y="-64" width="20" height="12" rx="4" class="o f-r"/></g>`,3.0))}
+${A('fade',.6,T(180,392,'the file','t s20 mid b'))}
+${G(610,370,A('pop',.8,bot()),.78)}
+${A('pop',1.4,`<rect x="455" y="64" width="300" height="170" rx="60" class="shd"/><rect x="450" y="58" width="300" height="170" rx="60" class="o f-p"/><circle cx="572" cy="254" r="11" class="o f-p"/><circle cx="590" cy="280" r="7" class="o f-p"/>`+T(600,96,'systemd’s memory','tm s16 b mid')+T(490,136,'[Service]','tk mono bb s16')+T(490,166,'ExecStart=…demo.sh','tk mono s16'))}
+${A('io',1.6,T(490,196,'Restart=on-failure','tk mono s16'),7.0)}
+${A('pio',3.4,S(640,40,96,36,'r',18)+T(688,64,'stale!','tk s18 bb mid'),7.0)}
+${A('fade',7.0,R(482,176,220,30,'f-y',8))}${A('pop',7.1,T(490,196,'Restart=always','tk mono bb s16'))}
+${G(724,190,A('pop',7.5,ok(0,0,16)))}
+${A('rise',5.5,S(40,414,340,48,'y',14)+T(210,444,'sudo systemctl daemon-reload','tk mono bb s16 mid'))}
+${cA('M310 200 C 370 180, 400 150, 446 146',446,146,-5,6.2,.6)}
+`});
+
+/* ===== 9. The logging path ===== */
+const st9=[[100,'your app','prints output'],[295,'systemd','catches it'],[495,'journald','files it'],[690,'journalctl','you search it']];
+SC.push({ch:3,title:'Where the logs go',dur:11,
+beats:[[0,'Services print messages to stdout and stderr.'],
+       [1.6,'systemd catches that output, and journald files it in the system journal.'],
+       [5.0,'You read it back with <code>journalctl</code>.']],
+svg:`
+${A('fade',.4,P('M150 190 H740','w dash'))}
+${G(100,190,A('pop',.2,critter('r','')),.95)}
+${A('pio',.7,S(30,72,92,36,'p',18)+T(76,96,'stdout','tk mono s15 mid bb'),3.0)}${A('pop',3.0,S(84,72,92,36,'p',18)+T(130,96,'stderr','tk mono s15 mid bb'))}
+${mover(160,190,80,1.2)}${mover(160,190,80,2.0)}${mover(160,190,80,2.8)}
+${G(295,192,A('pop',1.6,bot()),.72)}
+${mover(358,190,80,2.8)}${mover(358,190,80,3.6)}${mover(358,190,80,4.4)}
+${G(495,196,A('pop',3.0,notebook()),.8)}
+${G(690,186,A('pop',5.0,magnifier()),.95)}
+${st9.map(([x,a,b],i)=>A('fade',[.5,1.9,3.3,5.3][i],T(x,285,a,'t s22 mid bb')+T(x,310,b,'tm s17 mid'))).join('')}
+${A('rise',6.4,term(110,345,580,105)+T(130,392,'$ journalctl -u ai-infra-demo -n 2','tt mono s15')+T(130,422,'demo.sh[72672]: AI Infrastructure demo service running…','tt mono s15'))}
+`});
+</script>
+<script>
+/* ===== 10. Filtering the journal ===== */
+const lines10=['kernel: Linux version 6.8.0-45-generic','kernel: CPU0: AMD EPYC 7763 64-Core','kernel: Memory: 65536MB available','systemd[1]: Started Journal Service.','usb 1-1: new high-speed USB device','dockerd[911]: API listen on docker.sock','ai-infra-demo.sh[72672]: demo running',
+  'nginx[1204]: worker process started','sshd[1502]: Accepted publickey','containerd[880]: loading plugin','kernel: NET: Registered PF_INET6','ai-infra-demo.sh[72672]: demo running','cron[640]: (root) CMD run-parts','systemd[1]: Reached multi-user.target'];
+const chips10=[['-u ai-infra-demo','only this unit','y'],['-n 50','last 50 entries','m'],['-f','follow live','l'],['-b','current boot only','b'],['--since "10 min ago"','a recent window','p']];
+const L10=lines10.concat(lines10).map((s,i)=>T(58,52+i*22,s,s.startsWith('ai-')?'tk mono bb s14':'tm mono s14')).join('');
+SC.push({ch:3,title:'Filter the firehose',dur:12,
+beats:[[0,'Plain <code>journalctl</code> shows everything: kernel, hardware, every service. That’s normal.'],
+       [2.6,'Filtering is the real skill. Each flag narrows the stream.'],
+       [6.8,'Try <code>journalctl -u ai-infra-demo -n 20</code>, or add <code>-f</code> to watch live.']],
+svg:`
+<defs><clipPath id="clip10"><rect x="44" y="30" width="452" height="164" rx="10"/></clipPath></defs>
+${A('pop',.2,S(36,22,468,180,'p',16))}
+<g clip-path="url(#clip10)">${A('fade',.4,A('scroll',0,L10,null,';--dy:-308px;--dur:9s'))}</g>
+${A('pop',2.2,`<path d="M42 218 L498 218 L330 306 L210 306 z" class="o f-l"/>`+T(270,258,'filters','tk s22 mid bb'))}
+${chips10.map(([c,d,f],i)=>A('pop',2.6+i*.85,S(530,20+i*78,255,64,f,14)+T(548,47+i*78,c,'tk mono bb s16')+T(548,72+i*78,d,'tk s16'))).join('')}
+${dA(270,310,270,334,6.4,.3)}
+${A('rise',6.8,S(120,340,300,112,'p',16)+[0,1,2].map(i=>T(138,374+i*28,'[72672]: demo running','tk mono bb s15')).join(''))}
+${G(452,396,A('pop',7.4,ok(0,0,18)))}
+`});
+
+/* ===== 11. Reading systemctl status ===== */
+const rows11=[['Loaded:','loaded (…/ai-infra-demo.service; enabled)'],['Active:','active (running)'],['Main PID:','72672'],['Tasks:','2'],['Memory:','916.0K (peak: 2.5M)'],['CPU:','440ms'],['CGroup:','/system.slice/ai-infra-demo.service'],['','├─72672 /bin/bash …/ai-infra-demo.sh'],['','└─75471 sleep 5']];
+const hl11=[[0,1,1.6,3.0],[1,1,3.0,4.4],[2,1,4.4,5.8],[3,3,5.8,7.4],[6,3,7.4,9.0]];
+const call11=[['Loaded','unit found, enabled at boot','y'],['Active','its state right now','m'],['Main PID','the main process','l'],['Tasks, Memory, CPU','measured by its cgroup','b'],['CGroup','every process inside','p']];
+SC.push({ch:4,title:'Read systemctl status like an engineer',dur:13.5,
+beats:[[0,'<code>systemctl status</code> is the first place to look.'],
+       [1.6,'Each line answers a question: found? running? which PID? using how much?'],
+       [9.2,'But “active (running)” only means running <i>right now</i>. Not stable, correct or fast.']],
+svg:`
+${A('pop',.2,term(20,20,520,400)+`<circle cx="44" cy="72" r="8" class="f-m"/>`+T(60,78,'ai-infra-demo.service','tt mono bb s16'))}
+${hl11.map(([r,n,a,b])=>A('io',a,R(30,92+r*34,500,n*34,'f-y',8,'opacity:.28'),b)).join('')}
+${A('fade',.5,rows11.map(([k,v],i)=>T(136,114+i*34,k,'tt mono bb s15 end')+T(148,114+i*34,v,'mono s15 '+(i===1?'bb tmint':'tt'))).join(''))}
+${call11.map(([a,b,c],i)=>A('pop',hl11[i][2],S(560,60+i*72,225,60,c,14)+T(576,85+i*72,a,'tk s18 bb')+T(576,108+i*72,b,'tk s14'))).join('')}
+${G(300,438,A('stamp',9.4,`<rect x="-175" y="-34" width="350" height="68" rx="14" class="shd"/><rect x="-180" y="-39" width="350" height="68" rx="14" class="f-y" style="stroke:var(--tomato);stroke-width:5"/>`+T(-5,6,'Active ≠ healthy','tk s32 bb mid')))}
+`});
+
+/* ===== 12. Finding the processes ===== */
+SC.push({ch:4,title:'Track the service down to its processes',dur:12.5,
+beats:[[0,'A service is processes, so you can go and find them.'],
+       [1.8,'Each <code>|</code> pipes one command’s output into the next. Leave one out and the command breaks.'],
+       [5.2,'A <code>grep</code> line in your results? That’s the search matching itself. <code>pgrep -af</code> avoids it.']],
+svg:`
+${A('pop',.3,S(24,40,150,56,'b',14)+T(99,75,'ps aux','tk mono bb s17 mid'))}
+${A('pop',1.8,`<circle cx="204" cy="68" r="20" class="o f-p"/>`+T(204,76,'|','tk mono bb s24 mid'))}
+${A('pop',2.2,S(234,40,250,56,'m',14)+T(359,75,'grep ai-infra-demo','tk mono bb s17 mid'))}
+${A('pop',2.8,`<circle cx="514" cy="68" r="20" class="o f-p"/>`+T(514,76,'|','tk mono bb s24 mid'))}
+${A('pop',3.2,S(544,40,150,56,'y',14)+T(619,75,'head -20','tk mono bb s17 mid'))}
+${A('fade',1.0,P('M30 132 H760','w dash'))}
+${[0,.5,1,1.5].map(o=>mover(40,132,160,1.2+o,2)).join('')}${[0,1].map(o=>mover(230,132,270,2.6+o,2.4)).join('')}${mover(540,132,210,3.6,2)}
+${A('fade',1.4,T(30,165,'lots of lines','tm s16')+T(359,165,'only matches','tm s16 mid')+T(760,165,'first 20','tm s16 end'))}
+${A('rise',4.4,term(24,196,500,262)+T(44,248,'$ ps aux | grep ai-infra-demo','tt mono s15')+T(44,278,'root 72672 /bin/bash …/ai-infra-demo.sh','tt mono s15'))}
+${A('fade',5.2,R(34,290,480,32,'f-y',8,'opacity:.35'))}${A('fade',4.8,T(44,312,'you  80211 grep --color=auto ai-infra-demo','tt mono s15'))}
+${A('fade',8.2,T(44,368,'$ pgrep -af ai-infra-demo','tt mono s15')+T(44,398,'72672 /bin/bash …/ai-infra-demo.sh','tt mono s15'))}${G(500,392,A('pop',8.8,ok(0,0,13)))}
+${A('pop',5.6,S(548,210,236,76,'r',16)+T(564,242,'That’s grep finding','tk s16 bb')+T(564,266,'itself, not the service','tk s16 bb'))}
+${dA(548,262,522,300,6.0,.3)}
+${A('fade',7.2,T(548,326,'Cleaner options','t s18 b'))}
+${A('pop',7.4,S(548,340,236,46,'m',12)+T(562,369,'pgrep -af ai-infra-demo','tk mono bb s14'))}
+${A('pop',7.8,S(548,400,236,46,'m',12)+T(562,429,"grep '[a]i-infra-demo'",'tk mono bb s14'))}
+`});
+
+/* ===== 13. 203/EXEC ===== */
+const chk13=['Wrong path?','File missing?','No +x permission?','Can’t access it?','Bad #! shebang?'];
+SC.push({ch:5,title:'Decode status=203/EXEC',dur:13,
+beats:[[0,'Break it on purpose: point <code>ExecStart</code> at a file that doesn’t exist.'],
+       [3.0,'Status says <code>Loaded: loaded</code> but <code>Active: failed</code>, with <code>status=203/EXEC</code>.'],
+       [6.0,'systemd found the unit but couldn’t execute the program. So investigate the program, not systemd.']],
+svg:`
+${G(100,150,A('pop',.2,bot()),.8)}
+${A('pop',.5,S(240,48,300,190,'p',18)+T(260,82,'/usr/local/bin/','tk mono bb s16'))}
+${A('fade',.8,R(262,104,26,34,'o f-y',5)+T(304,130,'ai-infra-demo.sh','tk mono s15'))}
+${A('pop',1.2,`<rect x="256" y="160" width="268" height="58" rx="10" class="f-r" style="opacity:.2"/><rect x="256" y="160" width="268" height="58" rx="10" class="wk dash"/>`+T(270,186,'does-not-exist.sh','tk mono bb s15')+T(270,208,'nothing here','tk s15'))}
+${cA('M168 160 C 200 190, 220 192, 248 190',248,190,0,1.6,.6)}
+${G(150,82,A('pop',2.5,no(0,0,16)))}
+${A('rise',3.0,term(24,268,510,190))}
+${A('rise',3.2,T(44,330,'Loaded: loaded','tt mono bb s17')+ok(490,324,13))}
+${A('rise',3.6,T(44,368,'Active: failed','tt mono bb s17')+no(490,362,13))}
+${A('rise',4.0,R(38,386,470,36,'f-y',8)+T(52,410,'code=exited, status=203/EXEC','tk mono bb s17'))}
+${A('fade',5.6,T(570,56,'So check:','t s24 bb'))}
+${chk13.map((c,i)=>A('pop',6.0+i*.45,S(570,74+i*76,214,58,i%2?'p':'y',14)+`<rect x="586" y="${92+i*76}" width="22" height="22" rx="6" class="o f-p" style="stroke-width:2.5"/>`+T(618,110+i*76,c,'tk s16 b'))).join('')}
+`});
+
+/* ===== 14. The repair sequence ===== */
+const st14=[['Fix ExecStart','nano …service'],['Reread units','daemon-reload'],['Clear failure','reset-failed'],['Start it','start'],['Verify','status, journal']];
+const arr14=[1.2,2.04,3.72,5.4,7.08];
+SC.push({ch:5,title:'Fix it in the right order',dur:11.5,
+beats:[[0,'Repair in order. Every step has a reason.'],
+       [2.0,'Fix the path, reread the units, and clear the failed state if systemd stopped retrying.'],
+       [5.4,'Then start it and verify with <code>systemctl status</code> and <code>journalctl -u</code>.']],
+svg:`
+${D('M90 268 H710',.3,1,'w')}
+${st14.map(([a,b],i)=>{const x=90+i*155;return A('pop',.4+i*.12,`<circle cx="${x+4}" cy="272" r="28" class="shd"/><circle cx="${x}" cy="268" r="28" class="o f-p"/>`)+A('pop',arr14[i],`<circle cx="${x}" cy="268" r="28" class="o f-m"/>`)+T(x,277,i+1,'tk s24 bb mid')+A('fade',.6+i*.12,T(x,330,a,'t s19 bb mid')+T(x,356,b,'tm mono s14 mid'))}).join('')}
+${G(90,196,A('hop',1.2,G(0,0,critter('y','',undefined,false),.62)))}
+${A('pop',7.6,S(560,74,220,52,'m',26)+T(670,107,'active (running)','tk s19 bb mid'))}
+${A('rise',8.2,S(170,400,460,56,'y',16)+T(400,434,'Then read the journal to be sure','tk s19 b mid'))}
+`});
+
+/* ===== 15. Restart=on-failure ===== */
+const pol15=[['Restart=no','never (the default)','p'],['Restart=on-failure','after a crash','m'],['Restart=always','even after a clean exit','y'],['RestartSec=5','wait 5 s before retrying','l']];
+SC.push({ch:6,title:'Crashed? systemd brings it back',dur:13,
+beats:[[0,'With <code>Restart=on-failure</code>, systemd brings crashed services back.'],
+       [3.0,'It notices the crash, waits <code>RestartSec</code>, then launches a fresh process.'],
+       [9.3,'Fresh process, fresh PID: 2901 became 3510.']],
+svg:`
+${pol15.map(([a,b,c],i)=>A('sl',.4+i*.25,S(500,40+i*100,285,78,c,16)+T(518,74+i*100,a,'tk mono bb s17')+T(518,100+i*100,b,'tk s16'))).join('')}
+${G(130,250,A('pio',.3,critter('m','2901'),3.0))}
+${G(130,250,A('pio',3.0,critter('m','2901','dead',false),5.4))}
+${G(130,138,A('pio',2.5,`<path d="M10 -40 L-16 6 L2 6 L-8 40 L22 -8 L4 -8 L14 -40 z" class="o f-y"/>`,3.6))}
+${A('pio',2.5,S(40,60,90,34,'r',10)+T(85,83,'kill -9','tk mono bb s15 mid'),3.6)}
+${G(340,160,A('pop',.6,bot()),.72)}
+${G(400,100,A('pio',3.5,`<circle r="20" class="o f-r"/>`+T(0,9,'!','tk s26 bb mid'),9.4))}
+${A('pop',5.0,`<circle cx="340" cy="350" r="46" class="shd"/><circle cx="335" cy="345" r="46" class="o f-p"/><rect x="327" y="290" width="16" height="12" rx="3" class="o f-k"/>`)}
+${A('fade',5.0,`<circle cx="335" cy="345" r="36" class="draw" pathLength="1" transform="rotate(-90 335 345)" style="--d:5s;--dur:4s;stroke:var(--tomato);stroke-width:7;fill:none"/>`)}
+${A('fade',5.0,`<text x="335" y="357" class="tk s32 bb mid"><tspan ${cnt(5,0,5,9)}>5</tspan></text>`+T(335,420,'RestartSec','t mono s15 mid b'))}
+${cA('M290 340 C 240 330, 210 310, 180 290',180,290,-140,8.8,.5)}
+${G(130,250,A('pop',9.3,critter('m','3510')))}
+${A('pop',9.7,S(70,330,120,40,'y',12)+T(130,357,'new PID','tk s18 bb mid'))}
+`});
+
+/* ===== 16. Crash vs stop ===== */
+SC.push({ch:6,title:'Crash or stop? systemd knows the difference',dur:12,
+beats:[[0,'A crash and a stop both end the process, but systemd treats them differently.'],
+       [2.2,'<code>kill -9</code> is unexpected, so <code>Restart=on-failure</code> brings it back.'],
+       [6.4,'<code>systemctl stop</code> is your decision, so systemd doesn’t fight you.']],
+svg:`
+${A('fade',.2,P('M400 30 V450','w dash'))}
+${A('sr',.3,S(30,24,340,52,'r',14)+T(200,57,'sudo kill -9 2901','tk mono bb s17 mid'))}
+${A('sl',.5,S(430,24,340,52,'b',14)+T(600,57,'sudo systemctl stop ai-infra-demo','tk mono bb s15 mid'))}
+${A('fade',.7,T(200,112,'unexpected crash','t s20 mid b')+T(600,112,'your decision','t s20 mid b'))}
+${G(200,230,A('pio',.6,critter('m','2901'),2.7))}
+${G(200,140,A('pio',2.2,`<path d="M8 -26 L-10 4 L2 4 L-6 26 L16 -6 L4 -6 L10 -26 z" class="o f-y"/>`,3.2))}
+${G(200,230,A('pio',2.7,critter('m','2901','dead',false),4.2))}
+${G(200,230,A('pio',4.2,A('spin',4.2,`<path d="M-30 0 A30 30 0 1 1 0 30" class="w" style="stroke-width:6"/><path d="M-42 -6 L-30 10 L-18 -6 z" style="fill:var(--wire)"/>`,null,';--dur:.9s'),5.4))}
+${G(200,230,A('pop',5.5,critter('m','3510')))}
+${A('pop',5.8,T(200,318,'restarted','tg s20 bb mid'))}
+${G(80,396,A('pop',4.2,bot('',-.3)),.42)}${A('pop',4.4,S(122,370,240,48,'p',24)+T(242,401,'Crash! Restarting.','tk s18 b mid'))}
+${G(600,230,A('pio',.6,critter('b','3600'),6.6))}
+${G(600,230,A('pop',6.6,critter('b','','sleep',false)+G(46,-46,zzz(7.0))))}
+${A('pop',7.0,T(600,318,'stays stopped','t s20 bb mid'))}
+${G(480,396,A('pop',7.6,bot('',-.9)),.42)}${A('pop',7.8,S(522,370,250,48,'p',24)+T(647,401,'Okay, staying off.','tk s18 b mid'))}
+`});
+
+/* ===== 17. Restart loops ===== */
+const nodes17=[[230,100,'start','m'],[385,250,'load model','y'],[230,400,'crash','r'],[75,250,'restart','l']];
+SC.push({ch:6,title:'When restarting becomes a loop',dur:13,
+beats:[[0,'If the root cause stays, restarting just loops: start, crash, restart, again.'],
+       [2.4,'<code>systemctl show -p NRestarts</code> reveals it. Active with a rising restart count means unstable.'],
+       [9.2,'Fail too fast and systemd stops trying: “Start request repeated too quickly.”']],
+svg:`
+${A('fade',.2,`<circle cx="230" cy="250" r="150" class="w dash"/>`)}
+${G(230,250,A('io',1.4,A('spin',1.5,`<circle r="150" class="f-n"/><circle cx="0" cy="-150" r="14" class="o f-r"/>`,null,';--dur:1.8s'),9.2))}
+${nodes17.map(([x,y,l,c],i)=>A('pop',.4+i*.2,S(x-66,y-23,132,46,c,23)+T(x,y+7,l,'tk s18 bb mid'))).join('')}
+${A('fade',1.4,T(230,232,'NRestarts','t s20 mid b')+`<text x="230" y="292" class="t s56 bb mid"><tspan ${cnt(0,4,1.8,9.0)}>0</tspan></text>`)}
+${A('sl',2.4,term(450,30,335,210)+T(470,80,'$ systemctl show -p …','tt mono s15')+T(470,114,'MainPID=83142','tt mono s16')+T(470,146,'NRestarts=','tt mono s16')+`<text x="570" y="146" class="mono s16 bb" style="fill:var(--yellow)"><tspan ${cnt(0,4,1.8,9.0)}>0</tspan></text>`)}
+${A('io',2.6,T(470,178,'ActiveState=active','tt mono s16')+T(470,210,'SubState=running','tt mono s16'),9.2)}
+${A('fade',9.3,T(470,178,'ActiveState=failed','mono s16 bb tred')+T(470,210,'SubState=failed','mono s16 bb tred'))}
+${G(616,350,A('stamp',9.4,`<rect x="-158" y="-50" width="316" height="100" rx="14" class="shd"/><rect x="-163" y="-55" width="316" height="100" rx="14" class="f-p" style="stroke:var(--tomato);stroke-width:5"/>`+T(-5,-14,'Start request repeated','tk mono bb s16 mid')+T(-5,12,'too quickly.','tk mono bb s16 mid')))}
+${A('fade',10.0,T(616,440,'rate-limited, now failed','t s18 mid b'))}
+`});
+
+/* ===== 18. cgroups ===== */
+SC.push({ch:7,title:'cgroups: one fence around the whole service',dur:12.5,
+beats:[[0,'<b>cgroup</b> means control group. The kernel groups processes so they’re measured and limited together.'],
+       [2.6,'systemd gives each service its own cgroup. Child processes land in the same group.'],
+       [5.4,'So nothing escapes the accounting: CPU, memory and tasks cover the whole service.']],
+svg:`
+${A('pop',.2,`<rect x="40" y="96" width="520" height="330" rx="34" class="f-b" style="opacity:.14"/><rect x="40" y="96" width="520" height="330" rx="34" class="w"/><rect x="40" y="96" width="520" height="330" rx="34" class="w" style="stroke-width:12;stroke-dasharray:0 28"/>`)}
+${A('drop',.6,S(100,70,400,48,'y',14)+T(300,101,'/system.slice/ai-infra-demo.service','tk mono bb s15 mid'))}
+${G(170,270,A('pop',1.0,critter('m','72672')))}
+${A('fade',1.3,T(170,358,'bash (main)','t s18 mid b'))}
+${A('fade',2.6,P('M218 262 Q 250 240 282 262','w dash'))}
+${G(300,280,A('bump',3.2,A('pop',2.6,G(0,0,critter('y','75471',undefined,true,-.6),.72)+T(0,70,'sleep 5 (child)','t s16 mid b'))))}
+${A('pop',4.4,S(454,176,92,36,'p',18)+T(500,200,'boing!','tk s16 bb mid'))}
+${A('pop',5.4,S(590,96,195,96,'p',16)+T(608,126,'CPU','tk s19 bb')+R(608,150,158,18,'f-g',9)+A('gx',5.8,R(608,150,60,18,'f-r',9)))}
+${A('pop',5.8,S(590,214,195,96,'p',16)+T(608,244,'Memory','tk s19 bb')+R(608,268,158,18,'f-g',9)+A('gx',6.2,R(608,268,36,18,'f-b',9)))}
+${A('pop',6.2,S(590,332,195,96,'p',16)+T(608,362,'Tasks','tk s19 bb')+`<text x="608" y="410" class="tk s36 bb"><tspan ${cnt(1,2,6.4,6.8)}>1</tspan></text>`)}
+`});
+</script>
+<script>
+/* ===== 19. MemoryMax ===== */
+SC.push({ch:7,title:'MemoryMax sets the ceiling',dur:12,
+beats:[[0,'Add <code>MemoryMax=50M</code> to cap the memory of the service’s whole cgroup.'],
+       [3.2,'<code>Memory:</code> in status is what it uses now. <code>MemoryMax</code> is the ceiling it can’t cross.'],
+       [6.8,'Reload, restart, then confirm with <code>systemctl show -p MemoryMax</code>. It reports bytes.']],
+svg:`
+${A('sr',.2,S(24,24,400,176,'p',16)+T(44,62,'[Service]','tk mono bb s16')+T(44,94,'ExecStart=…/ai-infra-demo.sh','tk mono s16')+T(44,126,'Restart=on-failure','tk mono s16'))}
+${A('fade',1.0,R(34,140,380,34,'f-m',8))}${A('pop',1.1,T(44,163,'MemoryMax=50M','tk mono bb s16'))}
+${A('rise',6.8,term(24,226,400,226)+T(44,276,'$ sudo systemctl daemon-reload','tt mono s14')+T(44,304,'$ sudo systemctl restart ai-infra-demo','tt mono s14')+T(44,340,'$ systemctl show ai-infra-demo \\','tt mono s14')+T(64,364,'-p MemoryMax','tt mono s14'))}
+${A('fade',7.8,T(44,404,'MemoryMax=52428800','mono s16 bb tyel')+T(44,430,'(50M written in bytes)','tt s15'))}
+${A('pop',2.0,`<rect x="505" y="65" width="180" height="360" rx="22" class="shd"/><rect x="500" y="60" width="180" height="360" rx="22" class="o f-p"/>`)}
+${A('gy',3.2,R(506,394,168,20,'f-b',6),null,';--dur:1s')}
+${A('fade',2.4,P('M490 100 H690','wk dash','stroke:var(--tomato);stroke-width:4'))}
+${A('fade',2.6,T(700,96,'MemoryMax','t s16 bb')+T(700,118,'50M','t mono s16 b'))}
+${A('fade',3.6,T(700,400,'Memory','t s16 bb')+T(700,422,'2M now','t mono s16 b'))}
+${A('fade',4.6,P('M590 120 V378','w')+`<path d="M582 132 L590 118 L598 132 z M582 366 L590 380 L598 366 z" style="fill:var(--wire)"/>`)}
+${A('pop',5.0,S(530,226,120,62,'y',14)+T(590,253,'48M of','tk s17 bb mid')+T(590,276,'headroom','tk s17 bb mid'))}
+`});
+
+/* ===== 20. CPUQuota ===== */
+const core=(i,h,c)=>`<rect x="${110+i*78}" y="${380-h}" width="56" height="${h}" rx="8" class="f-${c}"/>`;
+const coreFrames=[...Array(8)].map((_,i)=>`<rect x="${110+i*78}" y="120" width="56" height="260" rx="10" class="o f-p"/>`).join('');
+SC.push({ch:7,title:'CPUQuota is counted in cores',dur:14,
+beats:[[0,'<code>CPUQuota</code> is measured in cores: 100% ≈ one core’s worth of CPU time.'],
+       [1.4,'50% ≈ half a core. 100% ≈ one core. 200% ≈ two cores.'],
+       [10.2,'On an 8-core machine, 50% is not half the machine. It’s half of one core.']],
+svg:`
+${A('fade',.2,coreFrames+[...Array(8)].map((_,i)=>T(138+i*78,406,'core '+(i+1),'t s15 mid b')).join(''))}
+${A('io',1.4,T(400,58,'CPUQuota=50%','t mono bb s32 mid')+T(400,94,'≈ half a core','t s22 mid b')+A('gy',1.6,core(0,130,'m')),4.6)}
+${A('io',4.8,T(400,58,'CPUQuota=100%','t mono bb s32 mid')+T(400,94,'≈ one core','t s22 mid b')+A('gy',5.0,core(0,260,'y')),8.0)}
+${A('fade',8.2,T(400,58,'CPUQuota=200%','t mono bb s32 mid')+T(400,94,'≈ two cores','t s22 mid b')+A('gy',8.4,core(0,260,'r'))+A('gy',8.7,core(1,260,'r')))}
+${A('pop',10.2,`<rect x="100" y="112" width="310" height="276" rx="14" class="wk dash" style="stroke:var(--tomato);stroke-width:4"/>`+S(460,150,300,82,'p',16)+T(478,183,'Half the machine would','tk s18 b')+T(478,209,'be 4 cores. Not 50%!','tk s18 b'))}
+${A('rise',11.0,S(110,428,580,44,'y',14)+T(400,457,'CPUQuota=50% means half of one core','tk s18 bb mid'))}
+`});
+
+/* ===== 21. Machine OOM vs cgroup OOM ===== */
+SC.push({ch:8,title:'Two kinds of out-of-memory',dur:13,
+beats:[[0,'<b>Machine OOM</b>: the whole host runs out of memory, and the kernel kills something to survive.'],
+       [3.4,'<b>cgroup OOM</b>: one service hits its own limit, even with plenty of RAM free.'],
+       [9.0,'Same in Kubernetes: a pod with an 8 GiB limit can be OOM-killed on a 256 GB node.']],
+svg:`
+${A('fade',.2,T(60,52,'Host RAM: 64 GB','t s20 bb'))}
+${A('pop',.3,S(60,64,680,56,'p',14))}
+${A('gx',.8,R(66,70,206,44,'f-b',9))}${A('fade',1.4,T(82,99,'20 GB used','tk s17 bb')+T(722,99,'44 GB free','tk s17 b end'))}
+${A('pop',1.6,S(30,160,270,124,'p',16)+T(48,194,'Machine OOM','tk s20 bb')+T(48,222,'the whole host runs out,','tk s16')+T(48,246,'so the kernel kills a','tk s16')+T(48,270,'process to survive','tk s16'))}
+${A('pop',3.0,`<rect x="355" y="195" width="150" height="225" rx="18" class="shd"/><rect x="350" y="190" width="150" height="225" rx="18" class="o f-p"/>`)}
+${A('gy',3.4,R(356,236,138,173,'f-r',12,'opacity:.85'),null,';--dur:3.6s')}
+${A('fade',3.2,P('M356 236 H494','wk dash','stroke:var(--tomato);stroke-width:4')+T(425,224,'limit: 8 GB','tk s15 bb mid'))}
+${A('fade',3.4,`<text x="425" y="318" class="tk s28 bb mid"><tspan ${cnt(.5,8,3.4,7,1)}>0.5</tspan> GB</text>`)}
+${G(425,152,A('pio',3.0,critter('m','',undefined,true),7.2),.55)}
+${G(425,152,A('pop',7.2,critter('m','','dead',false)),.55)}
+${G(425,300,A('stamp',7.3,`<rect x="-85" y="-30" width="170" height="60" rx="12" class="f-y" style="stroke:var(--tomato);stroke-width:5"/>`+T(0,10,'OOM kill!','tk s26 bb mid')))}
+${A('fade',3.2,T(425,444,'one service','t s17 mid b'))}
+${A('pop',8.0,S(30,312,270,70,'m',16)+ok(62,347,14)+T(88,343,'Host still has','tk s17 bb')+T(88,366,'44 GB free','tk s17 bb'))}
+${A('pop',5.6,S(540,160,240,124,'p',16)+T(558,194,'cgroup OOM','tk s20 bb')+T(558,222,'one service crosses','tk s16')+T(558,246,'its own limit while the','tk s16')+T(558,270,'host is still fine','tk s16'))}
+${A('pop',9.0,S(540,312,240,138,'y',16)+T(558,344,'Kubernetes too','tk s20 bb')+T(558,372,'node: 256 GB','tk mono s15')+T(558,396,'pod limit: 8 GiB','tk mono s15')+T(558,424,'pod gets OOM-killed','tk s16 b'))}
+`});
+
+/* ===== 22. Docker, Kubernetes, GPUs ===== */
+const nv22=['Container Toolkit','device plugins','MIG','CUDA device visibility'];
+SC.push({ch:8,title:'Same Linux underneath Docker and Kubernetes',dur:13,
+beats:[[0,'Docker’s <code>--memory</code> and Kubernetes limits are built on the same Linux cgroups.'],
+       [3.4,'The layers change. Underneath, the kernel still manages real processes and resources.'],
+       [7.0,'GPU caveat: CPUQuota and MemoryMax don’t limit GPU compute or VRAM. NVIDIA tooling handles that.']],
+svg:`
+${A('drop',.3,S(40,384,430,64,'l',14)+T(255,413,'Kernel','tk s20 bb mid')+T(255,435,'scheduler + memory manager','tk s15 mid'))}
+${A('drop',1.0,S(40,306,430,64,'b',14)+T(255,345,'Linux cgroups','tk s20 bb mid'))}
+${A('drop',1.7,S(40,228,430,64,'m',14)+T(255,267,'Container runtime','tk s20 bb mid'))}
+${A('drop',2.4,S(40,150,210,64,'y',14)+T(145,176,'Docker','tk s20 bb mid')+T(145,200,'--cpus, --memory','tk mono s14 mid'))}
+${A('drop',2.7,S(260,150,210,64,'y',14)+T(365,176,'Kubernetes','tk s20 bb mid')+T(365,200,'requests, limits','tk s15 mid'))}
+${A('pop',3.4,S(40,40,280,48,'p',14)+T(180,70,'docker run --memory=8g','tk mono bb s15 mid'))}
+${cA('M324 64 H492 V338 H480',480,338,180,3.8,1.0)}
+${A('fade',4.8,`<rect x="40" y="306" width="430" height="64" rx="14" class="f-n" style="stroke:var(--tomato);stroke-width:5"/>`)}
+${A('pop',6.6,S(520,40,265,410,'p',18))}
+${A('pop',7.0,R(612,64,80,80,'o f-y',12)+[0,1,2].map(i=>`<path d="M${630+i*22} 56 V64 M${630+i*22} 144 V152 M604 ${82+i*22} H612 M692 ${82+i*22} H700" class="wk"/>`).join('')+T(652,111,'GPU','tk s20 bb mid'))}
+${A('fade',7.4,T(538,186,'Not covered by','tk s18 bb')+T(538,212,'CPUQuota or MemoryMax:','tk s18 bb')+T(538,240,'GPU compute and VRAM','tk s17'))}
+${A('fade',8.4,T(538,280,'NVIDIA uses:','tk s17 b'))}
+${nv22.map((n,i)=>A('pop',8.6+i*.3,`<rect x="538" y="${294+i*38}" width="${n.length*8.6+24}" height="30" rx="15" class="o f-l" style="stroke-width:2.5"/>`+T(550,314+i*38,n,'tk s15 b'))).join('')}
+`});
+
+/* ===== 23. Troubleshooting method ===== */
+const steps23=[['systemctl status',1],['journalctl -u NAME',1],['PID, restarts, resources'],['Find the failing layer'],['Fix the root cause, verify']];
+const layers23=[['Application','exception, bad model load','m'],['Service definition','bad ExecStart, 203/EXEC','y'],['Process','signal, unexpected exit','l'],['Resource / cgroup','OOM kill, CPU throttling','b'],['Kernel / hardware','disk, GPU driver, thermal','p']];
+SC.push({ch:9,title:'Gather evidence before you restart',dur:13,
+beats:[[0,'Something’s down. Resist the urge to just restart: a restart wipes the evidence.'],
+       [2.4,'Gather evidence in order: status, logs, PID and restarts, resources.'],
+       [6.4,'Then find the failing layer, from the app all the way down to the hardware.']],
+svg:`
+${A('shake',.8,A('pop',.2,S(24,20,430,60,'r',16)+`<path d="M52 62 V44 a14 14 0 0 1 28 0 V62 z" class="o f-y"/><rect x="46" y="60" width="40" height="8" rx="3" class="o f-p"/>`+T(98,58,'“The inference API is down!”','tk s20 bb')))}
+${A('pop',1.2,`<circle cx="530" cy="50" r="28" class="o f-r"/><path d="M518 50 a12 12 0 1 0 4 -9" class="wk"/><path d="M510 26 L550 74" style="stroke:var(--line);stroke-width:6;stroke-linecap:round"/>`+T(570,46,'Just restart?','t s18 b')+T(570,70,'Not yet.','t s18 bb'))}
+${steps23.map(([s,m],i)=>A('sr',2.4+i*.45,S(24,108+i*68,360,54,'p',27)+`<circle cx="52" cy="${135+i*68}" r="16" class="o f-y" style="stroke-width:2.5"/>`+T(52,141+i*68,i+1,'tk s17 bb mid')+T(80,141+i*68,s,'tk s17 b'+(m?' mono':'')))).join('')}
+${layers23.map(([a,b,c],i)=>A('sl',5.6+i*.15,S(420,112+i*64,365,56,c,12)+T(436,136+i*64,a,'tk s17 bb')+T(436,158+i*64,b,'tk s14'))).join('')}
+${A('fade',10.4,`<rect x="414" y="300" width="377" height="68" rx="16" class="f-n" style="stroke:var(--tomato);stroke-width:5"/>`)}
+${G(735,140,A('sweep',6.6,A('pop',6.4,G(0,0,magnifier(),.5))))}
+`});
+
+/* ===== 24. Case study: looks fine? ===== */
+const jl24=['A process of this unit has been killed by the OOM killer.','Main process exited.',"Failed with result 'oom-kill'.",'Scheduled restart job.'];
+SC.push({ch:9,title:'Case study: “active” but unhealthy',dur:12,
+beats:[[0,'Status says <code>active (running)</code>. Looks fine, right?'],
+       [1.6,'Memory is 7.8G against an 8G limit, and it has restarted 36 times.'],
+       [6.6,'The journal confirms it: OOM-killed, exited, restarted. Over and over.']],
+svg:`
+${A('pop',.2,S(24,20,370,54,'m',27)+`<circle cx="52" cy="47" r="9" class="o f-p" style="stroke-width:2.5"/>`+T(72,54,'Active: active (running)','tk mono bb s17'))}
+${A('fade',1.2,P('M100 250 A110 110 0 0 1 244 145.4','wk','stroke:var(--mint);stroke-width:26;stroke-linecap:butt')+P('M244 145.4 A110 110 0 0 1 308 200.1','wk','stroke:var(--yellow);stroke-width:26;stroke-linecap:butt')+P('M308 200.1 A110 110 0 0 1 320 250','wk','stroke:var(--tomato);stroke-width:26;stroke-linecap:butt')+T(100,280,'0','t s15 mid b')+T(320,280,'8G','t s15 mid b'))}
+<g class="a needle" style="--d:1.6s"><path d="M204 250 L210 152 L216 250 z" class="f-w"/></g>
+${A('fade',1.2,`<circle cx="210" cy="250" r="13" class="o f-y"/>`)}
+${A('fade',1.6,T(210,292,'Memory','t s18 mid b')+`<text x="210" y="326" class="t s26 bb mid"><tspan ${cnt(.4,7.8,1.6,5.6,1)}>0.4</tspan>G of 8G</text>`)}
+${A('pop',1.6,S(430,20,345,150,'y',18)+T(602,62,'NRestarts','tk s22 bb mid')+`<text x="602" y="146" class="tk s56 bb mid"><tspan ${cnt(0,36,1.8,6.0)}>0</tspan></text>`)}
+${G(560,250,A('pio',.4,critter('b','48120'),6.2))}
+${G(560,250,A('pop',6.2,critter('b','48120','worry')))}
+${A('pop',6.5,S(630,212,140,48,'p',24)+T(700,243,'uh oh…','tk s20 bb mid'))}
+${A('rise',6.4,term(24,340,752,134))}
+${jl24.map((l,i)=>A('rise',6.6+i*.6,T(44,388+i*24,l,'mono s15 '+(i===2?'bb tred':'tt')))).join('')}
+`});
+
+/* ===== 25. Case study: the loop ===== */
+const ring25=[['start','m'],['load model','y'],['memory grows','y'],['hits 8 GB','r'],['OOM kill','r'],['restart','l']];
+SC.push({ch:9,title:'The real story is a loop',dur:13,
+beats:[[0,'Here’s what’s really happening: load the model, memory grows, hit 8 GB, OOM kill, restart.'],
+       [3.4,'Restarting it again just restarts the loop. “Active” was true, and still misleading.'],
+       [6.4,'Say it like a pro: active now, but not stable. Check the logs and cgroup memory events first.']],
+svg:`
+${A('fade',.2,`<circle cx="240" cy="245" r="165" class="w dash"/>`)}
+${G(240,245,A('spin',1.8,`<circle r="165" class="f-n"/><circle cx="0" cy="-165" r="13" class="o f-r"/>`,null,';--dur:3s'))}
+${ring25.map(([l,c],i)=>{const a=(i*60-90)*Math.PI/180,x=240+165*Math.cos(a),y=245+165*Math.sin(a);return A('pop',.3+i*.2,S(x-70,y-21,140,42,c,21)+T(x,y+7,l,'tk s17 bb mid'))}).join('')}
+${A('fade',1.6,R(214,180,52,124,'o f-p',12)+P('M206 192 H274','wk dash','stroke:var(--tomato);stroke-width:3.5'))}
+<g class="a fl" style="--d:1.8s">${R(219,196,42,104,'f-r',8)}</g>
+${A('fade',1.6,T(240,330,'memory','t s15 mid b'))}
+${A('pop',6.4,`<rect x="487" y="35" width="300" height="262" rx="24" class="shd"/><rect x="482" y="30" width="300" height="262" rx="24" class="o f-p"/><path d="M600 290 L620 330 L640 290" class="o f-p"/><rect x="598" y="284" width="44" height="10" class="f-p"/>`+
+  ['“It’s active right now,','but it isn’t stable.','Restarts plus memory','near the limit point to','a recurring OOM. I’d','check the unit logs and','cgroup memory events.”'].map((s,i)=>T(502,68+i*31,s,'tk s18'+(i<2?' bb':''))).join(''))}
+${G(620,385,A('pop',6.0,critter('b','',undefined,true,-.4)),.75)}
+${A('fade',6.4,T(620,462,'you, in the interview','t s16 mid b'))}
+`});
+
+/* ===== 26. Recap ===== */
+const tools26=[[30,36,'b','systemctl','controls and inspects'],[510,36,'l','journalctl','explains what happened'],[30,190,'m','Restart=','recovers, can hide faults'],[510,190,'y','cgroups','measure and limit']];
+const habit26=['state','logs','restarts','resources'];
+SC.push({ch:10,title:'Service = processes + policy',dur:13,
+beats:[[0,'A service is still processes. systemd adds the policy around them.'],
+       [2.0,'systemctl controls, journalctl explains, Restart= recovers, cgroups limit.'],
+       [6.0,'The habit: check state + logs + restarts + resources before you change anything.']],
+svg:`
+${A('pop',.3,`<rect x="330" y="96" width="140" height="140" rx="32" class="w dash" style="stroke-width:4"/>`)}
+${G(400,170,A('pop',.5,critter('m','72672')),.9)}
+${G(462,92,A('pop',.9,bot('',-.4)),.36)}
+${A('fade',1.2,T(400,272,'processes + policy','t s20 mid bb'))}
+${tools26.map(([x,y,c,a,b],i)=>A('pop',2.0+i*.45,S(x,y,260,92,c,18)+T(x+20,y+38,a,'tk mono bb s20')+T(x+20,y+68,b,'tk s17'))).join('')}
+${D('M290 82 L330 120 M510 82 L470 120 M290 236 L330 210 M510 236 L470 210',3.8,.6)}
+${A('fade',5.6,T(400,330,'Before you change anything, check:','t s20 mid bb'))}
+${habit26.map((h,i)=>A('pop',6.0+i*.4,S(52+i*180,350,150,52,['y','l','m','b'][i],26)+T(127+i*180,383,h,'tk s19 bb mid'))+(i?A('pop',6.0+i*.4,T(43+i*180,386,'+','t s28 bb mid')):'')).join('')}
+${A('fade',8.6,T(400,450,'Same foundations under Docker, Kubernetes and AI model serving','t s17 mid b'))}
+`});
+
+/* ===== 27. Quiz ===== */
+const quiz=[['Scenario A','#FFD23F','<code>Loaded: loaded</code>, <code>Active: failed</code>, <code>status=203/EXEC</code>. Where do you look first?','The program itself. Check the ExecStart path, that the file exists, has +x permission, is readable, and has a working shebang. systemd is fine: it found the unit.'],
+  ['Scenario B','#FF6B5B','ActiveState=active, Memory=15.8G, MemoryMax=16G, NRestarts=42. Healthy?','No. It’s running this instant, but 42 restarts with memory at the limit point to a recurring OOM loop. Read the journal and cgroup memory events.'],
+  ['Scenario C','#46D3A2','<code>Restart=on-failure</code> is set. You run <code>systemctl stop inference-api</code> and it stays stopped. Bug?','Expected. An administrative stop isn’t a failure, so systemd respects it and doesn’t restart the service.'],
+  ['Scenario D','#B9A0FF','The service was PID 2901 before a crash and PID 3510 after recovery. Why?','systemd launched a brand-new process to replace the dead one, and every new process gets a new PID.']];
+SC.push({ch:10,title:'Test yourself',dur:4,
+beats:[[0,'Four real situations from this lesson.'],[1.2,'Tap a card to check your answer.']],
+html:`<div class="quiz">${quiz.map(([t,c,q,a])=>`<button class="qa" aria-expanded="false"><span class="tag" style="background:${c}">${t}</span><span class="q">${q}</span><span class="ans">${a}</span><span class="tap">Tap to reveal</span></button>`).join('')}<button class="btn again" id="again">Watch from the start</button></div>`});
+</script>
+<script>
+(()=>{
+const $=s=>document.querySelector(s);
+const stage=$('#stage'), prog=$('#prog'), wipe=$('#wipe'), menu=$('#menu'), chapBtn=$('#chapBtn');
+const playBtn=$('#play'), playIcon=$('#playIcon'), countEl=$('#count');
+const RM=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const esc=s=>s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+const strip=s=>s.replace(/<[^>]+>/g,'');
+let idx=-1, t=0, playing=!RM, last=null;
+
+SC.forEach((s,i)=>{
+  const [cn,col]=CH[s.ch];
+  const sec=document.createElement('section');
+  sec.className='scene'; sec.setAttribute('aria-hidden','true'); sec.style.setProperty('--chip',col);
+  const label=esc(s.title+'. '+s.beats.map(b=>strip(b[1])).join(' '));
+  sec.innerHTML=`<div class="head"><p class="kick"><b>${s.ch+1}</b>${cn}</p><h2>${s.title}</h2></div>
+    <div class="cap">${s.beats.map(b=>`<p class="ln">${b[1]}</p>`).join('')}</div>
+    <div class="vis">${s.html?s.html:`<svg viewBox="0 0 800 480" role="img" aria-label="${label}">${s.svg}</svg>`}</div>`;
+  stage.appendChild(sec);
+  s.el=sec; s.lns=[...sec.querySelectorAll('.ln')];
+  s.counts=[...sec.querySelectorAll('[data-count]')].map(el=>{const [a,b,t0,t1,dec]=el.dataset.count.split(',').map(Number);return{el,a,b,t0,t1,dec}});
+  const seg=document.createElement('button');
+  seg.className='seg'+(i>0&&SC[i-1].ch!==s.ch?' ch0':'');
+  seg.setAttribute('aria-label',`Scene ${i+1}: ${s.title}`); seg.title=s.title;
+  seg.innerHTML='<i></i>'; seg.addEventListener('click',()=>go(i));
+  prog.appendChild(seg); s.bar=seg.firstChild;
+});
+
+// chapters menu
+const firstOf=CH.map((_,c)=>SC.findIndex(s=>s.ch===c));
+menu.innerHTML=CH.map(([n,col],c)=>`<button role="menuitem" data-c="${c}"><b style="background:${col}">${c+1}</b>${n}</button>`).join('');
+menu.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;closeMenu();go(firstOf[+b.dataset.c]);});
+function closeMenu(){menu.classList.remove('open');chapBtn.setAttribute('aria-expanded','false')}
+chapBtn.addEventListener('click',e=>{e.stopPropagation();const o=menu.classList.toggle('open');chapBtn.setAttribute('aria-expanded',o)});
+document.addEventListener('click',e=>{if(!menu.contains(e.target)&&e.target!==chapBtn)closeMenu()});
+
+const fmt=(c,v)=>v.toFixed(c.dec);
+
+function runWipe(s){
+  wipe.style.setProperty('--chip',CH[s.ch][1]);
+  wipe.firstElementChild.innerHTML=`<small>Chapter ${s.ch+1}</small>${CH[s.ch][0]}`;
+  wipe.classList.remove('go'); void wipe.offsetWidth; wipe.classList.add('go');
+}
+
+function go(i){
+  i=Math.max(0,Math.min(SC.length-1,i));
+  const prev=SC[idx], s=SC[i];
+  const chChange=prev&&prev.ch!==s.ch;
+  SC.forEach((x,k)=>{
+    if(k===i) return;
+    x.el.classList.remove('cur','on'); x.el.classList.toggle('gone',k<i); x.el.setAttribute('aria-hidden','true');
+  });
+  s.el.classList.remove('gone','on'); void s.el.offsetWidth;
+  s.el.classList.add('cur'); s.el.setAttribute('aria-hidden','false');
+  idx=i;
+  if(RM){
+    t=0; s.el.classList.add('on');
+    s.lns.forEach(l=>l.classList.add('show','now'));
+    s.counts.forEach(c=>c.el.textContent=fmt(c,c.b));
+  } else {
+    s.lns.forEach(l=>l.classList.remove('show','now'));
+    s.counts.forEach(c=>c.el.textContent=fmt(c,c.a));
+    t=chChange?-720:(prev?-260:-500);
+    if(chChange) runWipe(s);
+    playing=true;
+  }
+  SC.forEach((x,k)=>x.bar.style.width=k<i?'100%':'0%');
+  [...menu.children].forEach((b,c)=>b.classList.toggle('cur',c===s.ch));
+  countEl.textContent=`${i+1} / ${SC.length}`;
+  setPlay(playing);
+}
+
+function setPlay(p){
+  playing=p;
+  stage.classList.toggle('paused',!p&&!RM);
+  playIcon.innerHTML=p?'<rect x="6" y="5" width="4" height="14" rx="1.5" fill="#1D1B3B"/><rect x="14" y="5" width="4" height="14" rx="1.5" fill="#1D1B3B"/>'
+                      :'<path d="M8 5 L19 12 L8 19 z" fill="#1D1B3B" stroke="#1D1B3B" stroke-width="1.5" stroke-linejoin="round"/>';
+  playBtn.setAttribute('aria-label',p?'Pause':'Play');
+}
+function togglePlay(){
+  const s=SC[idx];
+  if(!playing&&idx===SC.length-1&&t>=s.dur*1000){go(0);return}
+  setPlay(!playing);
+}
+
+function tick(now){
+  const dt=last==null?0:Math.min(100,now-last); last=now;
+  const s=SC[idx];
+  if(playing){
+    t+=dt;
+    if(!RM){
+      if(t>=0&&!s.el.classList.contains('on')) s.el.classList.add('on');
+      const ts=t/1000; let cur=-1;
+      s.beats.forEach((b,k)=>{if(ts>=b[0])cur=k});
+      s.lns.forEach((l,k)=>{l.classList.toggle('show',k<=cur);l.classList.toggle('now',k===cur)});
+      s.counts.forEach(c=>{const p=Math.max(0,Math.min(1,(ts-c.t0)/(c.t1-c.t0)));c.el.textContent=fmt(c,c.a+(c.b-c.a)*p)});
+    }
+    if(t>=s.dur*1000){
+      if(idx<SC.length-1) go(idx+1);
+      else { t=s.dur*1000; setPlay(false); }
+    }
+  }
+  SC[idx].bar.style.width=Math.max(0,Math.min(100,t/(SC[idx].dur*10)))+'%';
+  requestAnimationFrame(tick);
+}
+
+$('#prev').addEventListener('click',()=>go(idx-1));
+$('#next').addEventListener('click',()=>go(idx+1));
+$('#replay').addEventListener('click',()=>go(idx));
+playBtn.addEventListener('click',togglePlay);
+
+stage.addEventListener('click',e=>{
+  const q=e.target.closest('.qa');
+  if(q){const f=q.classList.toggle('flip');q.setAttribute('aria-expanded',f);return}
+  if(e.target.closest('#again')){stage.querySelectorAll('.qa').forEach(x=>{x.classList.remove('flip');x.setAttribute('aria-expanded','false')});go(0)}
+});
+
+document.addEventListener('keydown',e=>{
+  if(e.key==='ArrowRight'){go(idx+1);e.preventDefault()}
+  else if(e.key==='ArrowLeft'){go(idx-1);e.preventDefault()}
+  else if(e.key===' '||e.key==='k'){if(e.key===' '&&e.target.closest('button'))return;togglePlay();e.preventDefault()}
+  else if(e.key==='Escape')closeMenu();
+});
+
+let tx=null,ty=null;
+stage.addEventListener('touchstart',e=>{tx=e.touches[0].clientX;ty=e.touches[0].clientY},{passive:true});
+stage.addEventListener('touchend',e=>{
+  if(tx==null)return;
+  const dx=e.changedTouches[0].clientX-tx, dy=e.changedTouches[0].clientY-ty; tx=null;
+  if(Math.abs(dx)>50&&Math.abs(dx)>Math.abs(dy)*1.5) go(idx+(dx<0?1:-1));
+},{passive:true});
+
+go(0);
+requestAnimationFrame(tick);
+
+// Deterministic timeline hooks used by html_to_mp4.py. Keep this in seconds,
+// matching each scene's declared duration and the converter's seek requests.
+window.__total = SC.reduce((sum, scene) => sum + scene.dur, 0);
+window.__seek = seconds => {
+  let ms = Math.max(0, Math.min(window.__total * 1000, seconds * 1000));
+  let i = 0;
+  while (i < SC.length - 1 && ms >= SC[i].dur * 1000) ms -= SC[i++].dur * 1000;
+  if (idx !== i) go(i);
+  setPlay(false);
+  t = ms;
+  wipe.classList.remove('go');
+  const s = SC[i];
+  s.el.classList.add('on');
+  const ts = ms / 1000;
+  let cur = -1;
+  s.beats.forEach((beat, k) => { if (ts >= beat[0]) cur = k; });
+  s.lns.forEach((line, k) => {
+    line.classList.toggle('show', k <= cur);
+    line.classList.toggle('now', k === cur);
+  });
+  s.counts.forEach(c => {
+    const p = Math.max(0, Math.min(1, (ts - c.t0) / (c.t1 - c.t0)));
+    c.el.textContent = fmt(c, c.a + (c.b - c.a) * p);
+  });
+  SC.forEach((scene, k) => { scene.bar.style.width = k < i ? '100%' : k === i ? `${Math.min(100, ms / (scene.dur * 10))}%` : '0%'; });
+  // Restarting the CSS animations at a known scene time makes frame captures
+  // independent of the converter's wall-clock speed.
+  void s.el.offsetWidth;
+  s.el.getAnimations({subtree:true}).forEach(animation => { animation.currentTime = ms; });
+};
+})();
+</script>
+</body>
+</html>

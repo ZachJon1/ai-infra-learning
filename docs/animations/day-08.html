@@ -1,0 +1,882 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Docker Compose, explained</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=JetBrains+Mono:wght@400;600;700&display=swap">
+<style>
+:root{
+  --paper:#EEF2FA;--surface:#FFFFFF;--ink:#18203F;--ink-2:#525B82;--line:#CBD3EA;--code:#E2E7F5;
+  --web:#2F6BFF;--db:#7A4CF5;--client:#F5A524;--client-ink:#A35F00;--vol:#E94A89;--teal:#0E9FAE;
+  --ok:#0F9D65;--bad:#E0433F;--warn:#D98200;--net:rgba(47,107,255,.06);--on-client:#2A1C00;
+  --note:#FFE38A;--note-ink:#3B2E00;--hl:rgba(245,165,36,.42);
+  --sans:"Bricolage Grotesque",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  color-scheme:light;box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --paper:#151936;--surface:#1F2449;--ink:#ECEEFF;--ink-2:#A8AFD6;--line:#363E70;--code:#262C5A;
+  --web:#5C8DFF;--db:#9E80FF;--client:#FFBE3B;--client-ink:#FFCB5C;--vol:#FF6FA4;--teal:#29C3D2;
+  --ok:#33D08E;--bad:#FF6A6A;--warn:#FFB340;--net:rgba(92,141,255,.09);--note:#EBCF63;--note-ink:#2A2000;--hl:rgba(255,190,59,.30);color-scheme:dark}}
+:root[data-theme="dark"]{
+  --paper:#151936;--surface:#1F2449;--ink:#ECEEFF;--ink-2:#A8AFD6;--line:#363E70;--code:#262C5A;
+  --web:#5C8DFF;--db:#9E80FF;--client:#FFBE3B;--client-ink:#FFCB5C;--vol:#FF6FA4;--teal:#29C3D2;
+  --ok:#33D08E;--bad:#FF6A6A;--warn:#FFB340;--net:rgba(92,141,255,.09);--note:#EBCF63;--note-ink:#2A2000;--hl:rgba(255,190,59,.30);color-scheme:dark}
+*,*::before,*::after{box-sizing:inherit}
+html{height:100%;scroll-padding-top:env(safe-area-inset-top,0px);background:var(--paper)}
+body{height:100%;margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;overflow:hidden}
+.app{height:100%;display:grid;grid-template-rows:auto minmax(0,1fr) auto;padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
+.top{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px clamp(16px,3vw,44px) 4px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px;letter-spacing:-.01em}
+.brand svg{width:30px;height:22px}
+.where{font-size:15px;color:var(--ink-2);text-align:right}
+.where b{color:var(--ink);font-weight:650}
+.stage{position:relative;overflow:hidden}
+.scene{position:absolute;inset:0;display:grid;grid-template-columns:minmax(260px,.78fr) minmax(0,1.75fr);gap:clamp(16px,3.2vw,56px);align-items:center;padding:6px clamp(16px,3vw,44px) 10px;opacity:0;visibility:hidden;transform:translateX(48px);transition:opacity .45s ease,transform .6s cubic-bezier(.2,.8,.2,1),visibility 0s linear .6s}
+.scene.past{transform:translateX(-48px)}
+.scene.active{opacity:1;visibility:visible;transform:none;transition:opacity .55s ease .12s,transform .7s cubic-bezier(.2,.8,.2,1) .12s,visibility 0s}
+.copy{max-width:40ch;align-self:center;min-width:0}
+.copy h1{font-size:clamp(46px,6.6vw,98px);line-height:.95;letter-spacing:-.035em;margin:.08em 0 .25em;font-weight:800;font-variation-settings:"opsz" 96}
+.copy h2{font-size:clamp(26px,3.2vw,48px);line-height:1.04;letter-spacing:-.028em;margin:0 0 .45em;font-weight:760;font-variation-settings:"opsz" 96;text-wrap:balance}
+.copy p{font-size:clamp(15.5px,1.25vw,19px);line-height:1.45;color:var(--ink-2);margin:0 0 .75em;text-wrap:pretty}
+.copy p strong{color:var(--ink)}
+.copy code,.vis code{font-family:var(--mono);font-size:.84em;background:var(--code);color:var(--ink);padding:.06em .36em;border-radius:6px}
+.copy .rule{color:var(--ink);font-weight:680}
+.copy .rule span{background:linear-gradient(transparent 58%,var(--hl) 58%,var(--hl) 92%,transparent 92%);-webkit-box-decoration-break:clone;box-decoration-break:clone}
+.copy pre{font-family:var(--mono);font-size:13.5px;line-height:1.55;background:var(--code);color:var(--ink);padding:10px 12px;border-radius:10px;margin:0 0 .8em;overflow-x:auto;white-space:pre}
+.copy pre.yaml{font-size:12px;line-height:1.5;max-height:min(46vh,430px);overflow:auto}
+.copy .lede{font-size:clamp(18px,1.6vw,23px);color:var(--ink)}
+.copy .course{font-weight:650;color:var(--ink)}
+.copy .hint{font-size:14px}
+.rotate-hint{display:none}
+.start{font:inherit;font-weight:700;font-size:18px;padding:14px 24px 14px 20px;border-radius:999px;border:0;background:var(--ink);color:var(--paper);cursor:pointer;display:inline-flex;gap:10px;align-items:center;margin:.3em 0 1em;transition:background .2s,transform .15s}
+.start:hover{background:var(--web)}
+.start:active{transform:scale(.97)}
+.start svg{width:18px;height:18px}
+.vis{height:100%;min-height:0;min-width:0;display:flex;align-items:center;justify-content:center}
+.vis>svg{width:100%;height:100%;max-height:100%;overflow:visible;font-size:15px}
+.controls{display:flex;align-items:center;gap:10px;padding:8px clamp(16px,3vw,44px) 14px}
+.btn{width:44px;height:44px;border-radius:50%;border:1.5px solid var(--line);background:var(--surface);color:var(--ink);display:grid;place-items:center;cursor:pointer;flex:none;padding:0;transition:transform .15s,background .2s}
+.btn:hover{background:var(--code)}
+.btn:active{transform:scale(.94)}
+.btn:disabled{opacity:.35;cursor:default}
+.btn svg{width:20px;height:20px}
+.btn.play{width:52px;height:52px;background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.btn.play:hover{background:var(--web);border-color:var(--web)}
+:focus-visible{outline:3px solid var(--web);outline-offset:3px}
+.track{flex:1;display:flex;gap:4px;align-items:center;min-width:0}
+.seg{flex:1;height:28px;border:0;background:none;padding:0;cursor:pointer;display:flex;align-items:center;min-width:0}
+.seg.chstart{margin-left:7px}
+.seg i{display:block;width:100%;height:6px;border-radius:3px;background:var(--line);overflow:hidden;position:relative}
+.seg i b{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--ink);border-radius:3px}
+.seg:hover i{background:var(--ink-2)}
+.count{font-family:var(--mono);font-size:13px;color:var(--ink-2);min-width:4.6em;text-align:right}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+/* takeaways + quiz */
+.take{list-style:none;margin:0;padding:0;display:grid;gap:clamp(10px,1.8vh,20px);width:100%;max-width:660px}
+.take li{display:grid;grid-template-columns:64px 1fr;gap:16px;align-items:center;font-size:clamp(15px,1.25vw,19px);line-height:1.4;color:var(--ink-2)}
+.take li b{color:var(--ink)}
+.take svg{width:64px;height:auto;overflow:visible}
+.quiz{width:100%;max-width:740px;display:grid;gap:14px}
+.cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.card{perspective:1000px;border:0;background:none;padding:0;cursor:pointer;min-height:clamp(150px,23vh,210px);font:inherit;text-align:left;color:inherit;border-radius:18px}
+.card-inner{position:relative;display:block;width:100%;height:100%;min-height:inherit;transform-style:preserve-3d;transition:transform .65s cubic-bezier(.3,1.25,.5,1)}
+.card.flipped .card-inner{transform:rotateY(180deg)}
+.face{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;border-radius:18px;padding:16px 18px;display:flex;flex-direction:column;gap:8px}
+.front{background:var(--surface);border:2px solid var(--line);border-top:7px solid var(--k)}
+.back{background:var(--ink);color:var(--paper);transform:rotateY(180deg)}
+.face small{font-size:13px;font-weight:650;color:var(--ink-2)}
+.back small{color:var(--paper);opacity:.7}
+.face .q{font-size:clamp(15px,1.2vw,18px);line-height:1.35;font-weight:620}
+.face em{margin-top:auto;font-style:normal;font-size:13px;color:var(--ink-2)}
+.again{justify-self:start;font:inherit;font-weight:650;font-size:15px;padding:10px 16px;border-radius:999px;border:1.5px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+.again:hover{background:var(--code)}
+/* svg vocabulary */
+.vis text{fill:var(--ink);font-family:var(--sans);white-space:pre}
+.vis .m{font-family:var(--mono)}
+.vis .b{font-weight:700}
+.vis .mut{fill:var(--ink-2)}
+.vis .okc{fill:var(--ok)}.vis .badc{fill:var(--bad)}.vis .warnc{fill:var(--warn)}.vis .webc{fill:var(--web)}.vis .dbc{fill:var(--db)}.vis .clc{fill:var(--client-ink)}.vis .volc{fill:var(--vol)}.vis .tealc{fill:var(--teal)}.vis .wht{fill:#fff}.vis .inv{fill:var(--paper)}
+.f11{font-size:11px}.f12{font-size:12px}.f13{font-size:13px}.f14{font-size:14px}.f15{font-size:15px}.f16{font-size:16px}.f17{font-size:17px}.f18{font-size:18px}.f20{font-size:20px}.f22{font-size:22px}.f30{font-size:30px}.f44{font-size:44px}
+.vis .cname{fill:var(--fg);font-size:15px;font-weight:750}
+.vis .csub{fill:var(--fg);font-family:var(--mono);font-size:10.5px;opacity:.85}
+.vis .ridge{stroke:rgba(255,255,255,.2);stroke-width:2;fill:none}
+.vis .capline{stroke:rgba(0,0,0,.14);stroke-width:2}
+.vis .eye{fill:#fff}.vis .pupil{fill:#18203F}
+.vis .mouth,.vis .lid{fill:none;stroke:var(--fg);stroke-width:3;stroke-linecap:round}
+.vis .ghost{fill-opacity:.12;stroke-width:2.5;stroke-dasharray:7 5}
+.vis .ghostf .eye{stroke:var(--fg);stroke-width:2}
+.vis .paper{fill:var(--surface);stroke:var(--ink);stroke-width:2}
+.vis .paperfold{fill:none;stroke:var(--ink);stroke-width:2}
+.vis .panel{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+.vis .codebg{fill:var(--code)}
+.vis .sep{stroke:var(--line);stroke-width:1.5}
+.vis .net{fill:var(--net);stroke:var(--ink-2);stroke-width:2;stroke-dasharray:9 7}
+.vis .hostbox{fill:none;stroke:var(--line);stroke-width:2.5}
+.vis .aline{fill:none;stroke-linecap:round}
+.vis .draw{stroke-dasharray:1 1;stroke-linecap:butt}
+.vis .dashy{stroke-dasharray:6 6}
+.vis .ahead{fill:none;stroke-linecap:round;stroke-linejoin:round}
+.vis .bub{fill:var(--surface);stroke-width:2;stroke-linejoin:round}
+.vis .note rect{fill:var(--note)}
+.vis .note text{fill:var(--note-ink);font-family:var(--mono);font-size:11.5px}
+.vis .hlbox{fill:var(--hl)}
+.vis .hlrow{fill:var(--hl)}
+.vis .badhl{fill:var(--bad);fill-opacity:.12}
+.vis .zz{fill:var(--ink-2);font-weight:800;font-size:15px}
+.vis .trackl{stroke:var(--line);stroke-width:6;stroke-linecap:round}
+.vis .post{fill:var(--ink-2)}
+.vis .okf{fill:var(--ok)}.vis .badf{fill:var(--bad)}.vis .warnf{fill:var(--warn)}.vis .mutf{fill:var(--ink-2)}.vis .inkf{fill:var(--ink)}
+.vis .ring{fill:none;stroke:var(--ink-2);stroke-width:2}
+.vis .axis{stroke:var(--ink-2);stroke-width:2;fill:none}
+.vis .playhead{stroke:var(--ink);stroke-width:2.5}
+.vis .pipe{fill:none;stroke:var(--vol);stroke-width:10;stroke-opacity:.6}
+.vis .spot{fill:none;stroke:var(--bad);stroke-width:2;stroke-dasharray:4 4}
+.vis .steth{fill:none;stroke:var(--ink);stroke-width:4;stroke-linecap:round}
+.vis .stampbox{fill:var(--surface);stroke:var(--bad);stroke-width:3}
+.vis .pill{fill:var(--surface);stroke-width:1.5}
+.vis .rowchip{fill:var(--note)}
+.vis .dim{fill:var(--paper);fill-opacity:.62}
+.vis .armstripe{stroke:var(--ink);stroke-width:12;stroke-dasharray:12 12}
+.vis .outline{fill:none;stroke:var(--ink);stroke-width:2.5}
+.vis .outline-bad{fill:none;stroke:var(--bad);stroke-width:2.5}
+.vis .glass{stroke-width:3;fill-opacity:.08}
+.vis .ic-ok-o{fill:var(--surface);stroke:var(--ok);stroke-width:2.5}
+.vis .ic-ok-s{fill:none;stroke:var(--ok);stroke-width:2.8;stroke-linecap:round;stroke-linejoin:round}
+.vis .ic-w{fill:none;stroke:#fff;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}
+.vis .ic-wf{fill:#fff}
+.vis .caret{fill:var(--ink)}
+.vis .folder{fill:var(--note);stroke:var(--note-ink);stroke-width:1.5}
+/* motion */
+.vis :is(.pop,.popout,.popoof,.drop,.poof,.shake,.wiggle,.pulse,.stamp,.fly,.slide,.bounce,.move,.travel,.press){transform-box:fill-box;transform-origin:center}
+.vis :is(.grow-x,.growshrink,.lift,.typing){transform-box:fill-box;transform-origin:left center}
+.vis .liftr{transform-box:fill-box;transform-origin:right center}
+@keyframes k-fade{from{opacity:0}to{opacity:1}}
+@keyframes k-out{from{opacity:1}to{opacity:0}}
+@keyframes k-up{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+@keyframes k-pop{0%{opacity:0;transform:scale(.45)}60%{opacity:1;transform:scale(1.07)}100%{opacity:1;transform:scale(1)}}
+@keyframes k-poof{0%{opacity:1;transform:scale(1)}35%{opacity:1;transform:scale(1.12)}100%{opacity:0;transform:scale(.15)}}
+@keyframes k-drop{0%{opacity:0;transform:translateY(-140px)}55%{opacity:1;transform:translateY(6px)}75%{transform:translateY(-6px)}100%{opacity:1;transform:none}}
+@keyframes k-draw{from{opacity:1;stroke-dashoffset:1}to{opacity:1;stroke-dashoffset:0}}
+@keyframes k-flow{to{stroke-dashoffset:-24}}
+@keyframes k-travel{0%{opacity:0;transform:translate(0,0)}12%{opacity:1}88%{opacity:1}100%{opacity:0;transform:translate(var(--tx),var(--ty))}}
+@keyframes k-move{from{transform:translate(0,0)}to{transform:translate(var(--tx,0px),var(--ty,0px))}}
+@keyframes k-fly{from{opacity:1;transform:translate(0,0) scale(1)}to{opacity:0;transform:translate(var(--tx),var(--ty)) scale(.35)}}
+@keyframes k-slide{from{opacity:0;transform:translate(var(--dx,0px),var(--dy,0px))}to{opacity:1;transform:none}}
+@keyframes k-shake{0%,100%{transform:translateX(0)}15%,55%{transform:translateX(-7px)}35%,75%{transform:translateX(7px)}}
+@keyframes k-wiggle{0%,100%{transform:rotate(0)}20%,60%{transform:rotate(-5deg)}40%,80%{transform:rotate(5deg)}}
+@keyframes k-float{0%{opacity:0;transform:translate(0,0)}25%{opacity:1}100%{opacity:0;transform:translate(8px,-22px)}}
+@keyframes k-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.2)}}
+@keyframes k-blink{0%,49%{opacity:1}50%,100%{opacity:0}}
+@keyframes k-blip{0%{opacity:0}18%{opacity:1}70%{opacity:1}100%{opacity:0}}
+@keyframes k-growx{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes k-shrinkx{from{transform:scaleX(1)}to{transform:scaleX(0)}}
+@keyframes k-stamp{0%{opacity:0;transform:scale(1.7) rotate(-3deg)}70%{opacity:1;transform:scale(.96) rotate(-3deg)}100%{opacity:1;transform:scale(1) rotate(-3deg)}}
+@keyframes k-lift{from{transform:rotate(0)}to{transform:rotate(-72deg)}}
+@keyframes k-liftr{from{transform:rotate(0)}to{transform:rotate(72deg)}}
+@keyframes k-press{0%{transform:translateY(0)}45%,60%{transform:translateY(var(--ty))}100%{transform:translateY(0)}}
+@keyframes k-bounce{0%{opacity:0;transform:translate(0,0)}10%{opacity:1}60%{opacity:1;transform:translate(var(--tx),var(--ty))}100%{opacity:0;transform:translate(calc(var(--tx) - 70px),calc(var(--ty) + 40px)) rotate(-25deg)}}
+@keyframes k-type{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+.on .fade{animation:k-fade .5s ease var(--d,0s) both}
+.on .out{animation:k-out .35s ease var(--o,0s) forwards}
+.on .inout{animation:k-fade .45s ease var(--d,0s) both,k-out .35s ease var(--o,9s) forwards}
+.on .up{animation:k-up .6s cubic-bezier(.2,.8,.2,1) var(--d,0s) both}
+.on .pop{animation:k-pop .55s cubic-bezier(.3,1.3,.5,1) var(--d,0s) both}
+.on .popout{animation:k-pop .5s cubic-bezier(.3,1.3,.5,1) var(--d,0s) both,k-out .35s ease var(--o,9s) forwards}
+.on .popoof{animation:k-pop .5s cubic-bezier(.3,1.3,.5,1) var(--d,0s) both,k-poof .55s ease-in var(--o,9s) forwards}
+.on .poof{animation:k-poof .55s ease-in var(--o,0s) forwards}
+.on .drop{animation:k-drop .85s ease-out var(--d,0s) both}
+.on .draw{animation:k-draw var(--dur,.7s) ease-in-out var(--d,0s) both}
+.on .drawout{animation:k-draw var(--dur,.7s) ease-in-out var(--d,0s) both,k-out .3s ease var(--o,9s) forwards}
+.on .dashy.fade{animation:k-fade .5s ease var(--d,0s) both,k-flow 1.1s linear var(--d,0s) infinite}
+.on .travel{animation:k-travel var(--dur,.9s) ease-in-out var(--d,0s) var(--n,1) both}
+.on .move{animation:k-move var(--dur,1s) var(--ease,cubic-bezier(.45,0,.25,1)) var(--d,0s) forwards}
+.on .fly{animation:k-fly var(--dur,.7s) cubic-bezier(.5,0,.3,1) var(--d,0s) forwards}
+.on .slide{animation:k-slide .7s cubic-bezier(.2,.8,.2,1) var(--d,0s) both}
+.on .shake{animation:k-shake .5s ease var(--d,0s) 1}
+.on .wiggle{animation:k-wiggle .8s ease var(--d,0s) 1}
+.on .zz{animation:k-float 2.4s ease-out var(--d,0s) infinite both}
+.on .pulse{animation:k-pulse 1.1s ease-in-out var(--d,0s) infinite}
+.on .blink{animation:k-blink 1s steps(1) var(--d,0s) infinite}
+.on .blip{animation:k-blip var(--dur,.9s) ease var(--d,0s) both}
+.on .grow-x{animation:k-growx var(--dur,.9s) var(--ease,cubic-bezier(.2,.8,.2,1)) var(--d,0s) both}
+.on .growshrink{animation:k-growx var(--dur,.9s) cubic-bezier(.2,.8,.2,1) var(--d,0s) both,k-shrinkx .45s ease-in var(--o,9s) forwards}
+.on .stamp{animation:k-stamp .45s cubic-bezier(.3,1.2,.5,1) var(--d,0s) both}
+.on .lift{animation:k-lift .7s cubic-bezier(.3,1.3,.5,1) var(--d,0s) forwards}
+.on .liftr{animation:k-liftr .7s cubic-bezier(.3,1.3,.5,1) var(--d,0s) forwards}
+.on .press{animation:k-press var(--dur,1.2s) ease-in-out var(--d,0s) 1}
+.on .bounce{animation:k-bounce var(--dur,1.4s) ease-in-out var(--d,0s) both}
+.on .typing{animation:k-type var(--dur,1s) var(--d,0s) both}
+.scene:not(.on) :is(.fade,.inout,.up,.pop,.popout,.popoof,.drop,.draw,.drawout,.travel,.slide,.zz,.blip,.stamp,.bounce,.grow-x,.growshrink){opacity:0}
+.scene:not(.on) .typing{transform:scaleX(0)}
+@media (max-width:820px),(max-aspect-ratio:1/1){
+  .scene{grid-template-columns:1fr;grid-template-rows:auto auto;align-items:start;align-content:start;overflow-y:auto;gap:10px;padding-top:4px}
+  .copy{max-width:62ch}
+  .copy h2{font-size:clamp(24px,6.2vw,36px);margin-bottom:.35em}
+  .copy p{font-size:15px;margin-bottom:.5em}
+  .copy pre.yaml{max-height:30vh}
+  .vis{height:auto}
+  .vis>svg{height:auto;max-height:64vh}
+}
+@media (max-width:600px) and (orientation:portrait){.rotate-hint{display:block}.cards{grid-template-columns:1fr}.card{min-height:130px}}
+@media (max-width:480px){.count{display:none}.btn{width:40px;height:40px}.btn.play{width:46px;height:46px}.brand span{font-size:14px}.where{font-size:13px}}
+@media (prefers-reduced-motion:reduce){
+  .scene,.scene.past,.scene.active{transform:none!important}
+  .scene{transition:opacity .25s ease,visibility 0s linear .25s}
+  .scene.active{transition:opacity .25s ease,visibility 0s}
+  .scene.on *{animation-duration:1ms!important;animation-iteration-count:1!important}
+  .card-inner{transition:none}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand"><svg viewBox="0 0 30 22" aria-hidden="true"><rect x="1" y="3" width="28" height="18" rx="4" fill="var(--web)"/><circle cx="11" cy="12" r="2.6" fill="#fff"/><circle cx="19" cy="12" r="2.6" fill="#fff"/><path d="M12 16.5q3 2.4 6 0" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg><span>Docker Compose, explained</span></div>
+    <div class="where" id="chap"></div>
+  </header>
+  <main class="stage" id="stage"></main>
+  <nav class="controls" aria-label="Explainer controls">
+    <button class="btn" id="prev" aria-label="Previous scene"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
+    <button class="btn play" id="play" aria-label="Start auto-play" aria-pressed="false"></button>
+    <button class="btn" id="next" aria-label="Next scene"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></button>
+    <div class="track" id="track"></div>
+    <span class="count" id="count"></span>
+    <button class="btn" id="replay" aria-label="Replay this scene"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4.5h4.5"/></svg></button>
+  </nav>
+  <div class="sr" aria-live="polite" id="live"></div>
+</div>
+<script>
+const I=n=>'\u00A0'.repeat(n);
+const S=o=>{const p=[];for(const k in o){const v=o[k];if(v==null)continue;const sec=['d','o','dur'].includes(k),px=['tx','ty','dx','dy'].includes(k);p.push(`--${k}:${v}${sec?'s':px?'px':''}`)}return p.length?`style="${p.join(';')}"`:''};
+const G=(inner,o={})=>{const{x,y,an,...v}=o;let g=an?`<g class="${an}" ${S(v)}>${inner}</g>`:inner;if(x!=null||y!=null)g=`<g transform="translate(${x||0} ${y||0})">${g}</g>`;return g};
+const T=(x,y,s,o={})=>{const{c='',a,an='fade',d=0,o:oo}=o;return `<text x="${x}" y="${y}"${a?` text-anchor="${a}"`:''} class="${c} ${an}" ${an?S({d,o:oo}):''}>${s}</text>`};
+const svg=(inner,label)=>`<svg viewBox="0 0 800 500" role="img" aria-label="${label}" xml:space="preserve">${inner}</svg>`;
+let UID=0;
+
+function face(m,w,h){
+  const a=w*.36,b=w*.64,ey=h*.56,mx=w/2,my=h*.75;
+  if(m==='sleepy')return `<path class="lid" d="M${a-7} ${ey}q7 5 14 0M${b-7} ${ey}q7 5 14 0"/><path class="mouth" d="M${mx-5} ${my}h10"/>`;
+  const eyes=`<circle cx="${a}" cy="${ey}" r="8" class="eye"/><circle cx="${a+1}" cy="${ey+1}" r="3.8" class="pupil"/><circle cx="${b}" cy="${ey}" r="8" class="eye"/><circle cx="${b+1}" cy="${ey+1}" r="3.8" class="pupil"/>`;
+  const M={happy:`<path class="mouth" d="M${mx-11} ${my-3}q11 10 22 0"/>`,sad:`<path class="mouth" d="M${mx-10} ${my+4}q10 -9 20 0"/>`,flat:`<path class="mouth" d="M${mx-8} ${my}h16"/>`,worried:`<path class="mouth" d="M${mx-11} ${my+2}q5.5 -5 11 0q5.5 5 11 0"/>`,wow:`<ellipse class="mouth" cx="${mx}" cy="${my}" rx="5" ry="6"/>`};
+  return eyes+(M[m]||M.happy);
+}
+const ZZ=w=>`<text x="${w-26}" y="14" class="zz" style="--d:0s">z</text><text x="${w-14}" y="4" class="zz" style="--d:.8s">z</text><text x="${w-2}" y="-6" class="zz" style="--d:1.6s">Z</text>`;
+
+function crate({x=0,y=0,w=140,h=96,k='web',name='',sub='',mood='happy',m2,t2,m3,t3,an='',v={},s=1,ghost=false,extra=''}={}){
+  const fg=ghost?(k==='client'?'var(--client-ink)':`var(--${k})`):(k==='client'?'var(--on-client)':'#fff');
+  let r='';for(let i=16;i<w-8;i+=16)r+=`M${i} 30V${h-8}`;
+  const seq=[[mood,0]];if(m2)seq.push([m2,t2]);if(m3)seq.push([m3,t3]);
+  let faces='';
+  seq.forEach(([m,t],i)=>{const nx=seq[i+1];let cls='',st={};
+    if(i>0){cls='fade';st.d=t}
+    if(nx){cls=cls?'inout':'out';st.o=nx[1]}
+    faces+=`<g${cls?` class="${cls}" ${S(st)}`:''}>${face(m,w,h)}${m==='sleepy'?ZZ(w):''}</g>`;});
+  const body=ghost?`<rect width="${w}" height="${h}" rx="14" class="ghost" style="stroke:var(--${k});fill:var(--${k})"/>`
+    :`<rect width="${w}" height="${h}" rx="14" style="fill:var(--${k})"/><path d="${r}" class="ridge"/><path d="M8 27H${w-8}" class="capline"/>`;
+  let g=`<g class="${ghost?'ghostf':''}" style="--fg:${fg}">${body}${name?`<text x="12" y="19" class="cname">${name}</text>`:''}${sub?`<text x="${w-10}" y="18" text-anchor="end" class="csub">${sub}</text>`:''}${faces}${extra}</g>`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})${s!==1?` scale(${s})`:''}">${g}</g>`;
+}
+
+function drum({x=0,y=0,w=130,h=110,label='postgres_data',an='',v={},fs=12,ring=.5,extra=''}={}){
+  const rx=w/2,ry=13,ry2=Math.round(h*ring);
+  let g=`<path d="M0 ${ry}V${h-ry}A${rx} ${ry} 0 0 0 ${w} ${h-ry}V${ry}" style="fill:var(--vol)"/><ellipse cx="${rx}" cy="${ry}" rx="${rx}" ry="${ry}" style="fill:var(--vol)"/><ellipse cx="${rx}" cy="${ry}" rx="${rx}" ry="${ry}" fill="#fff" fill-opacity=".28"/><path d="M0 ${ry2}A${rx} ${ry} 0 0 0 ${w} ${ry2}" fill="none" stroke="#fff" stroke-opacity=".35" stroke-width="2"/>${label?`<text x="${rx}" y="${h-12}" text-anchor="middle" class="m b wht" style="font-size:${fs}px">${label}</text>`:''}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+
+function bubPath(W,H,tail,tp){
+  const top=tail==='tl'?`H${tp}L${tp+4} -12L${tp+14} 0H${W-12}`:`H${W-12}`;
+  const bot=tail==='bl'?`H${tp+14}L${tp+4} ${H+12}L${tp} ${H}H12`:`H12`;
+  return `M12 0${top}Q${W} 0 ${W} 12V${H-12}Q${W} ${H} ${W-12} ${H}${bot}Q0 ${H} 0 ${H-12}V12Q0 0 12 0Z`;
+}
+function bubble(x,y,txt,{w,c='var(--ink)',fs=14,mono=true,tail='bl',tp=16,an='pop',d=0,o}={}){
+  const plain=txt.replace(/<[^>]+>/g,'').replace(/&[a-z#0-9]+;/g,'x');
+  const W=w||Math.round(plain.length*fs*(mono?.6:.56)+26),H=fs+18;
+  const inner=`<path d="${bubPath(W,H,tail,tp)}" class="bub" style="stroke:${c}"/><text x="13" y="${(H/2+fs*.36).toFixed(1)}" class="${mono?'m ':''}b" style="fill:${c};font-size:${fs}px">${txt}</text>`;
+  let a=an;if(o!=null)a=an==='pop'?'popout':an==='fade'?'inout':an;
+  return G(inner,{x,y,an:a,d,o});
+}
+
+function arrow(p,{c='var(--ink)',d=0,dur=.7,w=2.5,dash=false}={}){
+  let path,fx,fy;const{x1,y1,x2,y2,q,c1,c2,poly}=p;let ex=x2,ey=y2;
+  if(poly){path='M'+poly.map(pt=>pt.join(' ')).join('L');const n=poly.length;[ex,ey]=poly[n-1];[fx,fy]=poly[n-2]}
+  else if(c1){path=`M${x1} ${y1}C${c1[0]} ${c1[1]} ${c2[0]} ${c2[1]} ${x2} ${y2}`;[fx,fy]=c2}
+  else if(q){path=`M${x1} ${y1}Q${q[0]} ${q[1]} ${x2} ${y2}`;[fx,fy]=q}
+  else{path=`M${x1} ${y1}L${x2} ${y2}`;fx=x1;fy=y1}
+  const ang=Math.atan2(ey-fy,ex-fx),L=12;
+  const h1=[ex+L*Math.cos(ang+2.55),ey+L*Math.sin(ang+2.55)],h2=[ex+L*Math.cos(ang-2.55),ey+L*Math.sin(ang-2.55)];
+  const head=`<path d="M${h1[0].toFixed(1)} ${h1[1].toFixed(1)}L${ex} ${ey}L${h2[0].toFixed(1)} ${h2[1].toFixed(1)}" class="ahead fade" style="stroke:${c};stroke-width:${w};--d:${(d+dur*.8).toFixed(2)}s"/>`;
+  const line=dash?`<path d="${path}" class="aline dashy fade" style="stroke:${c};stroke-width:${w};--d:${d}s"/>`
+    :`<path d="${path}" pathLength="1" class="aline draw" style="stroke:${c};stroke-width:${w};--d:${d}s;--dur:${dur}s"/>`;
+  return `<g>${line}${head}</g>`;
+}
+const packet=(x1,y1,x2,y2,{d=0,dur=.8,c='var(--web)',r=7}={})=>`<circle cx="${x1}" cy="${y1}" r="${r}" class="travel" style="fill:${c};--d:${d}s;--dur:${dur}s;--tx:${x2-x1}px;--ty:${y2-y1}px"/>`;
+
+function icon(t,x,y,{d=0,o,r=14,an='pop'}={}){
+  const s=r/14;
+  const sym={
+    kept:`<circle r="14" class="ic-ok-o"/><path d="M-6 0l4 4 8-8" class="ic-ok-s"/>`,
+    yes:`<circle r="14" class="okf"/><path d="M-6 0l4 4 8-8" class="ic-w"/>`,
+    no:`<circle r="14" class="badf"/><path d="M-5 -5l10 10M5 -5l-10 10" class="ic-w"/>`,
+    stop:`<circle r="14" class="mutf"/><path d="M-3.5 -5v10M3.5 -5v10" class="ic-w"/>`,
+    play:`<circle r="14" class="okf"/><path d="M-3.5 -6L6 0L-3.5 6Z" class="ic-wf"/>`,
+    restart:`<circle r="14" style="fill:var(--web)"/><path d="M6 1.5A6.2 6.2 0 1 1 3.6 -5" class="ic-w"/><path d="M4.5 -9.5L4 -4.6L-0.8 -5.6" class="ic-w"/>`,
+    plus:`<circle r="14" class="okf"/><path d="M0 -6V6M-6 0H6" class="ic-w"/>`,
+    warn:`<circle r="14" class="warnf"/><path d="M0 -6.5V1.5" class="ic-w"/><circle cy="6" r="1.7" class="ic-wf"/>`
+  }[t];
+  const a=o!=null?(an==='pop'?'popout':an):an;
+  return `<g transform="translate(${x} ${y})${s!==1?` scale(${s})`:''}"><g class="${a}" ${S({d,o})}>${sym}</g></g>`;
+}
+function typed(x,y,str,{fs=15,d=0,dur=1,c=''}={}){
+  const id='clip'+(UID++),w=str.length*fs*.6+6;
+  return `<clipPath id="${id}"><rect x="${x-2}" y="${y-fs}" width="${w}" height="${fs*1.5}" class="typing" style="--d:${d}s;--dur:${dur}s;animation-timing-function:steps(${str.length},end)"/></clipPath><text x="${x}" y="${y}" class="m ${c}" clip-path="url(#${id})" style="font-size:${fs}px">${str}</text>`;
+}
+function browser(x,y,w,h,addr,o={}){
+  return G(`<rect width="${w}" height="${h}" rx="10" class="panel"/><path d="M0 22H${w}" class="sep"/><circle cx="12" cy="11" r="3.5" class="badf"/><circle cx="24" cy="11" r="3.5" class="warnf"/><circle cx="36" cy="11" r="3.5" class="okf"/><rect x="8" y="32" width="${w-16}" height="24" rx="6" class="codebg"/><text x="16" y="49" class="m f12">${addr}</text>`,{x,y,...o});
+}
+const glass=(x,y,w,h,k,label,o={})=>G(`<rect width="${w}" height="${h}" rx="16" class="glass" style="stroke:var(--${k});fill:var(--${k})"/><path d="M0 16Q0 0 16 0H${label.length*8.2+30}V28H0Z" style="fill:var(--${k})"/><text x="14" y="19" class="f14 b" style="fill:${k==='client'?'var(--on-client)':'#fff'}">${label}</text>`,{x,y,...o});
+const codeLine=(x,y,s,c='')=>`<text x="${x}" y="${y}" class="m ${c}">${s}</text>`;
+// ---------- Scene visuals: intro to networking ----------
+function V0(){
+  let s=G(`<rect width="238" height="38" rx="10" class="codebg"/>`,{x:14,y:66,an:'fade',d:.1});
+  s+=typed(28,91,'$ docker compose up -d',{fs:15,d:.25,dur:1});
+  s+=G(`<rect x="226" y="77" width="9" height="18" class="caret blink"/>`,{an:'fade',d:1.25});
+  s+=G(`<path d="M0 10Q0 0 10 0H124L150 26V160Q150 170 140 170H10Q0 170 0 160Z" class="paper"/><path d="M124 1V26H149" class="paperfold"/>
+    <text x="14" y="25" class="m f13 b">compose.yaml</text>
+    <text x="14" y="60" class="m f13">services:</text>
+    <text x="14" y="82" class="m f13">${I(2)}<tspan class="webc b">web</tspan>:</text>
+    <text x="14" y="104" class="m f13">${I(2)}<tspan class="dbc b">db</tspan>:</text>
+    <text x="14" y="126" class="m f13">${I(2)}<tspan class="clc b">client</tspan>:</text>
+    <text x="14" y="150" class="m f13">volumes:</text>`,{x:325,y:22,an:'pop',d:.35});
+  s+=G(`<rect width="630" height="166" rx="30" class="net"/>`,{x:95,y:258,an:'fade',d:2.4});
+  s+=arrow({x1:370,y1:196,x2:205,y2:290},{dash:true,d:1.9,c:'var(--ink-2)',w:2});
+  s+=arrow({x1:400,y1:196,x2:405,y2:280},{dash:true,d:2.0,c:'var(--ink-2)',w:2});
+  s+=arrow({x1:430,y1:196,x2:615,y2:290},{dash:true,d:2.1,c:'var(--ink-2)',w:2});
+  s+=crate({x:130,y:300,k:'web',name:'web',sub:'nginx',an:'drop',v:{d:.9}});
+  s+=crate({x:330,y:290,w:150,h:106,k:'db',name:'db',sub:'postgres',an:'drop',v:{d:1.1}});
+  s+=crate({x:550,y:300,k:'client',name:'client',sub:'alpine',m2:'sleepy',t2:3.6,an:'drop',v:{d:1.3}});
+  s+=T(410,458,'one project, three services, one shared network',{c:'mut f15',a:'middle',d:2.8});
+  return svg(s,'A compose.yaml file starts three containers, web, db and client, which land inside one shared network.');
+}
+
+function V1(){
+  let s=G(`${crate({x:330,y:110,k:'web',name:'web',sub:'nginx'})}
+    <rect x="160" y="254" width="480" height="40" rx="10" class="codebg"/>
+    <text x="400" y="280" text-anchor="middle" class="m f16">docker run -p 8080:80 nginx:alpine</text>
+    <text x="400" y="326" text-anchor="middle" class="mut f15">Day 7: one container, one command. Easy.</text>`,{an:'inout',d:.2,o:2.5});
+  const cr=[[40,70,'web','API','fastapi'],[260,70,'teal','model','vllm'],[40,290,'db','postgres',''],[260,290,'vol','redis','cache']];
+  cr.forEach(([x,y,k,n,sb],i)=>{s+=G(crate({x,y,k,name:n,sub:sb,mood:'worried',m2:'happy',t2:7.9,an:'pop',v:{d:2.7+i*.15}}),{an:'shake',d:4.8})});
+  const notes=[[22,26,-6,'-p 8000:8000'],[150,36,5,'--network ai'],[268,24,-3,'--gpus all'],[300,180,6,'-v models:/models'],[52,182,-4,'-e DB_HOST=db'],[178,228,3,'-e REDIS_URL'],[10,236,5,'--restart always'],[30,402,-5,'-v pgdata:/data'],[150,432,4,'-e POSTGRES_USER'],[272,402,-4,'-p 6379:6379'],[300,440,3,'--network ai'],[330,234,-6,'-p 8001:8001']];
+  notes.forEach(([x,y,r,t],i)=>{const w=Math.round(t.length*6.9+18),h=26;const tx=Math.round(650-(x+w/2)),ty=Math.round(150+(i%7)*28-(y+h/2));
+    s+=`<g transform="translate(${x} ${y})"><g class="fly" ${S({d:5.7+i*.08,dur:.7,tx,ty})}><g class="pop" ${S({d:3.3+i*.09})}><g transform="rotate(${r} ${w/2} ${h/2})" class="note"><rect width="${w}" height="${h}" rx="3"/><text x="9" y="17">${t}</text></g></g></g></g>`;});
+  const yl=['services:',I(2)+'api:',I(2)+'model:',I(2)+'postgres:',I(2)+'redis:','volumes:',I(2)+'pgdata:',I(2)+'models:'];
+  let sheet=`<path d="M0 10Q0 0 10 0H160L190 30V290Q190 300 180 300H10Q0 300 0 290Z" class="paper"/><path d="M160 1V30H189" class="paperfold"/><text x="16" y="28" class="m f13 b">compose.yaml</text>`;
+  yl.forEach((l,i)=>{sheet+=T(18,64+i*28,l,{c:'m f13',d:6.2+i*.12})});
+  s+=G(sheet,{x:575,y:80,an:'pop',d:5.3});
+  s+=G(`<rect width="190" height="38" rx="10" class="codebg"/><text x="16" y="25" class="m f14">docker compose up</text>`,{x:575,y:396,an:'pop',d:7.4});
+  s+=icon('yes',778,415,{d:7.6,r:11});
+  return svg(s,'Four services each need their own pile of docker run flags. The flags fly into one compose.yaml file, started with docker compose up.');
+}
+
+function V2(){
+  let code=`<rect width="372" height="170" rx="14" class="codebg"/>
+    <rect x="38" y="49" width="35" height="23" rx="5" class="hlbox fade" ${S({d:.7})}/>
+    <rect x="124" y="75" width="121" height="23" rx="5" class="hlbox fade" ${S({d:1.3})}/>
+    <rect x="105" y="127" width="73" height="23" rx="5" class="hlbox fade" ${S({d:1.9})}/>
+    <text x="22" y="40" class="m f16">services:</text>
+    <text x="22" y="66" class="m f16">${I(2)}<tspan class="webc b">web</tspan>:</text>
+    <text x="22" y="92" class="m f16">${I(4)}image: <tspan class="b">nginx:alpine</tspan></text>
+    <text x="22" y="118" class="m f16">${I(4)}ports:</text>
+    <text x="22" y="144" class="m f16">${I(6)}- "<tspan class="b">8080:80</tspan>"</text>
+    ${T(92,66,'← service name',{c:'f14 mut',d:.7})}${T(254,92,'← image',{c:'f14 mut',d:1.3})}${T(196,144,'← host : container port',{c:'f14 mut',d:1.9})}`;
+  let s=G(code,{x:24,y:30,an:'fade',d:.2});
+  s+=`<rect x="470" y="228" width="260" height="8" rx="4" class="fade" style="fill:var(--line);--d:.2s"/>`;
+  s+=crate({x:530,y:130,k:'web',name:'web',sub:'nginx',an:'pop',v:{d:3.25}});
+  s+=G(G(`<rect x="50" y="-12" width="40" height="12" rx="4" class="mutf"/><rect width="140" height="96" rx="14" fill="none" style="stroke:var(--web);stroke-width:3;stroke-dasharray:8 5"/><text x="70" y="45" text-anchor="middle" class="m f13 b webc">service: web</text><text x="70" y="66" text-anchor="middle" class="f13 mut">the recipe</text>`,{an:'press',d:2.6,dur:1.3,ty:120}),{x:530,y:10,an:'fade',d:.5});
+  s+=T(600,262,'day8-compose-web-1',{c:'m f14 b',a:'middle',d:3.6});
+  s+=T(600,282,'the real container',{c:'f13 mut',a:'middle',d:3.7});
+  s+=G(G(`<text x="238" y="350" class="m f30 b tealc">day8-compose</text>`,{an:'move',d:5,dur:.6,tx:-26}),{an:'fade',d:4.2});
+  s+=G(`<text x="454" y="350" class="m f30 b webc">-web</text>`,{an:'fade',d:4.2});
+  s+=G(G(`<text x="526" y="350" class="m f30 b mut">-1</text>`,{an:'move',d:5,dur:.6,tx:26}),{an:'fade',d:4.2});
+  s+=`<path d="M212 362H428" class="aline fade" style="stroke:var(--teal);stroke-width:3;--d:5.5s"/><path d="M454 362H526" class="aline fade" style="stroke:var(--web);stroke-width:3;--d:5.7s"/><path d="M552 362H588" class="aline fade" style="stroke:var(--ink-2);stroke-width:3;--d:5.9s"/>`;
+  s+=T(320,388,'project (your folder name)',{c:'f14 b tealc',a:'middle',d:5.5})+T(490,388,'service',{c:'f14 b webc',a:'middle',d:5.7})+T(570,388,'copy #1',{c:'f14 b mut',a:'middle',d:5.9});
+  s+=`<text x="160" y="436" class="m f16 fade" ${S({d:6.5})}><tspan class="tealc b">day8-compose</tspan>_default</text>`+T(430,436,'← the network',{c:'f14 mut',d:6.5});
+  s+=`<text x="160" y="466" class="m f16 fade" ${S({d:6.9})}><tspan class="tealc b">day8-compose</tspan>_postgres_data</text>`+T(430,466,'← a named volume',{c:'f14 mut',d:6.9});
+  return svg(s,'A service definition works like a cookie cutter that stamps out a container named day8-compose-web-1: project, service and copy number.');
+}
+
+function V3(){
+  const tok=(lab,c)=>`<path d="M0 6Q0 0 6 0H32L46 14V52Q46 58 40 58H6Q0 58 0 52Z" class="paper" style="stroke:${c}"/><path d="M10 24H34M10 34H30M10 44H34" style="stroke:${c};stroke-width:3;stroke-linecap:round"/><text x="23" y="-10" text-anchor="middle" class="f13 b" style="fill:${c}">${lab}</text>`;
+  let s=`<path d="M40 170H655" class="trackl fade" style="--d:.1s"/>`;
+  const gx=[220,390,560],gl=['YAML parser','Compose schema','Docker resources'];
+  gx.forEach((x,i)=>{s+=`<rect x="${x-5}" y="108" width="10" height="104" rx="5" class="post fade" ${S({d:.2+i*.1})}/>`+T(x,74,'step '+(i+1),{c:'f12 mut',a:'middle',d:.2+i*.1})+T(x,94,gl[i],{c:'f14 b',a:'middle',d:.2+i*.1})});
+  const flash=(i,c,d)=>`<rect x="${gx[i]-5}" y="108" width="10" height="104" rx="5" class="blip" style="fill:var(--${c});--d:${d}s;--dur:1s"/>`;
+  s+=flash(0,'bad',1.6)+flash(0,'ok',4.55)+flash(1,'bad',5.4)+flash(0,'ok',8.05)+flash(1,'ok',8.45)+flash(2,'ok',8.95);
+  s+=G(G(G(tok('extra indent','var(--bad)'),{an:'shake',d:1.65}),{an:'move',d:.6,dur:1,tx:124}),{x:40,y:141,an:'inout',d:.3,o:3.4});
+  s+=bubble(40,206,'mapping values are not allowed in this context',{c:'var(--bad)',fs:13,tail:'tl',tp:140,an:'fade',d:1.85,o:3.3});
+  s+=G(G(G(tok('wrong shape','var(--warn)'),{an:'shake',d:5.45}),{an:'move',d:3.8,dur:1.6,tx:294}),{x:40,y:141,an:'inout',d:3.6,o:7.0});
+  s+=bubble(200,206,'services.db.environment must be a mapping',{c:'var(--bad)',fs:13,tail:'tl',tp:150,an:'fade',d:5.6,o:6.9});
+  s+=G(G(tok('valid file','var(--ok)'),{an:'move',d:7.4,dur:2,tx:575}),{x:40,y:141,an:'inout',d:7.2,o:9.5});
+  s+=crate({x:688,y:92,k:'web',s:.48,an:'pop',v:{d:9.5}})+crate({x:688,y:146,k:'db',s:.48,an:'pop',v:{d:9.65}})+crate({x:688,y:200,k:'client',s:.48,an:'pop',v:{d:9.8}});
+  s+=T(722,272,'containers created',{c:'f13 mut',a:'middle',d:9.9});
+  const card=(x,head,hc,lines,bad)=>G(`<rect width="340" height="156" rx="14" class="panel"/>${bad?`<rect x="12" y="84" width="170" height="22" rx="5" class="badhl"/>`:''}<text x="18" y="30" class="f15 b ${hc}">${head}</text>${lines.map((l,i)=>codeLine(18,58+i*22,l,'f13')).join('')}`,{x,y:300,an:'fade',d:bad?1.1:.9});
+  s+=card(40,'✓ environment sits inside db','okc',['db:',I(2)+'image: postgres:17-alpine',I(2)+'environment:',I(4)+'POSTGRES_USER: aiuser']);
+  s+=card(420,'✗ one extra indent breaks parsing','badc',['db:',I(2)+'image: postgres:17-alpine',I(4)+'environment:',I(6)+'POSTGRES_USER: aiuser'],true);
+  return svg(s,'Three files travel through three checks: YAML parser, Compose schema and Docker resources. A badly indented file stops at the parser, a wrongly shaped one at the schema, and a valid one creates containers.');
+}
+
+function V4(){
+  let s=G(`<rect width="740" height="410" rx="30" class="net"/><text x="22" y="32" class="m f14 b">day8-compose_default</text><text x="214" y="32" class="mut f14">Compose’s private network</text>`,{x:30,y:40,an:'fade',d:.1});
+  s+=G(`<rect width="204" height="112" rx="12" class="panel"/><path d="M12 0H192Q204 0 204 12V30H0V12Q0 0 12 0Z" class="inkf"/><text x="102" y="21" text-anchor="middle" class="f14 b inv">Docker DNS</text>
+    <rect x="6" y="40" width="192" height="24" rx="6" class="hlbox blip" style="--d:2.3s;--dur:1s"/><rect x="6" y="40" width="192" height="24" rx="6" class="hlbox blip" style="--d:6.3s;--dur:1.1s"/><rect x="6" y="40" width="192" height="24" rx="6" class="hlbox blip" style="--d:7.2s;--dur:1s"/>
+    <text x="14" y="57" class="m f14 b webc">web</text>${T(190,57,'172.19.0.2',{c:'m f14',a:'end',an:'inout',d:1.0,o:6.2})}${T(190,57,'172.19.0.4',{c:'m f14 b',a:'end',d:6.3})}
+    <text x="14" y="88" class="m f14 b clc">client</text><text x="190" y="88" text-anchor="end" class="m f14">172.19.0.3</text>`,{x:298,y:92,an:'pop',d:1.0});
+  s+=T(516,130,'DNS updates the',{c:'mut f13',d:6.6})+T(516,148,'phone book by itself',{c:'mut f13',d:6.6});
+  s+=`<path d="M232 338H566" class="aline dashy fade" style="stroke:var(--ink-2);stroke-width:2;--d:3.3s"/>`;
+  s+=crate({x:90,y:290,k:'client',name:'client',sub:'alpine',an:'pop',v:{d:.5}});
+  s+=crate({x:570,y:290,k:'web',name:'web',sub:'nginx',an:'popoof',v:{d:.7,o:5.2}});
+  s+=crate({x:570,y:290,k:'web',name:'web',sub:'nginx',mood:'wow',m2:'happy',t2:6.6,an:'drop',v:{d:5.85}});
+  s+=T(160,412,'172.19.0.3',{c:'m f14 mut',a:'middle',d:.9});
+  s+=T(640,412,'172.19.0.2',{c:'m f14 mut',a:'middle',an:'inout',d:.9,o:5.2});
+  s+=T(640,412,'172.19.0.4 (new)',{c:'m f14 b webc',a:'middle',d:6.0});
+  s+=T(640,276,'recreated',{c:'f14 b mut',a:'middle',an:'inout',d:5.3,o:6.6});
+  s+=bubble(70,236,'where is web?',{fs:14,mono:false,an:'fade',d:1.6,o:2.6});
+  s+=arrow({x1:200,y1:286,x2:330,y2:208,q:[230,220]},{d:1.8,dur:.6,c:'var(--ink-2)',w:2});
+  s+=bubble(70,236,'web is 172.19.0.2',{fs:14,an:'fade',d:2.65,o:3.5});
+  s+=packet(238,338,566,338,{d:3.4});
+  s+=bubble(590,236,'HTTP/1.1 200 OK',{c:'var(--ok)',an:'pop',d:4.3,o:5.1});
+  s+=bubble(70,236,'curl -I http://web',{fs:14,an:'fade',d:7.0,o:8.4});
+  s+=packet(238,338,566,338,{d:7.6});
+  s+=bubble(590,236,'200 OK ✓',{c:'var(--ok)',an:'pop',d:8.4});
+  s+=T(400,440,'Same name, new IP, still works.',{c:'f18 b',a:'middle',d:8.9});
+  return svg(s,'Client asks Docker DNS where web is and gets its IP. Web is recreated with a new IP, DNS updates, and the client still reaches it by name.');
+}
+
+function V5(){
+  let s=G(`<rect width="740" height="390" rx="30" class="net"/><text x="22" y="32" class="m f14 b">Compose network</text>`,{x:30,y:60,an:'fade',d:.1});
+  s+=crate({x:110,y:236,s:1.1,k:'client',name:'client',sub:'alpine',m2:'worried',t2:3.0,m3:'happy',t3:6.0,an:'pop',v:{d:.4}});
+  s+=crate({x:530,y:236,s:1.1,k:'web',name:'web',sub:'nginx',an:'pop',v:{d:.6}});
+  s+=T(187,386,'localhost = client',{c:'m f15 b clc',a:'middle',d:.9})+T(607,386,'localhost = web',{c:'m f15 b webc',a:'middle',d:1.0});
+  s+=bubble(40,128,'curl localhost:80',{an:'fade',d:1.4,o:4.4});
+  s+=arrow({x1:264,y1:262,c1:[380,250],c2:[300,110],x2:220,y2:232},{c:'var(--bad)',d:1.9,dur:.9,w:3});
+  s+=icon('no',316,197,{d:2.9});
+  s+=T(346,192,'lands back on client',{c:'f14 b badc',d:3.1})+T(346,212,'nothing on port 80 here',{c:'f14 badc',d:3.2});
+  s+=bubble(40,128,'curl web:80',{c:'var(--ok)',an:'pop',d:4.6});
+  s+=arrow({x1:270,y1:300,x2:524,y2:300},{c:'var(--ok)',d:5.0,dur:.8,w:3});
+  s+=packet(276,300,520,300,{d:5.7,c:'var(--ok)'});
+  s+=bubble(560,170,'HTTP/1.1 200 OK',{c:'var(--ok)',an:'pop',d:6.2});
+  s+=T(400,432,'Between containers, use the service name.',{c:'f18 b',a:'middle',d:6.8});
+  return svg(s,'From the client, curl localhost:80 loops back to the client itself and fails. curl web:80 crosses to the web container and succeeds.');
+}
+
+function V6(){
+  let s=G(`<rect x="14" y="14" width="772" height="472" rx="22" class="hostbox"/><text x="38" y="46" class="f16 b">Your computer (the host)</text>`,{an:'fade',d:.2});
+  s+=G(`<rect width="538" height="330" rx="28" class="net"/><text x="22" y="28" class="m f13 b">Compose network</text>`,{x:232,y:70,an:'fade',d:.5});
+  s+=crate({x:330,y:120,k:'web',name:'web',sub:'nginx',an:'pop',v:{d:.8}});
+  s+=crate({x:330,y:262,k:'client',name:'client',sub:'alpine',an:'pop',v:{d:.95}});
+  s+=crate({x:600,y:262,k:'db',name:'db',sub:'postgres',an:'pop',v:{d:1.1}});
+  s+=G(`<rect x="222" y="140" width="20" height="56" rx="4" style="fill:var(--client);stroke:var(--ink);stroke-width:2"/><circle cx="237" cy="170" r="2.5" class="inkf"/>`,{an:'pop',d:1.4});
+  s+=browser(30,150,150,92,'localhost:8080',{an:'pop',d:1.6});
+  s+=arrow({poly:[[182,196],[226,168],[326,168]]},{c:'var(--web)',d:2.3,dur:.8,w:3});
+  s+=T(214,132,'8080',{c:'m f16 b',a:'end',d:2.9})+T(322,160,'80',{c:'m f16 b',a:'end',d:3.1});
+  s+=packet(182,196,326,168,{d:3.4});
+  s+=bubble(30,104,'200 OK ✓',{c:'var(--ok)',an:'pop',d:4.2});
+  s+=arrow({x1:472,y1:310,x2:596,y2:310},{d:5.0,dur:.6});
+  s+=T(534,298,'db:5432',{c:'m f14 b',a:'middle',d:5.4});
+  s+=packet(476,310,592,310,{d:5.7,c:'var(--db)'});
+  s+=T(670,386,'not published to the host',{c:'mut f13',a:'middle',d:6.2});
+  s+=`<text x="40" y="436" class="m f14 fade" ${S({d:7.0})}><tspan class="b">db</tspan>${I(3)}5432/tcp</text>`+T(300,436,'→ reachable only inside the network',{c:'mut f14',d:7.0});
+  s+=`<text x="40" y="464" class="m f14 fade" ${S({d:7.8})}><tspan class="b">db</tspan>${I(3)}0.0.0.0:5432-&gt;5432/tcp</text>`+T(300,464,'→ also open on your computer',{c:'mut f14',d:7.8});
+  return svg(s,'A browser on the host uses port 8080, which forwards through a door to port 80 in the web container. Inside the network, client reaches db on port 5432 without any published port.');
+}
+// ---------- Scene visuals: data, settings, health, observe ----------
+function V7(){
+  let s=crate({x:90,y:64,s:1.15,k:'db',name:'db',sub:'postgres',an:'popoof',v:{d:.2,o:4.3}});
+  s+=crate({x:90,y:64,s:1.15,k:'db',name:'db',sub:'postgres',mood:'wow',m2:'happy',t2:8.0,an:'drop',v:{d:6.3}});
+  s+=G(drum({w:170,h:150,ring:.7,an:'wiggle',v:{d:5.3},extra:`${T(85,56,'experiments',{c:'f13 b wht',a:'middle',d:2.8})}${T(85,80,'YOLOv10'+I(2)+'0.94',{c:'m f13 wht',a:'middle',d:2.9})}`}),{x:520,y:40,an:'pop',d:.6});
+  s+=T(605,215,'still here',{c:'f14 b volc',a:'middle',d:5.3});
+  s+=`<path d="M252 122H520" pathLength="1" class="pipe drawout" style="--d:1s;--dur:.6s;--o:4.2s"/><path d="M252 122H520" pathLength="1" class="pipe draw" style="--d:6.9s;--dur:.6s"/>`;
+  s+=T(386,108,'/var/lib/postgresql/data',{c:'m f12 mut',a:'middle',d:1.2});
+  s+=bubble(70,16,"INSERT INTO experiments … ('YOLOv10', 0.94)",{fs:13,an:'fade',d:1.6,o:3.4});
+  s+=G(`<rect width="124" height="26" rx="6" class="rowchip"/><text x="62" y="18" text-anchor="middle" class="m f12 b" style="fill:var(--note-ink)">YOLOv10, 0.94</text>`,{x:262,y:108,an:'travel',d:2.0,dur:.9,tx:290,ty:-20});
+  let term=`<rect width="720" height="226" rx="14" class="codebg"/><circle cx="20" cy="18" r="4.5" class="badf"/><circle cx="36" cy="18" r="4.5" class="warnf"/><circle cx="52" cy="18" r="4.5" class="okf"/>`;
+  const L=[['$ docker compose down','',3.8],[I(2)+'Container day8-compose-db-1'+I(2)+'Removed','mut',4.1],['$ docker volume ls','',5.0],[I(2)+'local'+I(5)+'day8-compose_postgres_data','',5.3],['$ docker compose up -d','',6.0],['aidb=# SELECT * FROM experiments;','',7.4],[I(2)+'1 | YOLOv10 | 0.94','okc b',8.0]];
+  L.forEach(([t,c,d],i)=>{term+=T(22,50+i*25,t,{c:'m f14 '+c,d})});
+  term+=T(400,125,'still there ✓',{c:'f14 b okc',d:5.4})+T(400,200,'the row survived ✓',{c:'f14 b okc',d:8.1});
+  s+=G(term,{x:40,y:250,an:'fade',d:.3});
+  s+=T(400,234,'The container was replaced. The data never left the volume.',{c:'f16 b',a:'middle',d:8.6});
+  return svg(s,'A database container writes a row into a pink named volume. docker compose down removes the container but the volume stays. A new container comes up and the row is still there.');
+}
+
+function V8(){
+  let s=T(40,52,'Named volume',{c:'f20 b',d:.3})+T(40,76,'Docker picks where it lives',{c:'mut f14',d:.4});
+  s+=crate({x:40,y:100,s:.72,k:'db',name:'db',an:'pop',v:{d:.6}});
+  s+=drum({x:220,y:92,w:120,h:96,fs:11,an:'pop',v:{d:.9}});
+  s+=arrow({x1:146,y1:136,x2:212,y2:138},{d:1.2,dur:.4});
+  s+=T(40,214,'postgres_data:/var/lib/postgresql/data',{c:'m f12',d:1.4})+T(40,242,'Best for databases and app data',{c:'f14 b',d:1.6});
+  s+=`<path d="M400 40V256" class="aline fade" style="stroke:var(--line);stroke-width:2;stroke-dasharray:6 6;--d:1.7s"/>`;
+  s+=T(430,52,'Bind mount',{c:'f20 b',d:1.9})+T(430,76,'You pick a folder on your computer',{c:'mut f14',d:2.0});
+  s+=crate({x:430,y:100,s:.72,k:'db',name:'db',an:'pop',v:{d:2.2}});
+  s+=G(`<path d="M0 12Q0 4 8 4H40L50 14H112Q120 14 120 22V82Q120 90 112 90H8Q0 90 0 82Z" class="folder"/><text x="60" y="58" text-anchor="middle" class="m f15 b" style="fill:var(--note-ink)">./data</text>`,{x:610,y:96,an:'pop',d:2.5});
+  s+=arrow({x1:536,y1:136,x2:602,y2:140},{d:2.8,dur:.4});
+  s+=T(430,214,'./data:/var/lib/postgresql/data',{c:'m f12',d:3.0})+T(430,242,'Best for code and config you edit',{c:'f14 b',d:3.2});
+  s+=T(40,312,'What does down remove?',{c:'f17 b',d:3.5});
+  s+=T(380,342,'containers',{c:'mut f14',a:'middle',d:3.6})+T(520,342,'network',{c:'mut f14',a:'middle',d:3.6})+T(660,342,'volume',{c:'mut f14',a:'middle',d:3.6});
+  s+=T(40,389,'docker compose down',{c:'m f15',d:3.8})+icon('no',380,384,{d:4.1})+icon('no',520,384,{d:4.3})+icon('kept',660,384,{d:4.5})+T(684,389,'kept',{c:'okc f14 b',d:4.7});
+  s+=`<rect x="24" y="420" width="752" height="48" rx="10" class="badhl fade" style="--d:6.3s"/>`;
+  s+=T(40,449,'docker compose down -v',{c:'m f15 b',d:5.3})+icon('no',380,444,{d:5.6})+icon('no',520,444,{d:5.8})+G(icon('no',660,444,{d:6.2}),{an:'shake',d:6.7})+T(684,449,'data gone',{c:'badc f14 b',d:6.5});
+  return svg(s,'Named volume versus bind mount, then a comparison: docker compose down removes containers and network but keeps the volume; down -v removes the volume too.');
+}
+
+function V9(){
+  const env=[['POSTGRES_USER','aiuser'],['POSTGRES_PASSWORD','aipassword'],['POSTGRES_DB','aidb'],['DEBUG_UI','true']];
+  let s=G(`<rect width="260" height="178" rx="14" class="panel"/><text x="16" y="28" class="m f14 b">.env</text><path d="M0 40H260" class="sep"/>`+env.map(([k,v],i)=>`<text x="16" y="${62+i*24}" class="m f13">${k}=<tspan class="b ${i<3?'webc':'mut'}">${v}</tspan></text>`).join(''),{x:20,y:36,an:'fade',d:.2});
+  let comp=`<rect width="480" height="182" rx="14" class="panel"/><text x="16" y="28" class="m f14 b">compose.yaml</text><path d="M0 40H480" class="sep"/>`+codeLine(16,62,'db:','f13')+codeLine(16,86,I(2)+'environment:','f13');
+  env.slice(0,3).forEach(([k,v],i)=>{const y=110+i*24,px=16+(6+k.length)*7.8,d=2.3+i*.3;
+    comp+=`<rect x="${(px-2).toFixed(1)}" y="${y-14}" width="${((k.length+3)*7.8+4).toFixed(1)}" height="19" rx="4" class="hlbox inout" ${S({d:1.0,o:d})}/><rect x="${(px-2).toFixed(1)}" y="${y-14}" width="${(v.length*7.8+4).toFixed(1)}" height="19" rx="4" class="hlbox fade" ${S({d})}/>`;
+    comp+=codeLine(16,y,I(4)+k+':','f13')+T(px.toFixed(1),y,`\${${k}}`,{c:'m f13 mut',an:'out',o:d})+T(px.toFixed(1),y,v,{c:'m f13 b webc',d});});
+  s+=G(comp,{x:300,y:36,an:'fade',d:.4});
+  env.slice(0,3).forEach(([k,v],i)=>{const sx=36+(k.length+1)*7.8,dx=316+(6+k.length)*7.8,sy=98+i*24;
+    s+=`<text x="${sx.toFixed(1)}" y="${sy}" class="m f13 b webc travel" style="--d:${1.6+i*.3}s;--dur:.8s;--tx:${(dx-sx).toFixed(1)}px;--ty:48px">${v}</text>`;});
+  s+=crate({x:600,y:310,k:'db',name:'db',sub:'postgres',an:'pop',v:{d:3.6}});
+  s+=arrow({x1:560,y1:222,x2:662,y2:302,q:[650,230]},{d:3.9,c:'var(--ink-2)',w:2});
+  s+=`<text x="36" y="170" class="m f13 b mut bounce" style="--d:4.8s;--dur:1.4s;--tx:444px;--ty:170px">DEBUG_UI=true</text>`;
+  s+=icon('no',584,350,{d:5.6,r:12});
+  s+=T(670,446,'DEBUG_UI isn’t listed under',{c:'f13 mut',a:'middle',d:6.0})+T(670,464,'environment:, so it stays out',{c:'f13 mut',a:'middle',d:6.0});
+  let term=`<rect width="520" height="128" rx="14" class="codebg"/>`+T(16,30,'$ docker compose exec db env | grep POSTGRES',{c:'m f13',d:6.6})+T(16,58,'POSTGRES_USER=aiuser',{c:'m f13 okc',d:7.0})+T(16,82,'POSTGRES_PASSWORD=aipassword',{c:'m f13 okc',d:7.15})+T(16,106,'POSTGRES_DB=aidb',{c:'m f13 okc',d:7.3});
+  s+=G(term,{x:20,y:262,an:'fade',d:6.5});
+  s+=G(`<rect width="114" height="24" rx="12" class="inkf"/><path d="M14 11h10v8h-10z" style="fill:var(--paper)"/><path d="M16 11v-3a3 3 0 0 1 6 0v3" fill="none" style="stroke:var(--paper)" stroke-width="2"/><text x="32" y="17" class="m f12 b inv">.gitignore</text>`,{x:156,y:44,an:'pop',d:8.0});
+  s+=T(20,438,'Keep .env out of Git: handy locally, not a secret manager.',{c:'f15 b',d:8.3});
+  return svg(s,'Values from a .env file fly into the ${…} blanks in compose.yaml and reach the db container. A variable not listed under environment bounces off. .env is kept out of Git.');
+}
+
+function V10(){
+  let s=crate({x:40,y:40,k:'db',name:'db',sub:'postgres',an:'pop',v:{d:.2}});
+  s+=`<circle cx="212" cy="64" r="9" class="ring fade" style="--d:.5s"/>`+G(`<circle cx="212" cy="64" r="9" class="okf"/>`,{an:'pop',d:1.0})+T(232,69,'running',{c:'f15 b',d:.5});
+  s+=`<circle cx="212" cy="104" r="9" class="ring fade" style="--d:.5s"/>`+G(G(`<circle cx="212" cy="104" r="9" class="warnf"/>`,{an:'pulse'}),{an:'inout',d:1.0,o:4.0})+G(`<circle cx="212" cy="104" r="9" class="okf"/>`,{an:'pop',d:4.0});
+  s+=T(232,109,'health:',{c:'f15 b',d:.5})+T(298,109,'starting',{c:'f15 b warnc',an:'inout',d:1.0,o:4.0})+T(298,109,'healthy',{c:'f15 b okc',an:'pop',d:4.0});
+  s+=T(350,52,'A probe every 5 seconds',{c:'f15 b',d:.8});
+  s+=`<path d="M350 150H770" class="axis fade" style="--d:.8s"/>`;
+  for(let k=0;k<=6;k++){const x=350+k*70;s+=`<path d="M${x} 150V157" class="axis fade" style="--d:.8s"/>`+T(x,174,`${k*5}s`,{c:'m f12 mut',a:'middle',d:.8})}
+  s+=G(`<path d="M420 100V93H490V100" class="axis"/>`+T(455,86,'interval: 5s',{c:'m f12 mut',a:'middle',an:''}),{an:'fade',d:2.2});
+  s+=G(`<path d="M0 100V158" class="playhead"/>`,{x:350,an:'move',d:1.0,dur:6,tx:420,ease:'linear'});
+  for(let k=1;k<=6;k++)s+=icon(k<3?'no':'yes',350+k*70,122,{r:11,d:1.0+k});
+  s+=`<rect x="350" y="182" width="210" height="18" rx="4" class="mutf grow-x" ${S({d:1.0,dur:3,ease:'linear'})}/><rect x="560" y="182" width="210" height="18" rx="4" class="okf grow-x" ${S({d:4.0,dur:3,ease:'linear'})}/>`;
+  s+=T(455,195,'starting',{c:'f12 b wht',a:'middle',d:2.0})+T(665,195,'healthy',{c:'f12 b wht',a:'middle',d:5.0});
+  let code=`<rect width="440" height="222" rx="14" class="codebg"/><rect x="151" y="62" width="112" height="19" rx="4" class="hlbox fade" ${S({d:7.6})}/>`;
+  ['healthcheck:',I(2)+'test: ["CMD-SHELL",',I(4)+'"pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]',I(2)+'interval: 5s',I(2)+'timeout: 3s',I(2)+'retries: 5'].forEach((l,i)=>{code+=codeLine(16,30+i*22,l,'f12')});
+  code+=T(16,170,'$$ = let the container’s shell fill this in, not Compose',{c:'f13 b',d:7.8})+T(16,196,'pg_isready asks: is PostgreSQL accepting connections?',{c:'f13 mut',d:8.2});
+  s+=G(code,{x:20,y:250,an:'fade',d:.4});
+  s+=T(490,296,'depends_on: db',{c:'m f13 b',d:.9})+T(490,315,'condition: service_healthy',{c:'m f13',d:.9});
+  s+=crate({x:560,y:330,k:'client',name:'client',sub:'alpine',mood:'flat',m2:'happy',t2:4.7,m3:'sleepy',t3:5.7,an:'pop',v:{d:.6},extra:`<rect width="140" height="96" rx="14" class="dim out" ${S({o:4.6})}/>`});
+  s+=`<rect x="740" y="330" width="12" height="112" rx="5" class="post fade" style="--d:.7s"/>`;
+  s+=G(G(`<rect width="150" height="12" rx="6" style="fill:var(--client)"/><path d="M8 6H142" class="armstripe"/>`,{an:'liftr',d:4.3}),{x:596,y:372,an:'fade',d:.7});
+  s+=T(630,456,'created, waiting…',{c:'f14 b mut',a:'middle',an:'inout',d:.9,o:4.6})+T(630,456,'started',{c:'f14 b okc',a:'middle',an:'pop',d:4.7})+T(630,476,'its job: sleep infinity',{c:'m f12 mut',a:'middle',d:5.9});
+  return svg(s,'The db container is running straight away but its health probe fails twice before passing at 15 seconds. Once db is healthy, the gate lifts and the client starts.');
+}
+
+function V11(){
+  let s=crate({x:50,y:80,s:1.3,k:'db',name:'db',sub:'postgres',an:'pop',v:{d:.2},extra:G(G(`<path d="M0 3C0 -2 7 -2 7 3C7 -2 14 -2 14 3C14 8 7 12 7 14C7 12 0 8 0 3Z" fill="#fff"/>`,{an:'pulse',d:.6}),{x:112,y:66})});
+  s+=T(50,66,'PostgreSQL listens on :5432',{c:'f14 b okc',d:.5});
+  s+=`<path d="M286 18Q300 36 314 18" class="steth fade" style="--d:.8s"/><path d="M300 30C350 120 260 250 172 258" pathLength="1" class="steth draw" style="--d:.8s;--dur:.8s"/>`;
+  s+=`<circle cx="158" cy="262" r="22" class="spot fade" style="--d:1.4s"/>`+G(`<circle cx="158" cy="262" r="14" style="fill:var(--surface);stroke:var(--ink);stroke-width:4"/>`,{an:'pop',d:1.5});
+  s+=T(158,306,':9999',{c:'m f16 b badc',a:'middle',d:1.6});
+  s+=bubble(40,330,'/var/run/postgresql:9999 - no response',{c:'var(--bad)',fs:12,tail:'tl',tp:104,an:'pop',d:2.0});
+  s+=crate({x:40,y:396,s:.62,k:'client',mood:'flat',an:'fade',v:{d:7.4},extra:`<rect width="140" height="96" rx="14" class="dim"/>`});
+  s+=T(140,420,'client: created, never started',{c:'f14 b',d:7.6})+T(140,440,'waiting for a healthy db',{c:'f13 mut',d:7.7});
+  s+=G(`<rect width="398" height="404" rx="18" class="panel"/>`,{x:380,y:22,an:'fade',d:1.1})+T(402,56,'Evidence',{c:'f18 b',d:1.2});
+  const rows=[['yes','Container state','running: main process is up'],['no','Health status','unhealthy: the test keeps failing'],['yes','PostgreSQL log','"ready to accept connections"'],['yes','Real SQL query','SELECT works, rows come back'],['warn','Health log','probing :9999, Postgres is on :5432']];
+  rows.forEach(([ic,t,v],i)=>{const y=78+i*64,d=[1.8,2.7,3.6,4.5,5.5][i];s+=icon(ic,408,y+22,{d,r:13})+T(432,y+18,t,{c:'f15 b',d})+T(432,y+38,v,{c:'m f12 mut',d})});
+  s+=G(`<rect width="372" height="50" rx="10" class="stampbox"/><text x="186" y="32" text-anchor="middle" class="f17 b badc">Broken layer: the health check</text>`,{x:393,y:434,an:'stamp',d:6.8});
+  return svg(s,'A stethoscope probes port 9999 while PostgreSQL listens on 5432. The evidence board shows running, unhealthy, logs ready, SQL works, health log probing the wrong port. Verdict: the health check is broken.');
+}
+
+function V12(){
+  const rows=[['What exists, and is it running?','docker compose ps -a'],['What is the app saying?','docker compose logs -f db'],['What processes run inside?','docker compose top'],['How much is it using?','docker stats']];
+  let s='';
+  rows.forEach(([q,c],i)=>{const y=26+i*52,w=c.length*8.4+24;
+    s+=G(`${i===2?`<rect x="-10" y="2" width="770" height="46" rx="10" class="hlrow blip" style="--d:1.7s;--dur:1.4s"/>`:''}<text x="0" y="30" class="f16 b">${q}</text><rect x="360" y="8" width="${w}" height="32" rx="8" class="codebg"/><text x="372" y="29" class="m f14">${c}</text>`,{x:30,y,an:'fade',d:.3+i*.3});});
+  s+=T(30,272,'Inside each container, as docker compose top shows it',{c:'mut f14',d:2.0});
+  const box=(x,k,name,procs,d0)=>{let g='';procs.forEach((p,i)=>{g+=G(`<rect x="12" y="${40+i*30}" width="206" height="24" rx="12" class="pill" style="stroke:var(--${k})"/><text x="24" y="${56+i*30}" class="m f11">${p}</text>`,{an:'pop',d:d0+i*.15})});return glass(x,288,230,194,k,name,{an:'fade',d:d0-.3})+G(g,{x,y:288});};
+  s+=box(30,'web','web',['nginx: master process','nginx: worker process','nginx: worker process'],2.4);
+  s+=box(285,'db','db',['postgres','postgres: checkpointer','postgres: background writer','postgres: walwriter'],2.9);
+  s+=box(540,'client','client',['sleep infinity'],3.6);
+  s+=G(`<g style="--fg:var(--client-ink)">${face('sleepy',140,96)}${ZZ(140)}</g>`,{x:585,y:360,an:'fade',d:3.8});
+  s+=T(655,468,'one process, almost no work',{c:'f13 mut',a:'middle',d:3.9});
+  return svg(s,'Four questions mapped to four commands: ps, logs, top and stats. Below, docker compose top shows nginx master and worker processes, several PostgreSQL processes, and a single sleep process in the client.');
+}
+
+function V13(){
+  let s=T(30,28,'docker stats (illustrative values from an idle lab stack)',{c:'mut f13',d:.1});
+  const P=[['CPU %',50,15,[.8,.3,0],v=>v.toFixed(1)+'%'],['Memory (MiB)',190,50,[38,9,.5],v=>v+' MiB'],['Processes (PIDS)',330,8,[6,5,1],v=>String(v)]];
+  const svc=[['db','db','dbc'],['web','web','webc'],['client','client','clc']];
+  P.forEach(([title,py,max,vals,fmt],p)=>{const d0=.3+p*.8;s+=T(30,py+18,title,{c:'f15 b',d:d0});
+    vals.forEach((v,i)=>{const y=py+28+i*30,w=Math.max(3,v/max*520),d=d0+.15+i*.15;
+      s+=T(30,y+15,svc[i][0],{c:'f14 b '+svc[i][2],d});
+      s+=`<rect x="130" y="${y}" width="${w.toFixed(1)}" height="20" rx="5" class="grow-x" style="fill:var(--${svc[i][1]});--d:${d}s"/>`;
+      const lbl=fmt(v);
+      if(p===0&&i===1)s+=T((130+w+8).toFixed(1),y+15,lbl,{c:'m f13',an:'inout',d:d+.6,o:4.8});
+      else s+=T((130+w+8).toFixed(1),y+15,lbl,{c:'m f13',d:d+.6});});});
+  s+=`<rect x="130" y="108" width="416" height="20" rx="5" class="grow-x" style="fill:var(--web);opacity:.55;--d:4.8s;--dur:1.2s"/>`;
+  s+=T(554,123,'12%',{c:'m f13 b webc',d:5.9})+T(600,123,'← traffic arrives',{c:'f13 b webc',d:4.6});
+  s+=T(30,478,'Sleeping client: barely visible. Busy web: shows up immediately.',{c:'f15 b',d:6.4});
+  return svg(s,'Bar charts of CPU, memory and process count for db, web and client. The client is near zero. When traffic arrives, web CPU jumps from 0.3 to 12 percent.');
+}
+// ---------- Scene visuals: commands, troubleshooting, wrap-up ----------
+function V14(){
+  let s=T(30,48,'exec',{c:'m f22 b webc',d:.1})+T(30,72,'step into a container that is already running',{c:'mut f14',d:.2});
+  s+=G(`<rect width="270" height="34" rx="8" class="codebg"/><text x="14" y="22" class="m f14">docker compose exec client sh</text>`,{x:30,y:92,an:'fade',d:.5});
+  s+=glass(40,170,320,200,'client','client (running)',{an:'fade',d:.2});
+  s+=G(`<rect width="288" height="30" rx="15" class="pill" style="stroke:var(--client)"/><text x="14" y="20" class="m f13">PID 1${I(3)}sleep infinity</text>`,{x:56,y:218,an:'fade',d:.3});
+  s+=arrow({x1:165,y1:128,x2:165,y2:166},{c:'var(--web)',d:1.1,dur:.5});
+  s+=G(`<rect width="288" height="30" rx="15" class="pill" style="stroke:var(--web);stroke-width:2.5"/><text x="14" y="20" class="m f13 b webc">sh${I(3)}← opened by exec</text>`,{x:56,y:260,an:'pop',d:1.7});
+  s+=T(40,398,'Same container. One extra process.',{c:'f15 b',d:2.3})+T(40,420,'Handy for a shell, env checks or psql.',{c:'mut f13',d:2.5});
+  s+=`<path d="M400 30V470" class="aline fade" style="stroke:var(--line);stroke-width:2;stroke-dasharray:6 6;--d:2.6s"/>`;
+  s+=T(430,48,'run',{c:'m f22 b clc',d:2.7})+T(430,72,'a temporary copy of the service',{c:'mut f14',d:2.8});
+  s+=G(`<rect width="340" height="54" rx="8" class="codebg"/><text x="14" y="22" class="m f14">docker compose run --rm client</text><text x="14" y="44" class="m f14">echo "temporary container works"</text>`,{x:430,y:88,an:'fade',d:2.9});
+  s+=crate({x:520,y:160,k:'client',ghost:true,name:'client',sub:'service',mood:'flat',an:'fade',v:{d:3.1}});
+  s+=arrow({x1:590,y1:260,x2:590,y2:294},{dash:true,d:3.5,c:'var(--client-ink)',w:2});
+  s+=crate({x:520,y:300,k:'client',name:'one-off',sub:'run',an:'popoof',v:{d:3.7,o:5.9}});
+  s+=bubble(470,404,'temporary container works',{fs:13,tail:'tl',tp:110,an:'fade',d:4.3,o:5.8});
+  s+=T(590,352,'--rm removed it after exit',{c:'m f13 b',a:'middle',d:6.1});
+  s+=T(430,454,'No ports published by default',{c:'mut f13',d:6.6})+T(430,474,'(add --service-ports if you need them)',{c:'mut f13',d:6.7});
+  return svg(s,'Left: exec adds a shell process inside the running client container next to sleep infinity. Right: run creates a temporary copy from the client service, prints a message and is removed.');
+}
+
+function V15(){
+  let s=T(380,34,'containers',{c:'mut f14',a:'middle',d:.2})+T(520,34,'network',{c:'mut f14',a:'middle',d:.2})+T(660,34,'volume',{c:'mut f14',a:'middle',d:.2});
+  const R=[['docker compose stop',['stop','kept','kept']],['docker compose start',['play','kept','kept']],['docker compose restart web',['restart','kept','kept']],['docker compose down',['no','no','kept']],['docker compose down -v',['no','no','no']],['docker compose up -d',['plus','plus','plus']]];
+  R.forEach(([c,ic],i)=>{const y=70+i*36,d=.5+i*.45;
+    if(i===4)s+=`<rect x="20" y="${y-17}" width="760" height="34" rx="8" class="badhl fade" style="--d:${d}s"/>`;
+    s+=T(30,y+5,c,{c:'m f14'+(i===4?' b':''),d});
+    ic.forEach((t,j)=>{s+=icon(t,[380,520,660][j],y,{r:12,d:d+.1+j*.1})});});
+  [['kept','kept'],['stop','stopped'],['play','started'],['restart','restarted'],['no','removed'],['plus','created']].forEach(([t,l],k)=>{const x=40+k*122;s+=icon(t,x,294,{r:9,d:3.4})+T(x+16,299,l,{c:'f12 mut',d:3.4})});
+  s+=T(30,336,'Uptime after docker compose restart web',{c:'f15 b',d:3.8});
+  const U=[['web','webc','web'],['db','dbc','db'],['client','clc','client']];
+  U.forEach(([n,c,k],i)=>{const y=352+i*36;s+=T(30,y+16,n,{c:'f14 b '+c,d:3.9});
+    s+=`<rect x="110" y="${y}" width="430" height="22" rx="6" class="${i===0?'growshrink':'grow-x'}" style="fill:var(--${k});--d:${4.0+i*.1}s;--dur:1s${i===0?';--o:5.8s':''}"/>`;
+    s+=T(552,y+16,'Up 6 minutes',{c:'m f13',an:i===0?'inout':'fade',d:5.0+i*.1,o:i===0?5.8:undefined});});
+  s+=icon('restart',92,363,{r:9,d:5.6});
+  s+=`<rect x="110" y="352" width="5" height="22" rx="2" class="fade" style="fill:var(--web);--d:6.3s"/>`+T(124,368,'Up less than a second',{c:'m f13 b webc',d:6.4});
+  s+=T(30,476,'Only web restarted. db and client kept running.',{c:'f14 b',d:7.0});
+  return svg(s,'A table shows what stop, start, restart, down, down -v and up do to containers, the network and volumes. Below, restarting web resets only its uptime bar.');
+}
+
+function V16(){
+  const L=[['Configuration','docker compose config'],['Container state','docker compose ps -a'],['App evidence','docker compose logs api'],['Health details','docker inspect … (Health)'],['Network and DNS','getent hosts db, ping db'],['Env inside the container','docker compose exec api env'],['Storage','docker volume inspect'],['Resources','docker stats']];
+  let s='';
+  L.forEach(([n,c],i)=>{const y=22+i*52;s+=G(`<rect width="470" height="44" rx="10" class="panel"/><circle cx="24" cy="22" r="13" class="inkf"/><text x="24" y="27" text-anchor="middle" class="f14 b inv">${i+1}</text><text x="48" y="19" class="f15 b">${n}</text><text x="48" y="36" class="m f12 mut">${c}</text>`,{x:30,y,an:'fade',d:.15+i*.06})});
+  [.9,1.5,2.1,2.7,3.3].forEach((t,i)=>{const y=22+i*52;s+=`<rect x="30" y="${y}" width="470" height="44" rx="10" class="outline blip" style="--d:${t}s;--dur:.9s"/>`+icon('yes',478,y+22,{r:11,d:t+.4})});
+  s+=`<rect x="30" y="282" width="470" height="44" rx="10" class="outline-bad fade" style="--d:3.9s"/>`+icon('no',478,304,{r:11,d:4.3,o:5.6})+icon('yes',478,304,{r:11,d:5.7});
+  s+=`<rect x="28" y="332" width="474" height="100" rx="10" class="dim fade" style="--d:6.2s"/>`+T(488,362,'not needed this time',{c:'f13 b mut',a:'end',d:6.3});
+  s+=T(530,40,'Case',{c:'mut f14',d:.3})+T(530,64,'API can’t reach',{c:'f17 b',d:.35})+T(530,86,'PostgreSQL',{c:'f17 b',d:.4});
+  s+=crate({x:540,y:110,s:.9,k:'web',name:'api',sub:'fastapi',mood:'worried',m2:'happy',t2:5.9,an:'pop',v:{d:.5}});
+  s+=G(`<rect width="250" height="76" rx="12" class="codebg"/>`+T(14,26,'$ docker compose exec api env',{c:'m f11 mut',an:''})+T(14,56,'DB_HOST=localhost',{c:'m f16 b badc',an:'inout',d:4.3,o:5.5})+T(14,56,'DB_HOST=db',{c:'m f16 b okc',an:'pop',d:5.6}),{x:526,y:236,an:'fade',d:4.1});
+  s+=T(526,336,'localhost = the api container itself',{c:'f13 mut',an:'inout',d:4.7,o:5.5})+T(526,336,'Fixed: use the service name',{c:'f13 b okc',d:5.7});
+  s+=T(526,410,'Found at layer 6.',{c:'f15 b',d:6.4})+T(526,432,'No blind restarts needed.',{c:'f15 b',d:6.5});
+  return svg(s,'Eight troubleshooting layers from configuration to resources. Layers 1 to 5 check out. Layer 6 reveals DB_HOST=localhost, which is fixed to DB_HOST=db.');
+}
+
+function V17(){
+  let s=G(`<rect width="680" height="426" rx="16" class="codebg"/><circle cx="24" cy="24" r="5" class="badf"/><circle cx="42" cy="24" r="5" class="warnf"/><circle cx="60" cy="24" r="5" class="okf"/><text x="340" y="29" text-anchor="middle" class="m f13 mut">psql</text>`,{x:60,y:36,an:'fade',d:.1});
+  s+=T(90,118,'aidb=#',{c:'m f18 b',d:.3})+typed(166,118,'SELECT * FROM experiments',{fs:18,d:.5,dur:1.4});
+  s+=`<path d="M133 127H144" class="aline fade" style="stroke:var(--ok);stroke-width:3;--d:3.6s"/>`;
+  s+=T(90,154,'aidb-#',{c:'m f18 b',d:2.2})+`<path d="M133 163H144" class="aline fade" style="stroke:var(--bad);stroke-width:3;--d:4.0s"/>`;
+  s+=G(G(`<rect x="166" y="139" width="10" height="19" class="caret blink"/>`,{an:'out',o:5.4}),{an:'fade',d:2.3});
+  s+=bubble(196,134,'still waiting for the rest of the statement…',{fs:14,mono:false,tail:'none',an:'fade',d:2.8,o:4.8});
+  s+=G(G(`<text x="160" y="154" class="m f44 b webc">;</text>`,{an:'drop',d:4.8}),{an:'out',o:5.5});
+  s+=T(166,154,';',{c:'m f18 b webc',d:5.4});
+  [' id | model   | accuracy','----+---------+----------','  1 | YOLOv10 |     0.94','(1 row)'].forEach((l,i)=>{s+=T(90,196+i*24,l.replace(/ /g,'\u00A0'),{c:'m f16'+(i===2?' okc b':''),d:5.9+i*.12})});
+  s+=T(90,312,'aidb=#',{c:'m f18 b',d:6.7})+G(`<rect x="166" y="297" width="10" height="19" class="caret blink"/>`,{an:'fade',d:6.8});
+  s+=T(90,378,'aidb=#',{c:'m f16 b okc',d:3.6})+T(170,378,'ready for a new command',{c:'f16',d:3.6});
+  s+=T(90,408,'aidb-#',{c:'m f16 b badc',d:4.0})+T(170,408,'still waiting: often a missing ;',{c:'f16',d:4.0});
+  s+=T(90,440,'Ctrl+C cancels an unfinished statement.',{c:'f14 mut',d:7.2});
+  return svg(s,'In psql, a SELECT without a semicolon leaves the prompt as aidb-#. Typing a semicolon completes it and the result row appears.');
+}
+
+function V18(){
+  let s=G(`<rect x="14" y="14" width="772" height="472" rx="22" class="hostbox"/><text x="36" y="44" class="f15 b">Host (your computer)</text>`,{an:'fade',d:.2});
+  s+=G(`<rect width="572" height="300" rx="28" class="net"/><text x="20" y="28" class="m f13 b">Compose default network</text>`,{x:190,y:60,an:'fade',d:.5});
+  s+=crate({x:250,y:100,k:'web',name:'web',sub:'nginx :80',an:'pop',v:{d:1.0}});
+  s+=G(`<rect x="180" y="126" width="20" height="50" rx="4" style="fill:var(--client);stroke:var(--ink);stroke-width:2"/>`,{an:'pop',d:1.5});
+  s+=browser(30,112,130,80,'localhost:8080',{an:'pop',d:1.5});
+  s+=arrow({x1:162,y1:152,x2:246,y2:148},{c:'var(--web)',d:1.8,dur:.5,w:3});
+  s+=T(205,212,'8080 → 80',{c:'m f13 b',a:'middle',d:2.2});
+  s+=crate({x:250,y:240,k:'client',name:'client',sub:'alpine',mood:'sleepy',an:'pop',v:{d:2.4}});
+  s+=crate({x:540,y:156,w:150,h:104,k:'db',name:'db',sub:'postgres :5432',an:'pop',v:{d:2.8}});
+  s+=icon('yes',568,142,{r:8,d:3.6})+T(582,147,'healthy',{c:'f13 b okc',d:3.6});
+  s+=arrow({x1:392,y1:288,x2:536,y2:226},{d:4.0,dur:.6});
+  s+=T(412,318,'db:5432',{c:'m f13 b',d:4.3})+T(412,336,'starts after db is healthy',{c:'mut f12',d:4.4});
+  s+=`<path d="M615 262V398" pathLength="1" class="pipe draw" style="--d:5.0s;--dur:.5s"/>`;
+  s+=drum({x:560,y:392,w:110,h:82,fs:11,an:'pop',v:{d:4.8}});
+  s+=T(684,440,'named volume',{c:'mut f12',d:5.3});
+  s+=G(`<rect width="160" height="66" rx="12" class="panel"/><text x="14" y="24" class="m f13 b">.env</text><text x="14" y="48" class="m f11 mut">POSTGRES_USER=…</text>`,{x:330,y:398,an:'pop',d:5.6});
+  s+=arrow({x1:490,y1:420,x2:548,y2:264,q:[540,360]},{dash:true,d:6.0,c:'var(--ink-2)',w:2});
+  s+=T(424,386,'fills ${…}',{c:'m f11 mut',d:6.2});
+  return svg(s,'Final architecture: a browser reaches web through port 8080 to 80, client reaches db on 5432 once db is healthy, db stores data in the postgres_data volume, and .env fills in settings.');
+}
+
+const mini=(k,mood,extra='')=>`<svg viewBox="-6 -26 154 126" aria-hidden="true">${crate({k,mood,extra})}</svg>`;
+function V19(){
+  const items=[
+    [mini('web','happy'),'<b>One file, one command.</b> compose.yaml describes the whole app. Check it with <code>docker compose config</code> before you start.'],
+    [mini('client','wow'),'<b>Talk by name.</b> Use <code>db:5432</code>, not an IP and not localhost. Published ports are for reaching in from outside.'],
+    [`<svg viewBox="-4 -4 138 118" aria-hidden="true">${drum({w:130,h:110,label:''})}</svg>`,'<b>Data lives in volumes.</b> <code>down</code> keeps named volumes. <code>down -v</code> deletes them.'],
+    [mini('db','happy',`<circle cx="124" cy="14" r="9" class="okf"/>`),'<b>Running is not healthy.</b> Health checks plus <code>depends_on</code> control startup order, and a check can be wrong too.'],
+    [mini('teal','flat'),'<b>Investigate in layers.</b> Config, state, logs, health, network, env, storage, resources. Collect evidence before restarting anything.']];
+  return `<ul class="take">${items.map(([ic,t],i)=>`<li class="up" style="--d:${.3+i*.35}s">${ic}<div>${t}</div></li>`).join('')}</ul>`;
+}
+function V20(){
+  const Q=[['web','An API connects to PostgreSQL at localhost:5432 and fails. Why?','Inside a container, localhost is that container itself. Use the service name: db:5432.'],
+    ['db','The db container was recreated with a new IP. Why does the API still connect?','Compose’s built-in DNS resolves the stable name db to whatever its current IP is.'],
+    ['client','A service shows running (unhealthy). What does that prove, and what doesn’t it?','The main process is up but the health test fails. The app or the check could be broken: compare logs and a real request.'],
+    ['vol','exec vs run, in one line each?','exec starts a new process in a container that’s already running. run creates a new one-off container from the service definition.']];
+  return `<div class="quiz"><div class="cards">${Q.map(([k,q,a],i)=>`<button class="card up" style="--k:var(--${k});--d:${.3+i*.15}s" aria-pressed="false"><span class="card-inner"><span class="face front"><small>Question ${i+1}</small><span class="q">${q}</span><em>Tap to flip</em></span><span class="face back" aria-hidden="true"><small>Answer</small><span class="q">${a}</span></span></span></button>`).join('')}</div><button class="again up" style="--d:1s" data-action="restart">Watch again from the start</button></div>`;
+}
+// ---------- Scenes ----------
+const CH=['Intro','Why Compose','Validate','Networking','Data','Settings','Health','Observe','Commands','Troubleshoot','Wrap-up'];
+const P=(t,d)=>`<p class="up" style="--d:${d}s">${t}</p>`;
+const R=(t,d)=>`<p class="rule up" style="--d:${d}s"><span>${t}</span></p>`;
+const C=(t,d,cls='')=>`<pre class="up ${cls}" style="--d:${d}s">${t}</pre>`;
+const YAML=`services:
+  web:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: \${POSTGRES_USER}
+      POSTGRES_PASSWORD: \${POSTGRES_PASSWORD}
+      POSTGRES_DB: \${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+  client:
+    image: alpine
+    command: sleep infinity
+    depends_on:
+      db:
+        condition: service_healthy
+volumes:
+  postgres_data:`;
+const SC=[
+ {ch:0,dur:8,title:'Docker Compose',vis:V0(),copy:`<p class="course up" style="--d:.05s">AI Infrastructure &amp; ML Systems, Day 8</p><h1 class="up" style="--d:.15s">Docker Compose</h1><p class="lede up" style="--d:.3s">One file that starts, connects and looks after a whole crew of containers.</p><button class="start up" style="--d:.45s" data-action="start"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15l12-7.5z"/></svg>Start the explainer</button><p class="hint up" style="--d:.6s">About 5 minutes. Use ← → or swipe to go at your own pace.</p><p class="hint rotate-hint up" style="--d:.7s">Tip: turn your phone sideways for bigger diagrams.</p>`},
+ {ch:1,dur:13,title:'One container is easy. A whole crew is not.',vis:V1(),body:P('A real AI app is an API, a model server, a database and a cache. Each one needs its own ports, network, storage and settings.',.2)+P('Typing all of that into separate <code>docker run</code> commands gets messy fast.',.35)+R('Compose moves the whole setup into one file: compose.yaml.',.5)},
+ {ch:1,dur:13,title:'A service is the cookie cutter. A container is the cookie.',vis:V2(),body:P('In compose.yaml you describe <strong>services</strong>. Compose stamps out the real <strong>containers</strong> from them.',.2)+P('Everything Compose creates gets your project name (the folder name) as a prefix, so different apps never get mixed up.',.35)},
+ {ch:2,dur:14,title:'Check the file before you run it',vis:V3(),body:P('In YAML, indentation is structure. One extra space changes what belongs to what.',.2)+P('<code>docker compose config</code> parses the file and prints what Compose actually understood. Add <code>--services</code> to list the services.',.35)+R('Parser error: broken YAML. Schema error: valid YAML in the wrong shape.',.5)},
+ {ch:3,dur:13.5,title:'Services find each other by name',vis:V4(),body:P('Compose gives every project a private network with built-in DNS, a bit like a phone book.',.2)+P('Ask for <code>web</code> and you get its current address. When a container is recreated its IP can change, but the name stays.',.35)+C('$ getent hosts web\n172.19.0.2   web\n$ curl -I http://web\nHTTP/1.1 200 OK',.5)},
+ {ch:3,dur:12,title:'localhost means “me”',vis:V5(),body:P('Every container has its own network namespace, so <code>localhost</code> always points back at itself.',.2)+P('From the client, <code>curl localhost:80</code> knocks on the client’s own door. Nothing is listening there.',.35)+R('Between containers, use the service name: web:80, db:5432.',.5)},
+ {ch:3,dur:13,title:'Host port vs container port',vis:V6(),body:P('<code>"8080:80"</code> opens a door from port 8080 on your computer to port 80 inside the container.',.2)+P('Services inside the network skip the door and use the container port directly. <code>db:5432</code> works even if 5432 is never published.',.35)+P('In <code>docker compose ps</code>, <code>5432/tcp</code> means inside only. <code>0.0.0.0:5432-&gt;5432/tcp</code> means published to your computer.',.5)},
+ {ch:4,dur:14,title:'Containers are disposable. Data shouldn’t be.',vis:V7(),body:P('Mount a <strong>named volume</strong> where PostgreSQL keeps its files. Delete the container and the data waits in the volume.',.2)+C('volumes:\n  - postgres_data:/var/lib/postgresql/data',.35)+P('Left of the colon: the volume’s name. Right: the path inside the container.',.5)},
+ {ch:4,dur:12.5,title:'Where does the data live?',vis:V8(),body:P('<strong>Named volume:</strong> Docker manages the location. Use it for databases and app data.',.2)+P('<strong>Bind mount:</strong> you choose a folder on your computer. Use it for code and config you edit.',.35)+R('down keeps named volumes. down -v deletes them, and for a database that means data loss.',.5)},
+ {ch:5,dur:14,title:'.env fills in the blanks',vis:V9(),body:P('Keep settings in a <code>.env</code> file. In compose.yaml, <code>\${POSTGRES_USER}</code> is a blank that Compose fills from it.',.2)+P('Only variables you list under <code>environment:</code> (or <code>env_file:</code>) reach the container.',.35)+R('.env is a local convenience, not a secret manager. Keep it out of Git.',.5)},
+ {ch:6,dur:14,title:'Running is not the same as healthy',vis:V10(),body:P('<strong>Running:</strong> the container’s main process is alive. <strong>Healthy:</strong> the health check you wrote is passing.',.2)+P('A database can be running for a while before it accepts connections. With <code>condition: service_healthy</code>, Compose holds the client back until db is ready.',.35)},
+ {ch:6,dur:13.5,title:'Sometimes the health check is the bug',vis:V11(),body:P('We aimed the probe at port 9999. PostgreSQL listens on 5432. Docker says running but unhealthy, yet the database works fine.',.2)+P('Compare state, logs, the health log and a real query. <code>docker inspect</code> shows the health status and its log.',.35)+R('A health check is code, and code can be wrong.',.5)},
+ {ch:7,dur:11.5,title:'Look before you touch',vis:V12(),body:P('Each command answers a different question. Collect evidence first, fix second.',.2)+P('<code>ps -a</code> also lists created and stopped containers. <code>logs -f</code> keeps following new output while you send requests from another terminal.',.35)},
+ {ch:7,dur:12.5,title:'docker stats: the vital signs',vis:V13(),body:P('Live CPU, memory, network I/O, disk I/O and process count (PIDS) for every running container.',.2)+P('The client only runs <code>sleep infinity</code>, so it barely uses anything. PostgreSQL and nginx run several worker processes.',.35)+P('In AI systems the same habit grows into GPU use, latency, queue depth and error rates.',.5)},
+ {ch:8,dur:12.5,title:'exec steps in. run makes a temporary copy.',vis:V14(),body:P('<code>exec</code> starts an extra process inside a container that’s already running.',.2)+P('<code>run</code> creates a new one-off container from the service definition and runs your command instead of the usual one. <code>--rm</code> deletes it when it exits.',.35)+P('Good for migrations, admin tasks, debugging and short batch jobs.',.5)},
+ {ch:8,dur:12.5,title:'Know what each command touches',vis:V15(),body:P('<code>stop</code> pauses containers but keeps them. <code>down</code> removes containers and the network. Only <code>down -v</code> also removes named volumes.',.2)+R('Don’t restart everything by reflex. A restart can wipe away the clues.',.35)},
+ {ch:9,dur:12.5,title:'Troubleshoot one layer at a time',vis:V16(),body:P('Random commands give random insight. Work through the layers and collect evidence at each one.',.2)+P('The case: an API can’t reach PostgreSQL. Layers 1 to 5 look fine. Layer 6 shows the API was told to use localhost.',.35)},
+ {ch:9,dur:11.5,title:'Stuck at aidb-# ?',vis:V17(),body:P('In psql, <code>aidb=#</code> means ready for a new command. <code>aidb-#</code> means it’s waiting for you to finish the current statement.',.2)+P('Usually that’s a missing semicolon. Type <code>;</code> and press Enter, or press Ctrl+C to cancel.',.35)},
+ {ch:10,dur:12,title:'The whole Day 8 stack',vis:V18(),body:P('Three services, one network, one volume, settings from .env. Here is the full file:',.2)+C(YAML,.35,'yaml')},
+ {ch:10,dur:12,title:'What to remember',vis:V19(),body:P('Five ideas carry the whole lesson.',.2)+P('Next, check yourself with four quick questions.',.35)},
+ {ch:10,dur:10,title:'Check yourself',vis:V20(),body:P('Answer in your head first, then tap a card to flip it.',.2)+P('Want another look at a scene? Tap its segment in the progress bar.',.35)}
+];
+
+// ---------- Player ----------
+const stage=document.getElementById('stage'),track=document.getElementById('track'),chap=document.getElementById('chap'),count=document.getElementById('count'),live=document.getElementById('live');
+const btnPrev=document.getElementById('prev'),btnNext=document.getElementById('next'),btnPlay=document.getElementById('play'),btnReplay=document.getElementById('replay');
+const strip=s=>s.replace(/<[^>]+>/g,'').replace(/&amp;/g,'&');
+const els=[],fills=[],segs=[];
+SC.forEach((s,i)=>{
+  const sec=document.createElement('section');sec.className='scene';
+  sec.setAttribute('aria-label',`Scene ${i+1} of ${SC.length}: ${strip(s.title)}`);
+  sec.innerHTML=`<div class="copy">${s.copy||`<h2 class="up" style="--d:.05s">${s.title}</h2>${s.body}`}</div><div class="vis">${s.vis}</div>`;
+  stage.appendChild(sec);els.push(sec);
+  const b=document.createElement('button');b.className='seg'+(i>0&&SC[i-1].ch!==s.ch?' chstart':'');
+  b.setAttribute('aria-label',`Go to scene ${i+1}: ${strip(s.title)}`);b.innerHTML='<i><b></b></i>';
+  b.addEventListener('click',()=>go(i));track.appendChild(b);segs.push(b);fills.push(b.querySelector('b'));
+});
+const ICON_PLAY='<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',ICON_PAUSE='<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6.5" y="5" width="4" height="14" rx="1"/><rect x="13.5" y="5" width="4" height="14" rx="1"/></svg>';
+let cur=-1,auto=false,t0=performance.now(),onTimer=null;
+function setAuto(v){
+  auto=v;btnPlay.innerHTML=v?ICON_PAUSE:ICON_PLAY;btnPlay.setAttribute('aria-label',v?'Pause auto-play':'Start auto-play');btnPlay.setAttribute('aria-pressed',String(v));
+  if(v&&cur>=0){const dur=SC[cur].dur*1000,el=performance.now()-t0;if(el>dur-1200)t0=performance.now()-(dur-1200)}
+}
+function go(i,{replay=false}={}){
+  i=Math.max(0,Math.min(SC.length-1,i));
+  if(i===cur&&!replay)return;
+  const prev=cur;
+  els.forEach((el,j)=>{el.classList.toggle('active',j===i);el.classList.toggle('past',j<i);
+    if(j===i){el.inert=false;el.removeAttribute('aria-hidden')}else{el.inert=true;el.setAttribute('aria-hidden','true')}});
+  if(prev>=0&&prev!==i){const p=prev;setTimeout(()=>{if(cur!==p)els[p].classList.remove('on')},750)}
+  const el=els[i];el.classList.remove('on');void el.getBoundingClientRect();
+  clearTimeout(onTimer);const delay=(prev===i)?40:260;
+  onTimer=setTimeout(()=>{el.classList.add('on');t0=performance.now()},delay);
+  t0=performance.now()+delay;cur=i;el.scrollTop=0;
+  const s=SC[i];
+  chap.innerHTML=s.ch===0?'<b>Intro</b>':`Chapter ${s.ch} of ${CH.length-1}: <b>${CH[s.ch]}</b>`;
+  count.textContent=`${i+1} / ${SC.length}`;
+  live.textContent=`Scene ${i+1} of ${SC.length}: ${strip(s.title)}`;
+  btnPrev.disabled=i===0;btnNext.disabled=i===SC.length-1;
+  fills.forEach((f,j)=>{f.style.width=j<i?'100%':'0%'});
+  segs.forEach((b,j)=>{if(j===i)b.setAttribute('aria-current','step');else b.removeAttribute('aria-current')});
+}
+function tick(now){
+  if(cur>=0){const dur=SC[cur].dur*1000,el=Math.max(0,now-t0);fills[cur].style.width=(Math.min(1,el/dur)*100).toFixed(2)+'%';
+    if(auto&&el>=dur){if(cur<SC.length-1)go(cur+1);else setAuto(false)}}
+  requestAnimationFrame(tick);
+}
+btnPrev.addEventListener('click',()=>go(cur-1));
+btnNext.addEventListener('click',()=>go(cur+1));
+btnPlay.addEventListener('click',()=>{if(!auto&&cur===SC.length-1){go(0)}setAuto(!auto);if(auto&&cur===0)go(1)});
+btnReplay.addEventListener('click',()=>go(cur,{replay:true}));
+stage.addEventListener('click',e=>{
+  const a=e.target.closest('[data-action]');
+  if(a){if(a.dataset.action==='start'){setAuto(true);go(1)}else if(a.dataset.action==='restart'){setAuto(true);go(1)}return}
+  const c=e.target.closest('.card');
+  if(c){const f=c.classList.toggle('flipped');c.setAttribute('aria-pressed',String(f));c.querySelector('.front').setAttribute('aria-hidden',String(f));c.querySelector('.back').setAttribute('aria-hidden',String(!f))}
+});
+document.addEventListener('keydown',e=>{
+  if(e.altKey||e.ctrlKey||e.metaKey)return;
+  const onBtn=e.target.closest&&e.target.closest('button');
+  if(e.key==='ArrowRight'||e.key==='PageDown'){e.preventDefault();go(cur+1)}
+  else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();go(cur-1)}
+  else if(e.key===' '&&!onBtn){e.preventDefault();btnPlay.click()}
+  else if(e.key==='r'||e.key==='R'){go(cur,{replay:true})}
+  else if(e.key==='Home'){go(0)}else if(e.key==='End'){go(SC.length-1)}
+});
+let sx=null,sy=null;
+stage.addEventListener('touchstart',e=>{const t=e.touches[0];sx=t.clientX;sy=t.clientY},{passive:true});
+stage.addEventListener('touchend',e=>{if(sx==null)return;const t=e.changedTouches[0],dx=t.clientX-sx,dy=t.clientY-sy;if(Math.abs(dx)>55&&Math.abs(dx)>Math.abs(dy)*1.4)go(cur+(dx<0?1:-1));sx=null},{passive:true});
+setAuto(false);go(0);requestAnimationFrame(tick);
+
+// Deterministic export hooks for html_to_mp4.py.
+window.__total=SC.reduce((sum,s)=>sum+s.dur,0);
+window.__seek=seconds=>{
+  let ms=Math.max(0,Math.min(window.__total*1000,seconds*1000)),i=0;
+  while(i<SC.length-1&&ms>=SC[i].dur*1000)ms-=SC[i++].dur*1000;
+  if(cur!==i)go(i,{replay:true});
+  setAuto(false);
+  clearTimeout(onTimer);
+  const local=ms;
+  t0=performance.now()-local;
+  const el=els[i];el.classList.add('on','active');
+  fills.forEach((f,k)=>{f.style.width=k<i?'100%':k===i?`${Math.min(100,local/(SC[k].dur*10))}%`:'0%'});
+  void el.offsetWidth;
+  el.getAnimations({subtree:true}).forEach(animation=>{animation.currentTime=local});
+};
+</script>
+</body>
+</html>

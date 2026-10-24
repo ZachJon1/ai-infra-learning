@@ -1,0 +1,1289 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>The packet journey: Linux networking, animated</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --fh:"Bricolage Grotesque","Avenir Next","Segoe UI",system-ui,sans-serif;
+  --fb:"Atkinson Hyperlegible","Segoe UI",system-ui,-apple-system,sans-serif;
+  --fm:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --bg:#EEF3FA;--panel:#FFFFFF;--soft:#DAE4F2;--ink:#16203B;--muted:#4A5675;--line:#B4C2DA;
+  --or:#D4620A;--gr:#178A46;--bl:#2156D9;--br:#7D4E33;--red:#CC2F40;--pk:#FFC93C;--slate:#4D5A78;--on:#FFFFFF;
+  --term:#16203B;--termtx:#EEF3FA;
+  color-scheme:light;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0F1833;--panel:#18244A;--soft:#25356B;--ink:#EEF2FF;--muted:#AAB7DA;--line:#3D4F8A;
+    --or:#FF9A45;--gr:#45D07E;--bl:#7EA8FF;--br:#D69C72;--red:#FF6E7B;--pk:#FFD25C;--slate:#A9B6D9;--on:#0E1630;
+    --term:#060B1C;--termtx:#E6ECFF;color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0F1833;--panel:#18244A;--soft:#25356B;--ink:#EEF2FF;--muted:#AAB7DA;--line:#3D4F8A;
+  --or:#FF9A45;--gr:#45D07E;--bl:#7EA8FF;--br:#D69C72;--red:#FF6E7B;--pk:#FFD25C;--slate:#A9B6D9;--on:#0E1630;
+  --term:#060B1C;--termtx:#E6ECFF;color-scheme:dark;
+}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*,*::before,*::after{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--fb);-webkit-font-smoothing:antialiased;overflow:hidden}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--bl);outline-offset:3px;border-radius:6px}
+
+/* ---------- shell ---------- */
+.app{height:100%;display:flex;flex-direction:column;max-width:1320px;margin:0 auto;padding:10px clamp(12px,2.6vw,36px) 6px}
+.top{display:flex;align-items:center;gap:14px;min-height:44px}
+.brand{display:flex;align-items:center;gap:9px;font-family:var(--fh);font-weight:800;font-size:19px;letter-spacing:-.01em;white-space:nowrap}
+.brand svg{width:34px;height:26px}
+.acttag{display:inline-flex;align-items:center;gap:8px;font-weight:700;font-size:14px;line-height:1;padding:7px 14px 7px 10px;border-radius:5px 16px 16px 5px;background:var(--act);color:var(--acton,var(--on));transition:background-color .4s;white-space:nowrap}
+.acttag::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--bg)}
+.chap-btn{margin-left:auto;font-weight:700;font-size:14px;padding:8px 16px;border:2px solid var(--ink);border-radius:999px;background:var(--panel);cursor:pointer}
+.a0{--act:var(--ink);--acton:var(--bg)}
+.a1{--act:var(--or)}.a2{--act:var(--gr)}.a3{--act:var(--bl)}.a4{--act:var(--br)}.a5{--act:var(--gr)}.a6{--act:var(--or)}
+.prog{display:flex;gap:4px;align-items:center;height:22px;margin:6px 0 4px}
+.seg{flex:1;height:10px;border:0;padding:0;border-radius:5px;background:var(--soft);cursor:pointer;position:relative;overflow:hidden;transition:height .2s}
+.seg:hover{height:14px}
+.seg.cur{outline:2px solid var(--ink);outline-offset:2px}
+.seg .fill{position:absolute;inset:0 auto 0 0;width:0;background-color:var(--act)}
+.seg.a5 .fill,.seg.a6 .fill{background-image:repeating-linear-gradient(135deg,transparent 0 6px,rgba(255,255,255,.78) 6px 10px)}
+.stage{position:relative;flex:1;min-height:0}
+.ctrl{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;min-height:66px;padding-top:4px}
+.ctrl .mid{display:flex;gap:12px;align-items:center}
+.ib{width:46px;height:46px;border-radius:50%;border:2px solid var(--ink);background:var(--panel);display:grid;place-items:center;cursor:pointer;padding:0}
+.ib svg{width:22px;height:22px}
+.ib.big{width:58px;height:58px;background:var(--ink);color:var(--bg)}
+.ib.big svg{width:26px;height:26px}
+.ib:disabled{opacity:.3;cursor:default}
+#replay{justify-self:start}
+.count{justify-self:end;font-family:var(--fm);font-size:14px;color:var(--muted)}
+
+/* ---------- scenes ---------- */
+.scene{position:absolute;inset:0;display:grid;grid-template-columns:minmax(260px,5fr) 8fr;grid-template-rows:minmax(0,1fr);gap:clamp(16px,3vw,48px);align-items:center;opacity:0;visibility:hidden;transform:translateX(40px);transition:opacity .4s ease,transform .5s cubic-bezier(.2,.8,.2,1),visibility 0s linear .5s}
+.scene.past{transform:translateX(-40px)}
+.scene.cur{opacity:1;visibility:visible;transform:none;transition:opacity .45s ease .08s,transform .55s cubic-bezier(.2,.8,.2,1) .04s,visibility 0s}
+.txt{max-width:46ch}
+.vis{height:100%;min-height:0;display:flex;align-items:center;justify-content:center}
+.vis svg{width:100%;height:100%;overflow:visible}
+.vis.col{flex-direction:column;gap:10px}
+.vis.col svg{flex:1 1 0;min-height:140px;height:auto}
+.scene.wide{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr);align-items:start;gap:14px}
+.scene.wide .txt{max-width:none}
+.scene.wide .sub{max-width:68ch;margin-bottom:0}
+.vis.scroll{display:block;overflow:auto;align-self:stretch;padding:4px 4px 16px}
+.kick{font-weight:700;font-size:15px;color:var(--muted);margin:0 0 12px}
+.txt h1{font-family:var(--fh);font-weight:800;font-size:clamp(44px,6.4vw,92px);line-height:.96;letter-spacing:-.035em;margin:0 0 18px}
+.txt h2{font-family:var(--fh);font-weight:800;font-size:clamp(28px,3.4vw,50px);line-height:1;letter-spacing:-.025em;margin:0 0 14px;text-wrap:balance}
+.sub{font-size:clamp(16px,1.3vw,19px);line-height:1.5;color:var(--muted);margin:0 0 16px;max-width:44ch;text-wrap:pretty}
+.txt code,.qq code,.ma code{font-family:var(--fm);font-size:.86em;background:var(--panel);border:1.5px solid var(--line);border-radius:6px;padding:1px 6px;color:var(--ink);white-space:nowrap}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px}
+.chips code{font-size:14px;padding:5px 10px;border-width:2px}
+.mini{font-size:14px;color:var(--muted);margin:0 0 12px;line-height:2}
+.mini code{margin-right:2px}
+.note{display:inline-block;font-weight:700;font-size:15px;line-height:1.4;background:var(--pk);color:#16203B;border:2px solid #16203B;border-radius:12px;padding:8px 12px;margin:2px 0 0;max-width:44ch}
+.btns{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.cta{font-weight:700;font-size:17px;background:var(--ink);color:var(--bg);border:2px solid var(--ink);border-radius:999px;padding:13px 24px;cursor:pointer;transition:transform .15s}
+.cta:hover{transform:translateY(-2px)}
+.cta.ghost{background:transparent;color:var(--ink)}
+.hint{font-size:14px;color:var(--muted);max-width:30ch}
+.rotate-tip{display:none}
+
+/* svg text + paint */
+.vis text{font-family:var(--fb);font-size:20px;fill:var(--ink)}
+.vis .b{font-weight:700}
+.vis .hd{font-family:var(--fh);font-weight:800}
+.vis .m{font-family:var(--fm)}
+.vis .sm{font-size:16px}
+.vis .xs{font-size:14px}
+.vis .lg{font-size:26px}
+.vis .xl{font-size:44px}
+.vis .tc{text-anchor:middle}
+.vis .te{text-anchor:end}
+.vis .mut{fill:var(--muted)}
+.vis .on-c{fill:var(--on)}
+.vis .tbg{fill:var(--bg)}
+.vis .tdk{fill:#16203B}
+.vis .t-term{fill:var(--termtx)}
+.vis .c-or{fill:var(--or)}.vis .c-gr{fill:var(--gr)}.vis .c-bl{fill:var(--bl)}.vis .c-br{fill:var(--br)}.vis .c-red{fill:var(--red)}
+.vis .c-pk{fill:var(--pk)}.vis .c-panel{fill:var(--panel)}.vis .c-soft{fill:var(--soft)}.vis .c-ink{fill:var(--ink)}.vis .c-slate{fill:var(--slate)}
+.vis .c-bg{fill:var(--bg)}.vis .c-term{fill:var(--term)}
+.vis .st{stroke:var(--ink);stroke-width:2.5;stroke-linejoin:round}
+.vis .ln{fill:none;stroke:var(--line);stroke-width:3;stroke-linecap:round}
+.vis .lk{fill:none;stroke:var(--ink);stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+.vis .nf{fill:none}
+.vis .dsh{stroke-dasharray:7 8}
+.vis .sor{stroke:var(--or)}.vis .sgr{stroke:var(--gr)}.vis .sbl{stroke:var(--bl)}.vis .sbr{stroke:var(--br)}.vis .sred{stroke:var(--red)}.vis .spk{stroke:var(--pk)}
+
+/* ---------- motion utilities (run only in the active scene) ---------- */
+.vis .pop,.vis .drop,.vis .rise,.vis .bob,.vis .poof,.vis .popout,.vis .growy{transform-box:fill-box;transform-origin:50% 50%}
+.vis .grow{transform-box:fill-box;transform-origin:0 50%}
+.vis .growy{transform-origin:50% 100%}
+.vis .wipe{transform-box:fill-box;transform-origin:100% 50%}
+.scene.on .pop{animation:pop .55s cubic-bezier(.3,1.55,.6,1) var(--d,0s) both}
+.scene.on .popout{animation:pop .55s cubic-bezier(.3,1.55,.6,1) var(--d,0s) both,fadeout .35s ease var(--d2,9s) forwards}
+.scene.on .rise{animation:rise .6s cubic-bezier(.2,.8,.2,1) var(--d,0s) both}
+.scene.on .fade{animation:fade .6s ease var(--d,0s) both}
+.scene.on .drop{animation:drop .6s cubic-bezier(.3,1.4,.6,1) var(--d,0s) both}
+.scene.on .grow{animation:growx .9s cubic-bezier(.2,.8,.2,1) var(--d,0s) both}
+.scene.on .grow.slow{animation-duration:1.7s}
+.scene.on .growy{animation:growy .7s cubic-bezier(.3,1.4,.6,1) var(--d,0s) both}
+.scene.on .draw{stroke-dasharray:100;animation:draw .6s ease var(--d,0s) both}
+.scene.on .drawslow{stroke-dasharray:100;animation:draw 8s linear var(--d,0s) both}
+.scene.on .bob{animation:bob 2.2s ease-in-out infinite}
+.scene.on .wave{animation:pulse 1.6s ease-in-out var(--w,0s) infinite}
+.scene.on .lamp{animation:pulse 1.8s ease-in-out infinite}
+.scene.on .wipe{animation:wipe 1.3s steps(24,end) var(--d,0s) both}
+.scene.on .poof{animation:poof .5s ease var(--d,0s) forwards}
+.scene.on .orbit{transform-box:view-box;transform-origin:0 0;animation:spin 5s linear 2.8s infinite}
+.scene.on .tgl{animation:tgl .4s ease var(--d,0s) both}
+.scene.on .knob{animation:knob .4s ease var(--d,0s) both}
+.scene.on .plug{animation:plug .8s cubic-bezier(.5,0,.3,1.3) var(--d,0s) both}
+.scene.on .mvIntro{animation:mvIntro 4.5s linear 1.4s infinite both}
+.scene.on .mvLayers{animation:mvLayers 7s linear 1.6s infinite both}
+.scene.on .bigPkt{animation:bigPkt 3.2s ease 2.6s both}
+.scene.on .smallPkt{animation:smallPkt 3s ease-in-out 6.4s both}
+.scene.on .hlA{animation:hlA 4s linear var(--d,0s) both}
+.scene.on .hlB{animation:hlB 4.5s linear var(--d,0s) both}
+.scene.on .mvA{animation:mvA 4s ease-in-out 2.1s both}
+.scene.on .mvB{animation:mvB 4.5s ease-in-out 6.6s both}
+.scene.on .mvTTL{animation:mvTTL 6s ease-in-out 1s both}
+.scene.on .loopspin{transform-box:view-box;transform-origin:0 0;animation:loopspin 3.15s linear 7s both}
+.scene.on .mvPort{animation:mvPort 3.6s ease-in-out 1.6s both}
+.scene.on .q1{animation:q1 2.8s ease-in-out 1s both}
+.scene.on .a1{animation:a1 2.8s ease-in-out 3.8s both}
+.scene.on .q2{animation:q2 1.2s ease-in-out 7s both}
+.scene.on .a2{animation:a2 1.2s ease-in-out 8.2s both}
+.scene.on .mvFw{animation:mvFw 3.6s ease-in-out 2s both}
+.scene.on .climb{animation:climb 10s ease-in-out .8s both}
+.scene.on .mvFin{animation:mvFin 8s linear 1s both}
+.scene.on .txt>*{animation:rise .55s cubic-bezier(.2,.8,.2,1) both}
+.scene.on .txt>*:nth-child(2){animation-delay:.08s}
+.scene.on .txt>*:nth-child(3){animation-delay:.16s}
+.scene.on .txt>*:nth-child(4){animation-delay:.24s}
+.scene.on .txt>*:nth-child(5){animation-delay:.32s}
+
+@keyframes pop{0%{opacity:0;transform:scale(.4)}70%{opacity:1;transform:scale(1.07)}100%{opacity:1;transform:scale(1)}}
+@keyframes rise{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+@keyframes fadeout{to{opacity:0}}
+@keyframes drop{0%{opacity:0;transform:translateY(-70px)}100%{opacity:1;transform:none}}
+@keyframes growx{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes growy{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+@keyframes draw{from{stroke-dashoffset:100}to{stroke-dashoffset:0}}
+@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+@keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}}
+@keyframes wipe{from{transform:scaleX(1)}to{transform:scaleX(0)}}
+@keyframes poof{to{opacity:0;transform:scale(1.9)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes loopspin{from{transform:rotate(0)}to{transform:rotate(450deg)}}
+@keyframes tgl{to{fill:var(--gr)}}
+@keyframes knob{to{transform:translateX(84px)}}
+@keyframes plug{to{transform:translateX(40px)}}
+@keyframes mvIntro{0%{transform:translate(0,0);opacity:0}8%{transform:translate(0,0);opacity:1}30%{transform:translate(89px,-68px)}50%{transform:translate(177px,-92px)}70%{transform:translate(264px,-73px)}88%{transform:translate(350px,-10px);opacity:1}100%{transform:translate(350px,-10px);opacity:0}}
+@keyframes mvLayers{0%{transform:translateY(0);opacity:0}4%{opacity:1}14%{transform:translateY(0)}18%,30%{transform:translateY(58px)}34%,46%{transform:translateY(116px)}50%,62%{transform:translateY(174px)}66%,78%{transform:translateY(232px)}82%,94%{transform:translateY(290px);opacity:1}100%{transform:translateY(290px);opacity:0}}
+@keyframes bigPkt{0%{transform:translateX(0);opacity:0}6%{opacity:1;transform:translateX(0)}40%{transform:translateX(235px)}45%{transform:translateX(226px)}50%{transform:translateX(236px)}55%{transform:translateX(228px)}62%{transform:translateX(234px)}80%{transform:translateX(232px);opacity:1}100%{transform:translateX(232px);opacity:0}}
+@keyframes smallPkt{0%{transform:translateX(0);opacity:0}8%{opacity:1;transform:translateX(0)}100%{transform:translateX(500px);opacity:1}}
+@keyframes hlA{0%{opacity:0}10%{opacity:1}85%{opacity:1}100%{opacity:0}}
+@keyframes hlB{0%{opacity:0}10%,100%{opacity:1}}
+@keyframes mvA{0%{transform:translate(0,0);opacity:0}10%{transform:translate(0,0);opacity:1}60%{transform:translate(173px,64px)}88%{transform:translate(173px,64px);opacity:1}100%{transform:translate(173px,64px);opacity:0}}
+@keyframes mvB{0%{transform:translate(0,0);opacity:0}8%{transform:translate(0,0);opacity:1}45%,55%{transform:translate(323px,-16px)}92%,100%{transform:translate(484px,-30px);opacity:1}}
+@keyframes mvTTL{0%{transform:translateX(0);opacity:0}5%{transform:translateX(0);opacity:1}18%,26%{transform:translateX(140px)}40%,48%{transform:translateX(280px)}62%,70%{transform:translateX(420px)}90%,100%{transform:translateX(545px);opacity:1}}
+@keyframes mvPort{0%{transform:translate(0,0);opacity:0}8%{transform:translate(0,0);opacity:1}55%,70%{transform:translate(156px,-101px)}90%{transform:translate(251px,-101px);opacity:1}100%{transform:translate(251px,-101px);opacity:0}}
+@keyframes q1{0%{transform:translateX(0);opacity:0}6%{transform:translateX(0);opacity:1}40%,55%{transform:translateX(250px)}92%{transform:translateX(490px);opacity:1}100%{transform:translateX(490px);opacity:0}}
+@keyframes a1{0%{transform:translateX(0);opacity:0}6%{transform:translateX(0);opacity:1}40%,55%{transform:translateX(-240px)}92%{transform:translateX(-490px);opacity:1}100%{transform:translateX(-490px);opacity:0}}
+@keyframes q2{0%{transform:translateX(0);opacity:0}10%{transform:translateX(0);opacity:1}80%{transform:translateX(250px);opacity:1}100%{transform:translateX(250px);opacity:0}}
+@keyframes a2{0%{transform:translateX(0);opacity:0}10%{transform:translateX(0);opacity:1}85%{transform:translateX(-250px);opacity:1}100%{transform:translateX(-250px);opacity:0}}
+@keyframes mvFw{0%{transform:translateX(0);opacity:0}8%{transform:translateX(0);opacity:1}40%{transform:translateX(110px)}45%{transform:translateX(101px)}50%{transform:translateX(110px)}55%{transform:translateX(103px)}62%{transform:translateX(109px)}75%{transform:translateX(108px);opacity:1}100%{transform:translateX(-30px);opacity:0}}
+@keyframes climb{0%{transform:translateY(0);opacity:0}3%{opacity:1}7%{transform:translateY(0)}11%,18%{transform:translateY(-45px)}22%,29%{transform:translateY(-90px)}33%,40%{transform:translateY(-135px)}44%,51%{transform:translateY(-180px)}55%,62%{transform:translateY(-225px)}66%,73%{transform:translateY(-270px)}77%,84%{transform:translateY(-315px)}88%,100%{transform:translateY(-360px);opacity:1}}
+@keyframes mvFin{0%{transform:translate(0,0)}20.5%{transform:translate(230px,0)}41%{transform:translate(460px,0)}45.5%{transform:translate(497px,25px)}50%{transform:translate(509px,80px)}54.5%{transform:translate(497px,135px)}59%{transform:translate(460px,160px)}79.5%{transform:translate(230px,160px)}100%{transform:translate(0,160px)}}
+
+/* ---------- card scenes ---------- */
+.cases{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px}
+.case{display:block;width:100%;perspective:1000px;background:none;border:0;padding:0;text-align:left;cursor:pointer;border-radius:18px}
+.case .inner{display:grid;transform-style:preserve-3d;transition:transform .6s cubic-bezier(.4,0,.2,1)}
+.scene.on .case .inner{animation:flip .7s cubic-bezier(.5,0,.3,1) var(--d,0s) both}
+.case.manual .inner{animation:none;transform:rotateY(0)}
+.case.manual.showback .inner{transform:rotateY(180deg)}
+.face{grid-area:1/1;display:flex;flex-direction:column;gap:10px;min-height:178px;padding:14px 16px 16px;border:2.5px solid var(--ink);border-radius:18px;background:var(--panel);-webkit-backface-visibility:hidden;backface-visibility:hidden}
+.face.back{transform:rotateY(180deg);background:var(--soft)}
+.letter{font-family:var(--fh);font-weight:800;font-size:20px;width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:var(--ink);color:var(--bg);flex:none}
+.back .letter{background:var(--gr);color:var(--on)}
+.snip{display:block;font-family:var(--fm);font-size:13.5px;line-height:1.5;background:var(--term);color:var(--termtx);border-radius:10px;padding:10px 12px;white-space:pre-wrap;word-break:break-word}
+.snip i{font-style:normal;opacity:.65}
+.what{font-size:15px;color:var(--muted);line-height:1.4}
+.back strong{font-family:var(--fh);font-weight:800;font-size:22px;line-height:1.1}
+.back .fix{font-size:15px;line-height:1.45}
+@keyframes flip{from{transform:rotateY(0)}to{transform:rotateY(180deg)}}
+
+.myths{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.myth{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:6px 22px;align-items:center;background:var(--panel);border:2px solid var(--line);border-radius:14px;padding:11px 16px}
+.mq{display:flex;align-items:center;gap:12px;font-weight:700;font-size:16px;line-height:1.35}
+.stamp{flex:none;font-size:12px;font-weight:700;color:var(--red);border:2px solid var(--red);border-radius:6px;padding:1px 7px;transform:rotate(-8deg)}
+.mt{text-decoration:line-through 3px transparent}
+.ma{font-size:15.5px;line-height:1.45}
+.scene.on .myth{animation:rise .45s cubic-bezier(.2,.8,.2,1) var(--d,0s) both}
+.scene.on .myth .mt{animation:strike .4s ease calc(var(--d,0s) + .5s) both}
+.scene.on .myth .stamp{animation:stamp .35s cubic-bezier(.3,1.5,.6,1) calc(var(--d,0s) + .7s) both}
+.scene.on .myth .ma{animation:fade .5s ease calc(var(--d,0s) + .9s) both}
+@keyframes strike{from{text-decoration-color:transparent}to{text-decoration-color:var(--red)}}
+@keyframes stamp{from{opacity:0;transform:rotate(-8deg) scale(1.9)}to{opacity:1;transform:rotate(-8deg) scale(1)}}
+
+.quiz{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;counter-reset:q}
+.q{counter-increment:q;background:var(--panel);border:2.5px solid var(--ink);border-radius:18px;padding:14px 16px 16px;display:flex;flex-direction:column;gap:12px}
+.qq{margin:0;font-weight:700;font-size:16.5px;line-height:1.45}
+.qq::before{content:counter(q);display:inline-grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--bl);color:var(--on);font-family:var(--fh);font-weight:800;font-size:15px;margin-right:8px;vertical-align:1px}
+.reveal{align-self:flex-start;font-weight:700;font-size:14px;border:2px solid #16203B;background:var(--pk);color:#16203B;border-radius:999px;padding:7px 15px;cursor:pointer}
+.qa{margin:0;padding:10px 12px;background:var(--soft);border-radius:12px;font-size:15.5px;line-height:1.45;animation:rise .35s ease both}
+.qa[hidden]{display:none}
+.scene.on .q{animation:rise .45s cubic-bezier(.2,.8,.2,1) var(--d,0s) both}
+
+.tryit{width:100%;max-width:620px;background:var(--panel);border:2.5px solid var(--ink);border-radius:18px;padding:10px 18px 12px;display:flex;flex-direction:column;gap:2px}
+.tryit label{font-weight:700;font-size:15px}
+.tryrow{display:flex;align-items:center;gap:14px}
+.pfx{font-family:var(--fh);font-weight:800;font-size:34px;min-width:2.7ch;line-height:1.1}
+.tryrow input{flex:1;accent-color:var(--bl);height:30px;cursor:pointer}
+.readout{margin:0;font-size:15px;line-height:1.5}
+.readout .mask{font-family:var(--fm);font-size:13px;color:var(--muted);margin-left:8px;white-space:nowrap}
+
+/* chapters dialog */
+dialog{border:2.5px solid var(--ink);border-radius:20px;background:var(--panel);color:var(--ink);padding:18px 20px 20px;width:min(620px,92vw);max-height:82vh}
+dialog::backdrop{background:rgba(8,12,30,.5)}
+.chap-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.chap-head h2{font-family:var(--fh);font-weight:800;font-size:26px;margin:0}
+.chap-head .ib{width:40px;height:40px}
+.chap-list h3{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:var(--muted);margin:14px 0 4px}
+.chap-list h3::before{content:"";width:22px;height:8px;border-radius:4px;background:var(--act)}
+.chap-list ul{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:2px 10px}
+.chap-list button{width:100%;text-align:left;background:none;border:0;border-radius:8px;padding:7px 9px;font-size:15px;cursor:pointer;line-height:1.3}
+.chap-list button:hover{background:var(--soft)}
+.chap-list button.now{background:var(--soft);font-weight:700}
+
+/* ---------- responsive ---------- */
+@media (max-width:860px){
+  .scene{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr);align-items:start;gap:10px;overflow-y:auto;overflow-x:hidden}
+  .txt{max-width:none}
+  .txt h1{font-size:clamp(40px,11vw,60px);margin-bottom:12px}
+  .txt h2{font-size:clamp(24px,6.4vw,34px);margin-bottom:8px}
+  .sub{font-size:15px;max-width:none;margin-bottom:10px}
+  .chips{margin-bottom:8px}
+  .chips code{font-size:12.5px;padding:4px 8px}
+  .note{font-size:14px;padding:6px 10px}
+  .vis{min-height:250px;align-items:flex-start}
+  .vis svg{height:auto;max-height:100%}
+  .vis.col{min-height:360px}
+  .myth{grid-template-columns:1fr}
+  .quiz{grid-template-columns:1fr}
+}
+@media (max-width:600px) and (orientation:portrait){.rotate-tip{display:block;font-size:13px;color:var(--muted);margin:14px 0 0}}
+@media (max-width:480px){.brand span{display:none}.acttag{font-size:13px}.ctrl{min-height:58px}.ib{width:42px;height:42px}.ib.big{width:52px;height:52px}}
+@media (max-height:560px) and (min-width:861px){
+  .txt h1{font-size:46px}.txt h2{font-size:30px;margin-bottom:8px}.sub{font-size:15px;margin-bottom:8px}
+  .ctrl{min-height:52px}.ib{width:40px;height:40px}.ib.big{width:48px;height:48px}.note{font-size:14px}
+}
+@media (prefers-reduced-motion:reduce){
+  .scene,.scene.cur,.scene.past{transform:none;transition:opacity .2s linear,visibility 0s}
+  .scene.on *,.scene.on *::before,.scene.on *::after{animation-duration:1ms!important;animation-delay:0s!important;animation-iteration-count:1!important}
+}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="packy" viewBox="0 0 64 48">
+      <rect x="3" y="5" width="58" height="39" rx="9" style="fill:var(--pk);stroke:#16203B;stroke-width:2.6"/>
+      <path d="M7 10 L32 25 L57 10" style="fill:none;stroke:#16203B;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round"/>
+      <circle cx="23" cy="31" r="3.4" style="fill:#16203B"/>
+      <circle cx="41" cy="31" r="3.4" style="fill:#16203B"/>
+      <path d="M28 37 Q32 40.5 36 37" style="fill:none;stroke:#16203B;stroke-width:2.4;stroke-linecap:round"/>
+      <circle cx="15" cy="36" r="3" style="fill:#FF7F99;opacity:.65"/>
+      <circle cx="49" cy="36" r="3" style="fill:#FF7F99;opacity:.65"/>
+    </symbol>
+    <symbol id="laptop" viewBox="0 0 100 76">
+      <rect x="14" y="4" width="72" height="50" rx="6" style="fill:var(--panel);stroke:var(--ink);stroke-width:3"/>
+      <rect x="21" y="11" width="58" height="36" rx="3" style="fill:var(--soft)"/>
+      <path d="M5 58 H95 L89 70 H11 Z" style="fill:var(--panel);stroke:var(--ink);stroke-width:3;stroke-linejoin:round"/>
+    </symbol>
+    <symbol id="server" viewBox="0 0 80 100">
+      <rect x="5" y="4" width="70" height="92" rx="9" style="fill:var(--panel);stroke:var(--ink);stroke-width:3"/>
+      <rect x="14" y="14" width="52" height="20" rx="4" style="fill:var(--soft)"/>
+      <rect x="14" y="40" width="52" height="20" rx="4" style="fill:var(--soft)"/>
+      <rect x="14" y="66" width="52" height="20" rx="4" style="fill:var(--soft)"/>
+      <circle cx="57" cy="24" r="3.5" style="fill:var(--gr)"/>
+      <circle cx="57" cy="50" r="3.5" style="fill:var(--gr)"/>
+      <circle cx="57" cy="76" r="3.5" style="fill:var(--or)"/>
+    </symbol>
+    <symbol id="router" viewBox="0 0 90 60">
+      <path d="M22 24 L15 5 M68 24 L75 5" style="fill:none;stroke:var(--ink);stroke-width:3.2;stroke-linecap:round"/>
+      <rect x="4" y="22" width="82" height="34" rx="9" style="fill:var(--panel);stroke:var(--ink);stroke-width:3"/>
+      <circle cx="22" cy="39" r="3.5" style="fill:var(--gr)"/>
+      <circle cx="34" cy="39" r="3.5" style="fill:var(--gr)"/>
+      <circle cx="46" cy="39" r="3.5" style="fill:var(--or)"/>
+    </symbol>
+    <symbol id="cloud" viewBox="0 0 140 90">
+      <path d="M34 80 H108 A22 22 0 0 0 110 36 A30 30 0 0 0 54 28 A24 24 0 0 0 32 52 A14 14 0 0 0 34 80 Z" style="fill:var(--panel);stroke:var(--ink);stroke-width:3;stroke-linejoin:round"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="app">
+  <header class="top">
+    <div class="brand"><svg viewBox="0 0 64 48" aria-hidden="true"><use href="#packy"/></svg><span>The packet journey</span></div>
+    <span class="acttag a0" id="acttag">Start here</span>
+    <button class="chap-btn" id="chapBtn" aria-haspopup="dialog">Chapters</button>
+  </header>
+  <nav class="prog" id="prog" aria-label="Scenes"></nav>
+
+  <main class="stage" id="stage">
+
+    <!-- 0 INTRO -->
+    <section class="scene" data-act="0" data-tag="Start here" data-dur="9" data-title="The great packet journey">
+      <div class="txt">
+        <p class="kick">Day 5: Linux networking fundamentals</p>
+        <h1>The great packet journey</h1>
+        <p class="sub">Type <code>curl https://example.com</code> and a tiny packet sets off on a big trip. Ride along and meet every stop it makes.</p>
+        <div class="btns"><button class="cta" id="startBtn">Start the journey</button><span class="hint">Press start and it plays on its own. Use ← → or swipe to move at your own pace.</span></div>
+        <p class="rotate-tip">Tip: turn your phone sideways for bigger diagrams.</p>
+      </div>
+      <div class="vis">
+        <svg viewBox="0 0 640 440" role="img" aria-label="A packet travels from a laptop running curl to the example.com server, which answers 200 OK">
+          <g class="rise" style="--d:.2s">
+            <rect x="24" y="34" width="372" height="56" rx="14" class="c-term"/>
+            <text x="44" y="70" class="m t-term">$ curl https://example.com</text>
+            <rect x="68" y="44" width="318" height="38" class="c-term wipe" style="--d:.7s"/>
+          </g>
+          <path d="M150 290 Q330 110 500 280" class="ln dsh fade" style="--d:1s"/>
+          <use href="#laptop" x="30" y="248" width="140" height="106" class="rise" style="--d:.4s"/>
+          <use href="#server" x="502" y="214" width="100" height="125" class="rise" style="--d:.6s"/>
+          <text x="100" y="384" class="sm b tc fade" style="--d:.6s">your laptop</text>
+          <text x="552" y="366" class="sm b tc fade" style="--d:.8s">example.com</text>
+          <g class="pop" style="--d:1.8s"><rect x="186" y="258" width="64" height="30" rx="15" class="c-bl"/><text x="218" y="279" class="xs b tc on-c">DNS</text></g>
+          <g class="pop" style="--d:2.2s"><rect x="268" y="222" width="70" height="30" rx="15" class="c-gr"/><text x="303" y="243" class="xs b tc on-c">route</text></g>
+          <g class="pop" style="--d:2.6s"><rect x="352" y="222" width="70" height="30" rx="15" class="c-or"/><text x="387" y="243" class="xs b tc on-c">TCP</text></g>
+          <g class="pop" style="--d:3s"><rect x="420" y="296" width="72" height="30" rx="15" class="c-br"/><text x="456" y="317" class="xs b tc on-c">HTTP</text></g>
+          <g transform="translate(118,266)"><g class="mvIntro"><use href="#packy" width="64" height="48"/></g></g>
+          <g class="pop" style="--d:5.3s"><g class="bob"><rect x="500" y="152" width="104" height="40" rx="20" class="c-gr st"/><text x="552" y="179" class="sm b tc on-c">200 OK</text></g></g>
+        </svg>
+      </div>
+    </section>
+
+    <!-- 1 LAYERS -->
+    <section class="scene" data-act="0" data-dur="11" data-title="Networking is a stack of layers">
+      <div class="txt">
+        <h2>Networking is a stack of layers</h2>
+        <p class="sub">Each layer hands the packet to the one below it on the way out, and back up on the way in.</p>
+        <p class="note">When something breaks, check one layer at a time instead of guessing.</p>
+      </div>
+      <div class="vis">
+        <svg viewBox="0 0 640 440" role="img" aria-label="Six layers: application, socket and port, TCP UDP ICMP, IP and routing, network interface, network">
+          <g class="pop" style="--d:1.4s"><rect x="150" y="14" width="340" height="40" rx="20" class="c-pk st"/><text x="320" y="40" class="sm b tc tdk">DNS lookup first, if you typed a name</text></g>
+          <g class="drop" style="--d:.95s"><rect x="150" y="70" width="340" height="48" rx="12" class="c-bl"/><text x="320" y="101" class="b tc on-c">Application</text></g>
+          <g class="drop" style="--d:.8s"><rect x="150" y="128" width="340" height="48" rx="12" class="c-gr"/><text x="320" y="159" class="b tc on-c">Socket / port</text></g>
+          <g class="drop" style="--d:.65s"><rect x="150" y="186" width="340" height="48" rx="12" class="c-or"/><text x="320" y="217" class="b tc on-c">TCP / UDP / ICMP</text></g>
+          <g class="drop" style="--d:.5s"><rect x="150" y="244" width="340" height="48" rx="12" class="c-br"/><text x="320" y="275" class="b tc on-c">IP + routing</text></g>
+          <g class="drop" style="--d:.35s"><rect x="150" y="302" width="340" height="48" rx="12" class="c-slate"/><text x="320" y="333" class="b tc on-c">Network interface</text></g>
+          <g class="drop" style="--d:.2s"><rect x="150" y="360" width="340" height="48" rx="12" class="c-ink"/><text x="320" y="391" class="b tc tbg">Network</text></g>
+          <g class="fade" style="--d:1.6s">
+            <path d="M528 80 V400" class="lk"/><path d="M518 388 L528 402 L538 388" class="lk"/>
+            <text transform="translate(548 240) rotate(90)" class="sm b tc">sending</text>
+            <path d="M590 400 V80" class="lk"/><path d="M580 92 L590 78 L600 92" class="lk"/>
+            <text transform="translate(612 240) rotate(90)" class="sm b tc">receiving</text>
+          </g>
+          <g transform="translate(70,70)"><g class="mvLayers"><rect x="76" y="-4" width="348" height="56" rx="15" class="nf spk" style="stroke-width:5"/><use href="#packy" width="64" height="48"/></g></g>
+        </svg>
+      </div>
+    </section>
+
+    <!-- 2 INTERFACES -->
+    <section class="scene" data-act="1" data-dur="12" data-title="Your host has several doors">
+      <div class="txt">
+        <h2>Your host has several doors to the network</h2>
+        <p class="sub">Each network interface is a way in or out, and each holds its own IP. Loopback, <code>lo</code>, is special: <code>127.0.0.1</code> means “this machine,” so its traffic never leaves home.</p>
+        <div class="chips"><code>ip addr</code><code>ip link</code><code>hostname -I</code></div>
+      </div>
+      <div class="vis">
+        <svg viewBox="0 0 640 440" role="img" aria-label="A house-shaped Linux host with a Wi-Fi door, an Ethernet door, a Docker bridge door and a loopback loop inside">
+          <g class="pop" style="--d:.2s">
+            <path d="M150 124 L320 34 L490 124 Z" class="c-soft st"/>
+            <rect x="170" y="120" width="300" height="270" rx="18" class="c-panel st"/>
+            <text x="320" y="104" class="sm b tc">your Linux host</text>
+          </g>
+          <g class="pop" style="--d:.8s">
+            <rect x="158" y="150" width="24" height="46" rx="5" class="c-bl st"/>
+            <text x="20" y="196" class="b">wlp63s0</text><text x="20" y="218" class="sm mut">Wi‑Fi</text>
+          </g>
+          <g class="fade" style="--d:1s">
+            <circle cx="70" cy="160" r="5" class="c-bl"/>
+            <path d="M56 148 Q70 136 84 148" class="nf sbl wave" style="stroke-width:4;stroke-linecap:round;--w:0s"/>
+            <path d="M46 138 Q70 116 94 138" class="nf sbl wave" style="stroke-width:4;stroke-linecap:round;--w:.3s"/>
+            <path d="M36 128 Q70 96 104 128" class="nf sbl wave" style="stroke-width:4;stroke-linecap:round;--w:.6s"/>
+          </g>
+          <g class="pop" style="--d:1.4s">
+            <path d="M158 318 C110 318 100 356 52 356" class="nf sor" style="stroke-width:7;stroke-linecap:round"/>
+            <rect x="22" y="344" width="32" height="24" rx="4" class="c-or st"/>
+            <rect x="158" y="296" width="24" height="46" rx="5" class="c-or st"/>
+            <text x="20" y="398" class="b">enp62s0</text><text x="20" y="420" class="sm mut">Ethernet</text>
+          </g>
+          <g class="pop" style="--d:2s">
+            <path d="M482 228 H514 M514 168 V288 M514 168 H546 M514 228 H546 M514 288 H546" class="lk"/>
+            <rect x="546" y="150" width="70" height="38" rx="7" class="c-soft st"/><text x="581" y="174" class="xs b tc">api</text>
+            <rect x="546" y="209" width="70" height="38" rx="7" class="c-soft st"/><text x="581" y="233" class="xs b tc">db</text>
+            <rect x="546" y="269" width="70" height="38" rx="7" class="c-soft st"/><text x="581" y="293" class="xs b tc">model</text>
+            <rect x="458" y="205" width="24" height="46" rx="5" class="c-gr st"/>
+            <text x="546" y="340" class="b">docker0</text><text x="546" y="362" class="sm mut">bridge</text>
+          </g>
+          <g class="pop" style="--d:2.6s">
+            <circle cx="320" cy="262" r="70" class="lk dsh"/>
+            <text x="320" y="262" class="hd lg tc">lo</text>
+            <text x="320" y="288" class="m sm tc">127.0.0.1</text>
+            <g transform="translate(320,262)"><g class="orbit"><use href="#packy" x="-20" y="-85" width="40" height="30"/></g></g>
+          </g>
+        </svg>
+      </div>
+    </section>
+
+    <!-- 3 UP vs LOWER_UP -->
+    <section class="scene" data-act="1" data-dur="10" data-title="Switched on isn’t plugged in">
+      <div class="txt">
+        <h2>Switched on isn’t the same as plugged in</h2>
+        <p class="sub"><code>UP</code> means the OS enabled the interface. <code>LOWER_UP</code> means the link actually works. No cable gives <code>NO-CARRIER</code> and <code>state DOWN</code>, even with <code>UP</code> set.</p>
+        <div class="chips"><code>ip link</code></div>
+      </div>
+      <div class="vis">
+        <svg viewBox="0 0 640 440" role="img" aria-label="A switch flips on, then a cable plugs in and the state changes from DOWN to UP">
+          <text x="150" y="80" class="b tc fade" style="--d:.2s">the OS switch</text>
+          <rect x="70" y="110" width="160" height="76" rx="38" class="c-soft st tgl" style="--d:1.2s"/>
+          <circle cx="108" cy="148" r="28" class="c-panel st knob" style="--d:1.2s"/>
+          <g class="pop" style="--d:1.6s"><text x="150" y="240" class="hd xl tc c-gr">UP</text><text x="150" y="266" class="sm tc mut">enabled by the OS</text></g>
+          <text x="500" y="80" class="b tc fade" style="--d:.2s">the cable</text>
+          <g class="plug" style="--d:3.2s">
+            <path d="M290 148 H380" class="nf sor" style="stroke-width:8;stroke-linecap:round"/>
+            <rect x="380" y="126" width="62" height="44" rx="6" class="c-or st"/>
+            <rect x="442" y="136" width="14" height="24" class="c-slate"/>
+          </g>
+          <rect x="456" y="108" width="120" height="80" rx="12" class="c-term"/>
+          <rect x="560" y="136" width="8" height="24" rx="2" class="c-slate"/>
+          <g class="pop" style="--d:3.9s"><path d="M452 92 l6 12 l12 2 l-10 8 l3 12 l-11 -7 l-11 7 l3 -12 l-10 -8 l12 -2z" class="c-pk st"/></g>
+          <g class="popout" style="--d:.6s;--d2:4s"><rect x="396" y="214" width="236" height="60" rx="14" class="c-red"/><text x="514" y="240" class="b tc on-c m">NO-CARRIER</text><text x="514" y="263" class="sm tc on-c">state DOWN</text></g>
+          <g class="pop" style="--d:4.3s"><rect x="396" y="214" width="236" height="60" rx="14" class="c-gr"/><text x="514" y="240" class="b tc on-c m">LOWER_UP</text><text x="514" y="263" class="sm tc on-c">state UP</text></g>
+          <g class="rise" style="--d:.4s">
+            <rect x="16" y="304" width="608" height="112" rx="14" class="c-term"/>
+            <text x="36" y="342" class="m sm t-term">$ ip link show enp62s0</text>
+          </g>
+          <text x="36" y="384" class="m xs t-term popout" style="--d:.6s;--d2:4s">enp62s0: &lt;NO-CARRIER,BROADCAST,MULTICAST,UP&gt; state DOWN</text>
+          <text x="36" y="384" class="m xs t-term pop" style="--d:4.4s">enp62s0: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; state UP</text>
+        </svg>
+      </div>
+    </section>
+
+    <!-- 4 IPv4 -->
+    <section class="scene" data-act="1" data-dur="11" data-title="An IPv4 address is 32 bits">
+      <div class="txt">
+        <h2>An IPv4 address is 32 bits in four boxes</h2>
+        <p class="sub">Each box holds 8 bits, so it ranges from 0 to 255. Addresses belong to interfaces, which is why one host can have several at once.</p>
+      </div>
+      <div class="vis">
+        <svg viewBox="0 0 640 440" role="img" aria-label="192.168.1.91 shown as four boxes of 8 bits, and one host with three interface addresses">
+          <g class="pop" style="--d:.2s"><rect x="30" y="40" width="115" height="86" rx="14" class="c-panel st"/><text x="87.5" y="98" class="hd xl tc">192</text></g>
+          <g class="pop" style="--d:.35s"><rect x="185" y="40" width="115" height="86" rx="14" class="c-panel st"/><text x="242.5" y="98" class="hd xl tc">168</text></g>
+          <g class="pop" style="--d:.5s"><rect x="340" y="40" width="115" height="86" rx="14" class="c-panel st"/><text x="397.5" y="98" class="hd xl tc">1</text></g>
+          <g class="pop" style="--d:.65s"><rect x="495" y="40" width="115" height="86" rx="14" class="c-panel st"/><text x="552.5" y="98" class="hd xl tc">91</text></g>
+          <g class="fade" style="--d:.8s"><text x="165" y="100" class="hd xl tc">.</text><text x="320" y="100" class="hd xl tc">.</text><text x="475" y="100" class="hd xl tc">.</text></g>
+          <g id="bits"></g>
+          <g class="fade" style="--d:2.3s"><path d="M30 224 V234 H610 V224" class="lk"/><text x="320" y="262" class="sm tc">4 boxes × 8 bits = 32 bits. Each box holds 0 to 255.</text></g>
+          <g class="pop" style="--d:3s"><rect x="30" y="296" width="150" height="112" rx="16" class="c-panel st"/><text x="105" y="348" class="b tc">one host</text><text x="105" y="372" class="sm tc mut">many IPs</text></g>
+          <g class="rise" style="--d:3.5s"><path d="M180 352 C200 352 200 313 222 313" class="lk"/><rect x="222" y="296" width="390" height="34" rx="17" class="c-soft"/><text x="242" y="319" class="b sm">lo</text><text x="380" y="319" class="m sm">127.0.0.1</text></g>
+          <g class="rise" style="--d:3.9s"><path d="M180 352 H222" class="lk"/><rect x="222" y="335" width="390" height="34" rx="17" class="c-soft"/><text x="242" y="358" class="b sm">wlp63s0</text><text x="380" y="358" class="m sm">192.168.1.91</text></g>
+          <g class="rise" style="--d:4.3s"><path d="M180 352 C200 352 200 391 222 391" class="lk"/><rect x="222" y="374" width="390" height="34" rx="17" class="c-soft"/><text x="242" y="397" class="b sm">docker0</text><text x="380" y="397" class="m sm">172.17.0.1</text></g>
+        </svg>
+      </div>
+    </section>
+
+    <!-- 5 PRIVATE RANGES -->
+    <section class="scene" data-act="1" data-dur="9" data-title="Private ranges">
+      <div class="txt">
+        <h2>Private ranges are gated neighborhoods</h2>
+        <p class="sub">These three blocks are set aside for internal networks. Homes, offices, clouds and containers reuse them freely.</p>
+      </div>
+      <div class="vis">
+        <svg viewBox="0 0 640 440" role="img" aria-label="Three signs: 10.0.0.0/8, 172.16.0.0/12 and 192.168.0.0/16, not routed directly across the public Internet">
+          <g class="pop" style="--d:2.4s">
+            <rect x="70" y="24" width="500" height="54" rx="27" class="c-panel sred dsh" style="stroke-width:3"/>
+            <circle cx="104" cy="51" r="15" class="nf sred" style="stroke-width:4"/><path d="M94 61 L114 41" class="nf sred" style="stroke-width:4"/>
+            <text x="132" y="57" class="sm b">Not routed directly across the public Internet</text>
+          </g>
+          <path d="M10 352 H630" class="lk"/>
+          <g class="growy" style="--d:.3s"><rect x="103" y="232" width="14" height="120" class="c-br st"/><rect x="15" y="116" width="190" height="116" rx="14" class="c-or st"/><text x="110" y="152" class="m b tc on-c">10.0.0.0/8</text><text x="110" y="182" class="sm tc on-c">enterprises, clouds,</text><text x="110" y="204" class="sm tc on-c">ISP internals</text></g>
+          <g class="growy" style="--d:.6s"><rect x="313" y="232" width="14" height="120" class="c-br st"/><rect x="225" y="116" width="190" height="116" rx="14" class="c-gr st"/><text x="320" y="152" class="m b tc on-c">172.16.0.0/12</text><text x="320" y="182" class="sm tc on-c">containers,</text><text x="320" y="204" class="sm tc on-c">internal networks</text></g>
+          <g class="growy" style="--d:.9s"><rect x="523" y="232" width="14" height="120" class="c-br st"/><rect x="435" y="116" width="190" height="116" rx="14" class="c-bl st"/><text x="530" y="152" class="m b tc on-c">192.168.0.0/16</text><text x="530" y="182" class="sm tc on-c">home and</text><text x="530" y="204" class="sm tc on-c">small office</text></g>
+          <g class="pop" style="--d:1.4s"><text x="110" y="386" class="b tc">16,777,216</text><text x="110" y="408" class="xs tc mut">addresses</text></g>
+          <g class="pop" style="--d:1.6s"><text x="320" y="386" class="b tc">1,048,576</text><text x="320" y="408" class="xs tc mut">addresses</text></g>
+          <g class="pop" style="--d:1.8s"><text x="530" y="386" class="b tc">65,536</text><text x="530" y="408" class="xs tc mut">addresses</text></g>
+        </svg>
+      </div>
+    </section>
+
+    <!-- 6 CIDR -->
+    <section class="scene" data-act="1" data-dur="13" data-title="The slash splits network from host">
+      <div class="txt">
+        <h2>The slash splits network from host</h2>
+        <p class="sub">In <code>192.168.1.91/24</code>, the first 24 bits name the network and the last 8 pick one host inside it.</p>
+        <p class="note">Slash means network prefix. Colon means port.</p>
+      </div>
+      <div class="vis">
+        <svg viewBox="0 0 640 440" role="img" aria-label="32 bits: 24 network bits and 8 host bits, with network, host range, broadcast and mask for 192.168.1.0/24">
+          <text x="320" y="70" class="hd xl tc pop" style="--d:.2s">192.168.1.91<tspan class="c-gr">/24</tspan></text>
+          <g id="cells"></g>
+          <g class="fade" style="--d:2s">
+            <path d="M21 166 V176 H467 V166" class="nf sgr" style="stroke-width:3"/>
+            <text x="244" y="202" class="b tc c-gr">network: 24 bits</text>
+            <path d="M477 166 V176 H619 V166" class="nf sor" style="stroke-width:3"/>
+            <text x="548" y="202" class="b tc c-or">host: 8 bits</text>
+          </g>
+          <g class="rise" style="--d:2.6s"><rect x="10" y="222" width="146" height="80" rx="12" class="c-panel st"/><text x="83" y="250" class="xs tc mut">network</text><text x="83" y="282" class="m b sm tc">192.168.1.0</text></g>
+          <g class="rise" style="--d:2.9s"><rect x="168" y="222" width="146" height="80" rx="12" class="c-panel st"/><text x="241" y="250" class="xs tc mut">usable hosts</text><text x="241" y="282" class="m b sm tc">.1 to .254</text></g>
+          <g class="rise" style="--d:3.2s"><rect x="326" y="222" width="146" height="80" rx="12" class="c-panel st"/><text x="399" y="250" class="xs tc mut">broadcast</text><text x="399" y="282" class="m b sm tc">192.168.1.255</text></g>
+          <g class="rise" style="--d:3.5s"><rect x="484" y="222" width="146" height="80" rx="12" class="c-panel st"/><text x="557" y="250" class="xs tc mut">subnet mask</text><text x="557" y="282" class="m b sm tc">255.255.255.0</text></g>
+          <g class="rise" style="--d:4.2s"><rect x="10" y="326" width="620" height="46" rx="23" class="c-soft"/><text x="32" y="356" class="m b">192.168.1.91<tspan class="c-gr">/24</tspan></text><text x="610" y="355" class="sm te">slash: address + network prefix</text></g>
+          <g class="rise" style="--d:4.8s"><rect x="10" y="384" width="620" height="46" rx="23" class="c-soft"/><text x="32" y="414" class="m b">192.168.1.91<tspan class="c-or">:8000</tspan></text><text x="610" y="413" class="sm te">colon: address + port</text></g>
+        </svg>
+      </div>
+    </section>
+
+    <!-- 7 CIDR SIZE -->
+    <section class="scene" data-act="1" data-dur="12" data-title="Bigger prefix, smaller network">
+      <div class="txt">
+        <h2>Bigger prefix, smaller network</h2>
+        <p class="sub">Every bit you lock for the network halves the room left for hosts. Drag the slider and watch the count change.</p>
+      </div>
+      <div class="vis col">
+        <svg viewBox="0 0 640 320" preserveAspectRatio="xMidYMin meet" role="img" aria-label="Bar chart: /8 has 16,777,216 addresses, /16 has 65,536, /24 has 256, /32 has 1">
+          <text x="90" y="24" class="xs mut fade">bar length = host bits, and each extra bit doubles the room</text>
+          <text x="20" y="78" class="hd lg fade">/8</text>
+          <rect x="90" y="46" width="420" height="44" rx="10" class="c-or grow" style="--d:.4s"/>
+          <g class="fade" style="--d:1.2s"><text x="522" y="66" class="b sm">16,777,216</text><text x="522" y="86" class="xs mut">24 host bits</text></g>
+          <text x="20" y="148" class="hd lg fade">/16</text>
+          <rect x="90" y="116" width="280" height="44" rx="10" class="c-gr grow" style="--d:.7s"/>
+          <g class="fade" style="--d:1.5s"><text x="382" y="136" class="b sm">65,536</text><text x="382" y="156" class="xs mut">16 host bits</text></g>
+          <text x="20" y="218" class="hd lg fade">/24</text>
+          <rect x="90" y="186" width="140" height="44" rx="10" class="c-bl grow" style="--d:1s"/>
+          <g class="fade" style="--d:1.8s"><text x="242" y="206" class="b sm">256</text><text x="242" y="226" class="xs mut">8 host bits</text></g>
+          <text x="20" y="288" class="hd lg fade">/32</text>
+          <circle cx="100" cy="278" r="9" class="c-br pop" style="--d:1.3s"/>
+          <g class="fade" style="--d:2.1s"><text x="122" y="276" class="b sm">1 address</text><text x="122" y="296" class="xs mut">0 host bits</text></g>
+        </svg>
+        <div class="tryit">
+          <label for="pfx">Try a prefix</label>
+          <div class="tryrow"><span class="pfx">/<output id="pfxv" for="pfx">24</output></span><input id="pfx" type="range" min="0" max="32" step="1" value="24"></div>
+          <p id="pfxr" class="readout" aria-live="polite"></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 MTU -->
+    <section class="scene" data-act="1" data-dur="13" data-title="MTU and Path MTU">
+      <div class="txt">
+        <h2>MTU is the biggest box that fits</h2>
+        <p class="sub">MTU is the largest packet an interface sends without splitting it, often 1500 bytes on Ethernet and Wi‑Fi. Across a whole path, the narrowest link sets the Path MTU.</p>
+        <p class="note">Small requests work but big transfers stall? Suspect an MTU mismatch, common with VPNs, container overlays and GPU clusters.</p>
+      </div>
+      <div class="vis">
+        <svg viewBox="0 0 640 440" role="img" aria-label="A 1500-byte packet holds 20 bytes IPv4 header, 20 bytes TCP header and 1460 bytes payload. A 1500 packet cannot fit a 1400 MTU tunnel, so the Path MTU is 1400.">
+          <text x="20" y="34" class="b">one 1500-byte packet</text>
+          <rect x="20" y="50" width="600" height="56" rx="6" class="c-soft"/>
+          <rect x="20" y="50" width="10" height="56" class="c-bl grow" style="--d:.5s"/>
+          <rect x="30" y="50" width="10" height="56" class="c-gr grow" style="--d:.8s"/>
+          <rect x="40" y="50" width="580" height="56" class="c-or grow slow" style="--d:1.1s"/>
+          <rect x="20" y="50" width="600" height="56" rx="6" class="nf st"/>
+          <text x="330" y="85" class="b tc on-c pop" style="--d:2.4s">≈ 1460 bytes of your data</text>
+          <g class="fade" style="--d:2.6s">
+            <rect x="20" y="124" width="16" height="16" rx="3" class="c-bl"/><text x="44" y="138" class="sm">20 B IPv4 header</text>
+            <rect x="210" y="124" width="16" height="16" rx="3" class="c-gr"/><text x="234" y="138" class="sm">20 B TCP header</text>
+            <rect x="400" y="124" width="16" height="16" rx="3" class="c-or"/><text x="424" y="138" class="sm">1460 B TCP payload</text>
+          </g>
+          <text x="20" y="214" class="b">a path with one narrow link</text>
+          <rect x="120" y="281" width="70" height="30" class="c-soft st"/>
+          <rect x="290" y="281" width="40" height="30" class="c-soft st"/>
+          <rect x="460" y="281" width="60" height="30" class="c-soft st"/>
+          <rect x="20" y="261" width="100" height="70" rx="14" class="c-panel st"/><text x="70" y="302" class="b sm tc">Host</text>
+          <rect x="190" y="261" width="100" height="70" rx="14" class="c-panel st"/><text x="240" y="302" class="b sm tc">Router A</text>
+          <rect x="330" y="284" width="130" height="24" rx="12" class="c-pk st"/><text x="395" y="270" class="sm b tc">VPN tunnel</text>
+          <rect x="520" y="261" width="100" height="70" rx="14" class="c-panel st"/><text x="570" y="302" class="b sm tc">Router B</text>
+          <text x="70" y="356" class="xs tc mut">MTU 1500</text><text x="240" y="356" class="xs tc mut">MTU 1500</text>
+          <text x="395" y="356" class="sm b tc c-red">MTU 1400</text><text x="570" y="356" class="xs tc mut">MTU 1500</text>
+          <g class="bigPkt"><rect x="53" y="276" width="34" height="40" rx="6" class="c-or st"/></g>
+          <g class="smallPkt"><rect x="56" y="282" width="28" height="28" rx="5" class="c-gr st"/></g>
+          <g class="popout" style="--d:4s;--d2:6s"><rect x="300" y="372" width="190" height="34" rx="17" class="c-red"/><text x="395" y="395" class="sm b tc on-c">1500 won’t fit</text></g>
+          <g class="pop" style="--d:6.1s"><rect x="285" y="370" width="220" height="40" rx="20" class="c-pk st"/><text x="395" y="396" class="b tc tdk">Path MTU = 1400</text></g>
+        </svg>
+      </div>
+    </section>
+
+    <!-- 9 ROUTING -->
+    <section class="scene" data-act="2" data-dur="14" data-title="The routing table is a signpost">
+      <div class="txt">
+        <h2>The routing table is a signpost</h2>
+        <p class="sub">An IP says where a packet is going; the routing table says how to get there. Linux picks the most specific matching route, and everything else goes to the default gateway.</p>
+        <div class="chips"><code>ip route</code><code>ip route get 8.8.8.8</code></div>
+      </div>
+      <div class="vis">
+        <svg viewBox="0 0 640 440" role="img" aria-label="A packet to 192.168.1.50 matches the /24 route and goes directly. A packet to 8.8.8.8 only matches the default route and goes via the gateway.">
+          <rect x="10" y="10" width="620" height="152" rx="14" class="c-term"/>
+          <text x="30" y="40" class="m xs t-term" style="opacity:.7">$ ip route</text>
+          <rect x="20" y="56" width="600" height="30" rx="8" class="nf spk hlB" style="stroke-width:3;--d:6.3s"/>
+          <rect x="20" y="89" width="600" height="30" rx="8" class="nf spk hlA" style="stroke-width:3;--d:1.9s"/>
+          <text x="34" y="77" class="m sm t-term">default via 192.168.1.1 dev wlp63s0</text>
+          <text x="34" y="110" class="m sm t-term">192.168.1.0/24 dev wlp63s0</text>
+          <text x="34" y="143" class="m sm t-term">172.17.0.0/16 dev docker0</text>
+          <text x="606" y="110" class="xs b te c-pk popout" style="--d:2.2s;--d2:5.6s">most specific match</text>
+          <text x="606" y="77" class="xs b te c-pk pop" style="--d:6.6s">only match: default</text>
+          <rect x="10" y="182" width="410" height="250" rx="20" class="ln dsh"/>
+          <text x="408" y="206" class="xs b te mut">LAN 192.168.1.0/24</text>
+          <path d="M112 300 L212 352" class="ln dsh"/>
+          <path d="M122 286 L352 270" class="ln"/>
+          <path d="M445 268 L492 262" class="ln"/>
+          <use href="#laptop" x="22" y="262" width="100" height="76"/>
+          <text x="72" y="362" class="m xs tc">192.168.1.91</text>
+          <use href="#laptop" x="205" y="330" width="80" height="61"/>
+          <text x="245" y="414" class="m xs tc">192.168.1.50</text>
+          <use href="#router" x="345" y="228" width="100" height="67"/>
+          <text x="395" y="316" class="sm b tc">gateway</text><text x="395" y="336" class="m xs tc">192.168.1.1</text>
+          <use href="#cloud" x="478" y="214" width="150" height="96"/>
+          <text x="556" y="330" class="sm b tc">Internet</text><text x="556" y="350" class="m xs tc">8.8.8.8</text>
+          <g class="popout" style="--d:1.5s;--d2:5.9s"><rect x="20" y="222" width="190" height="30" rx="15" class="c-pk st"/><text x="115" y="243" class="m xs b tc tdk">to 192.168.1.50</text></g>
+          <g class="pop" style="--d:6.2s"><rect x="20" y="222" width="150" height="30" rx="15" class="c-pk st"/><text x="95" y="243" class="m xs b tc tdk">to 8.8.8.8</text></g>
+          <g transform="translate(48,270)"><g class="mvA"><use href="#packy" width="48" height="36"/></g></g>
+          <g transform="translate(48,270)"><g class="mvB"><use href="#packy" width="48" height="36"/></g></g>
+          <g class="pop" style="--d:4.5s"><rect x="290" y="372" width="110" height="30" rx="15" class="c-gr"/><text x="345" y="393" class="xs b tc on-c">direct ✓</text></g>
+          <g class="pop" style="--d:11s"><rect x="472" y="372" width="158" height="30" rx="15" class="c-gr"/><text x="551" y="393" class="xs b tc on-c">via the gateway ✓</text></g>
+        </svg>
+      </div>
+    </section>
+
+    <!-- 10 TTL -->
+    <section class="scene" data-act="2" data-dur="13" data-title="Every packet carries a hop budget">
+      <div class="txt">
+        <h2>Every packet carries a hop budget</h2>
+        <p class="sub">Each router lowers the TTL by one. At zero the packet is dropped, so a routing loop can’t trap it forever.</p>
+        <div class="chips"><code>tracepath 8.8.8.8</code></div>
+        <p class="note">No reply from a hop doesn’t mean it’s down. Some routers forward traffic but ignore diagnostic probes.</p>
+      </div>
+      <div class="vis">
+        <svg viewBox="0 0 640 440" role="img" aria-label="A packet's TTL drops from 64 to 61 across three hops. In a routing loop, TTL counts down to zero and the packet is dropped.">
+          <path d="M50 124 H595" class="ln draw" pathLength="100" style="--d:.3s"/>
+          <use href="#laptop" x="10" y="94" width="80" height="61"/>
+          <use href="#router" x="150" y="98" width="80" height="53"/>
+          <use href="#router" x="290" y="98" width="80" height="53"/>
+          <use href="#router" x="430" y="98" width="80" height="53"/>
+          <use href="#server" x="565" y="76" width="60" height="75"/>
+          <text x="50" y="182" class="sm b tc">you</text>
+          <text x="190" y="182" class="sm b tc">hop 1</text><text x="190" y="202" class="xs tc mut">home router</text>
+          <text x="330" y="182" class="sm b tc">hop 2</text><text x="330" y="202" class="xs tc mut">ISP router</text>
+          <text x="470" y="182" class="sm b tc">hop 3</text><text x="470" y="202" class="xs tc mut">transit</text>
+          <text x="595" y="182" class="sm b tc m">8.8.8.8</text>
+          <g class="pop" style="--d:.6s"><rect x="10" y="44" width="80" height="26" rx="13" class="c-pk st"/><text x="50" y="62" class="xs b tc m tdk">TTL 64</text></g>
+          <g class="pop" style="--d:2.1s"><rect x="150" y="44" width="80" height="26" rx="13" class="c-pk st"/><text x="190" y="62" class="xs b tc m tdk">TTL 63</text></g>
+          <g class="pop" style="--d:3.4s"><rect x="290" y="44" width="80" height="26" rx="13" class="c-pk st"/><text x="330" y="62" class="xs b tc m tdk">TTL 62</text></g>
+          <g class="pop" style="--d:4.7s"><rect x="430" y="44" width="80" height="26" rx="13" class="c-pk st"/><text x="470" y="62" class="xs b tc m tdk">TTL 61</text></g>
+          <g transform="translate(28,106)"><g class="mvTTL"><use href="#packy" width="44" height="33"/></g></g>
+          <g class="pop" style="--d:3.6s"><rect x="215" y="218" width="230" height="50" rx="14" class="c-soft st dsh"/><text x="330" y="240" class="m b tc">* * *</text><text x="330" y="259" class="xs tc">no reply, still forwards ✓</text></g>
+          <g class="fade" style="--d:6.6s">
+            <text x="20" y="306" class="sm b">a routing loop</text>
+            <circle cx="320" cy="355" r="80" class="ln dsh"/>
+            <use href="#router" x="200" y="321" width="80" height="53"/>
+            <use href="#router" x="360" y="321" width="80" height="53"/>
+            <g transform="translate(320,355)"><g class="loopspin"><g class="poof" style="--d:10.6s"><use href="#packy" x="-18" y="-94" width="36" height="27"/></g></g></g>
+          </g>
+          <text x="320" y="364" class="lg b tc popout" style="--d:7s;--d2:7.65s">TTL 3</text>
+          <text x="320" y="364" class="lg b tc popout" style="--d:7.7s;--d2:9.05s">TTL 2</text>
+          <text x="320" y="364" class="lg b tc popout" style="--d:9.1s;--d2:10.45s">TTL 1</text>
+          <text x="320" y="364" class="lg b tc c-red pop" style="--d:10.5s">TTL 0</text>
+          <g class="pop" style="--d:10.8s"><rect x="455" y="340" width="150" height="32" rx="16" class="c-red"/><text x="530" y="362" class="sm b tc on-c">packet dropped</text></g>
+        </svg>
+      </div>
+    </section>
+
+    <!-- 11 PORTS -->
+    <section class="scene" data-act="3" data-dur="11" data-title="IP is the building, port is the apartment">
+      <div class="txt">
+        <h2>IP is the building. Port is the apartment.</h2>
+        <p class="sub">The IP gets traffic to the right host; the port picks which program receives it. A program waiting at a port is listening.</p>
+        <div class="chips"><code>ss -ltnp</code><code>sudo ss -tulnp</code></div>
+        <p class="mini"><code>-t</code> TCP <code>-u</code> UDP <code>-l</code> listening <code>-n</code> numbers <code>-p</code> process</p>
+      </div>
+      <div class="vis">
+        <svg viewBox="0 0 640 440" role="img" aria-label="Building 192.168.1.91 with apartments 22 SSH, 8000 Model API and 8888 Jupyter. A packet addressed to port 8000 enters apartment 8000.">
+          <rect x="250" y="70" width="250" height="340" rx="14" class="c-panel st pop" style="--d:.2s"/>
+          <g class="pop" style="--d:.4s"><rect x="265" y="28" width="220" height="44" rx="10" class="c-term"/><text x="375" y="57" class="m b tc t-term">192.168.1.91</text></g>
+          <path d="M250 180 H500 M250 290 H500" class="ln fade" style="--d:.5s"/>
+          <g class="pop" style="--d:.7s"><rect x="272" y="93" width="46" height="64" rx="6" class="c-bl st"/><circle cx="309" cy="125" r="3" class="c-panel"/><text x="336" y="127" class="hd lg">22</text><text x="336" y="151" class="sm mut">SSH</text></g>
+          <g class="pop" style="--d:.9s"><rect x="272" y="203" width="46" height="64" rx="6" class="c-or st"/><circle cx="309" cy="235" r="3" class="c-panel"/><text x="336" y="237" class="hd lg">8000</text><text x="336" y="261" class="sm mut">Model API</text></g>
+          <g class="pop" style="--d:1.1s"><rect x="272" y="318" width="46" height="64" rx="6" class="c-gr st"/><circle cx="309" cy="350" r="3" class="c-panel"/><text x="336" y="352" class="hd lg">8888</text><text x="336" y="376" class="sm mut">Jupyter</text></g>
+          <circle cx="474" cy="125" r="9" class="c-gr lamp"/><circle cx="474" cy="235" r="9" class="c-gr lamp"/><circle cx="474" cy="350" r="9" class="c-gr lamp"/>
+          <g class="fade" style="--d:1.4s"><circle cx="268" cy="428" r="7" class="c-gr"/><text x="282" y="433" class="xs">= a process is listening</text></g>
+          <g transform="translate(20,318)"><g class="mvPort"><rect x="-10" y="-36" width="186" height="28" rx="14" class="c-pk st"/><text x="83" y="-16" class="m xs b tc tdk">192.168.1.91:8000</text><use href="#packy" width="48" height="36"/></g></g>
+          <rect x="258" y="186" width="234" height="98" rx="10" class="nf spk pop" style="stroke-width:4;--d:5s"/>
+        </svg>
+      </div>
+    </section>
+
+    <!-- 12 BINDING -->
+    <section class="scene" data-act="3" data-dur="13" data-title="Which doors does the server answer?">
+      <div class="txt">
+        <h2>Which doors does the server answer?</h2>
+        <p class="sub">Binding decides which local addresses a server listens on. Same port, very different reach.</p>
+        <p class="note">Binding to 0.0.0.0 is not a firewall rule.</p>
+      </div>
+      <div class="vis">
+        <svg viewBox="0 0 640 440" role="img" aria-label="Bound to 127.0.0.1: only same-host clients connect. Bound to 192.168.1.91: only clients using that address connect. Bound to 0.0.0.0: both work.">
+          <path d="M0 200 H640 M0 282 H640" class="ln"/>
+          <g class="fade" style="--d:.8s">
+            <text x="0" y="236" class="sm b">same host</text><text x="0" y="257" class="xs mut">via 127.0.0.1</text>
+            <text x="0" y="318" class="sm b">from the LAN</text><text x="0" y="339" class="xs mut">via 192.168.1.91</text>
+          </g>
+          <g class="pop" style="--d:.3s">
+            <text x="215" y="40" class="m b sm tc">127.0.0.1:8000</text>
+            <rect x="155" y="66" width="120" height="86" rx="12" class="c-panel st"/><text x="215" y="115" class="sm b tc">server</text>
+            <rect x="143" y="88" width="22" height="42" rx="4" class="c-gr st"/><rect x="265" y="88" width="22" height="42" rx="4" class="c-soft st"/>
+            <text x="154" y="176" class="xs tc">lo</text><text x="276" y="176" class="xs tc">Wi‑Fi</text>
+          </g>
+          <g class="pop" style="--d:1.3s"><circle cx="215" cy="240" r="22" class="c-gr"/><text x="215" y="249" class="lg b tc on-c">✓</text></g>
+          <g class="pop" style="--d:1.6s"><circle cx="215" cy="322" r="22" class="c-red"/><text x="215" y="331" class="lg b tc on-c">✗</text></g>
+          <g class="pop" style="--d:2.6s">
+            <text x="385" y="40" class="m b sm tc">192.168.1.91:8000</text>
+            <rect x="325" y="66" width="120" height="86" rx="12" class="c-panel st"/><text x="385" y="115" class="sm b tc">server</text>
+            <rect x="313" y="88" width="22" height="42" rx="4" class="c-soft st"/><rect x="435" y="88" width="22" height="42" rx="4" class="c-gr st"/>
+            <text x="324" y="176" class="xs tc">lo</text><text x="446" y="176" class="xs tc">Wi‑Fi</text>
+          </g>
+          <g class="pop" style="--d:3.6s"><circle cx="385" cy="240" r="22" class="c-red"/><text x="385" y="249" class="lg b tc on-c">✗</text></g>
+          <g class="pop" style="--d:3.9s"><circle cx="385" cy="322" r="22" class="c-gr"/><text x="385" y="331" class="lg b tc on-c">✓</text></g>
+          <g class="pop" style="--d:4.9s">
+            <text x="555" y="40" class="m b sm tc">0.0.0.0:8000</text>
+            <rect x="495" y="66" width="120" height="86" rx="12" class="c-panel st"/><text x="555" y="115" class="sm b tc">server</text>
+            <rect x="483" y="88" width="22" height="42" rx="4" class="c-gr st"/><rect x="605" y="88" width="22" height="42" rx="4" class="c-gr st"/>
+            <text x="494" y="176" class="xs tc">lo</text><text x="616" y="176" class="xs tc">Wi‑Fi</text>
+          </g>
+          <g class="pop" style="--d:5.9s"><circle cx="555" cy="240" r="22" class="c-gr"/><text x="555" y="249" class="lg b tc on-c">✓</text></g>
+          <g class="pop" style="--d:6.2s"><circle cx="555" cy="322" r="22" class="c-gr"/><text x="555" y="331" class="lg b tc on-c">✓</text></g>
+          <g class="pop" style="--d:7.4s"><rect x="20" y="368" width="600" height="58" rx="18" class="c-pk st"/><text x="320" y="392" class="b tc tdk">0.0.0.0 doesn’t mean “open to the Internet”</text><text x="320" y="414" class="sm tc tdk">firewalls, routing and NAT still decide who gets in</text></g>
+        </svg>
+      </div>
+    </section>
+
+    <!-- 13 SOCKETS -->
+    <section class="scene" data-act="3" data-dur="12" data-title="Sockets and file descriptors">
+      <div class="txt">
+        <h2>One receptionist, many desks</h2>
+        <p class="sub">A socket is a kernel-managed endpoint, and a process holds it by a small number called a file descriptor. The listening socket keeps greeting; every accepted client gets its own connected socket.</p>
+        <div class="chips"><code>users:(("python3",pid=62540,fd=3))</code></div>
+      </div>
+      <div class="vis">
+        <svg viewBox="0 0 640 440" role="img" aria-label="Listening socket FD 3 on port 8000 accepts client A into FD 4 and client B into FD 5, and keeps listening">
+          <g class="pop" style="--d:.2s"><rect x="430" y="24" width="200" height="392" rx="16" class="c-panel st"/><text x="450" y="58" class="b">python3</text><text x="450" y="80" class="xs mut">PID 62540, open FDs</text></g>
+          <g class="rise" style="--d:.3s"><rect x="446" y="100" width="168" height="40" rx="10" class="c-soft"/><text x="466" y="126" class="m b sm">0</text><text x="492" y="126" class="sm">stdin</text></g>
+          <g class="rise" style="--d:.4s"><rect x="446" y="148" width="168" height="40" rx="10" class="c-soft"/><text x="466" y="174" class="m b sm">1</text><text x="492" y="174" class="sm">stdout</text></g>
+          <g class="rise" style="--d:.5s"><rect x="446" y="196" width="168" height="40" rx="10" class="c-soft"/><text x="466" y="222" class="m b sm">2</text><text x="492" y="222" class="sm">stderr</text></g>
+          <g class="rise" style="--d:1s"><rect x="446" y="244" width="168" height="40" rx="10" class="c-bl"/><text x="466" y="270" class="m b sm on-c">3</text><text x="492" y="270" class="sm on-c">listen :8000</text></g>
+          <g class="rise" style="--d:3s"><rect x="446" y="292" width="168" height="40" rx="10" class="c-gr"/><text x="466" y="318" class="m b sm on-c">4</text><text x="492" y="318" class="sm on-c">client A</text></g>
+          <g class="rise" style="--d:5.4s"><rect x="446" y="340" width="168" height="40" rx="10" class="c-gr"/><text x="466" y="366" class="m b sm on-c">5</text><text x="492" y="366" class="sm on-c">client B</text></g>
+          <g class="pop" style="--d:.9s"><rect x="130" y="30" width="170" height="66" rx="14" class="c-bl st"/><text x="215" y="58" class="b tc on-c">FD 3</text><text x="215" y="82" class="m xs tc on-c">LISTEN :8000</text></g>
+          <g class="pop" style="--d:1.6s"><use href="#laptop" x="70" y="330" width="80" height="61"/><text x="110" y="412" class="sm b tc">client A</text></g>
+          <path d="M185 96 L120 196" class="lk draw" pathLength="100" style="--d:2.2s"/>
+          <path d="M133 188 L120 196 L122 180" class="lk pop" style="--d:2.7s"/>
+          <text x="140" y="150" class="m xs te fade" style="--d:2.2s">accept()</text>
+          <g class="pop" style="--d:2.9s"><rect x="40" y="200" width="140" height="56" rx="12" class="c-gr st"/><text x="110" y="224" class="b tc on-c">FD 4</text><text x="110" y="246" class="xs tc on-c">connected</text></g>
+          <path d="M110 330 V258" class="lk draw" pathLength="100" style="--d:3.3s;stroke-width:4"/>
+          <g class="pop" style="--d:4s"><use href="#laptop" x="280" y="330" width="80" height="61"/><text x="320" y="412" class="sm b tc">client B</text></g>
+          <path d="M245 96 L320 196" class="lk draw" pathLength="100" style="--d:4.6s"/>
+          <path d="M306 189 L320 196 L317 181" class="lk pop" style="--d:5.1s"/>
+          <text x="292" y="150" class="m xs fade" style="--d:4.6s">accept()</text>
+          <g class="pop" style="--d:5.3s"><rect x="250" y="200" width="140" height="56" rx="12" class="c-gr st"/><text x="320" y="224" class="b tc on-c">FD 5</text><text x="320" y="246" class="xs tc on-c">connected</text></g>
+          <path d="M320 330 V258" class="lk draw" pathLength="100" style="--d:5.7s;stroke-width:4"/>
+          <g class="pop" style="--d:6.4s"><g class="bob"><rect x="2" y="46" width="122" height="34" rx="17" class="c-pk st"/><text x="63" y="68" class="xs b tc tdk">still listening</text></g></g>
+        </svg>
+      </div>
+    </section>
+
+    <!-- 14 TCP UDP ICMP -->
+    <section class="scene" data-act="4" data-dur="14" data-title="TCP, UDP and ICMP">
+      <div class="txt">
+        <h2>Three ways to talk</h2>
+        <p class="sub">TCP sets up a reliable, ordered conversation with a three-way handshake. UDP just sends datagrams. ICMP carries control and diagnostic messages, like ping.</p>
+      </div>
+      <div class="vis">
+        <svg viewBox="0 0 640 440" role="img" aria-label="TCP handshake SYN, SYN-ACK, ACK. UDP sends datagrams with no guarantee. ICMP echo request and reply. Ping working does not mean port 8000 works.">
+          <!-- TCP -->
+          <g class="pop" style="--d:.2s"><rect x="10" y="8" width="190" height="40" rx="20" class="c-bl"/><text x="105" y="35" class="b tc on-c">TCP</text></g>
+          <text x="105" y="74" class="sm tc mut fade" style="--d:.3s">a phone call</text>
+          <g class="fade" style="--d:.3s"><path d="M35 104 V300 M175 104 V300" class="ln dsh"/><text x="35" y="97" class="xs tc b">client</text><text x="175" y="97" class="xs tc b">server</text></g>
+          <path d="M35 140 H175" class="lk draw" pathLength="100" style="--d:.6s"/><path d="M165 134 L175 140 L165 146" class="lk pop" style="--d:1.1s"/><text x="105" y="131" class="xs b tc m fade" style="--d:.6s">SYN</text>
+          <path d="M175 188 H35" class="lk draw" pathLength="100" style="--d:1.4s"/><path d="M45 182 L35 188 L45 194" class="lk pop" style="--d:1.9s"/><text x="105" y="179" class="xs b tc m fade" style="--d:1.4s">SYN-ACK</text>
+          <path d="M35 236 H175" class="lk draw" pathLength="100" style="--d:2.2s"/><path d="M165 230 L175 236 L165 242" class="lk pop" style="--d:2.7s"/><text x="105" y="227" class="xs b tc m fade" style="--d:2.2s">ACK</text>
+          <g class="pop" style="--d:3s"><rect x="30" y="256" width="150" height="34" rx="17" class="c-soft st"/><text x="105" y="278" class="xs b tc">connected ✓</text></g>
+          <g class="fade" style="--d:3.4s"><text x="105" y="332" class="xs tc">ordered, retransmits</text><text x="105" y="352" class="xs tc mut m">LISTEN → ESTAB</text></g>
+          <!-- UDP -->
+          <g class="pop" style="--d:3.8s"><rect x="225" y="8" width="190" height="40" rx="20" class="c-or"/><text x="320" y="35" class="b tc on-c">UDP</text></g>
+          <text x="320" y="74" class="sm tc mut fade" style="--d:3.9s">a postcard</text>
+          <g class="fade" style="--d:3.9s"><path d="M250 104 V300 M390 104 V300" class="ln dsh"/><text x="250" y="97" class="xs tc b">client</text><text x="390" y="97" class="xs tc b">server</text></g>
+          <path d="M250 140 H390" class="lk draw" pathLength="100" style="--d:4.1s"/><path d="M380 134 L390 140 L380 146" class="lk pop" style="--d:4.6s"/><text x="320" y="131" class="xs b tc fade" style="--d:4.1s">datagram</text>
+          <path d="M250 188 H390" class="lk draw" pathLength="100" style="--d:4.5s"/><path d="M380 182 L390 188 L380 194" class="lk pop" style="--d:5s"/><text x="320" y="179" class="xs b tc fade" style="--d:4.5s">datagram</text>
+          <path d="M250 236 H318" class="lk draw" pathLength="100" style="--d:4.9s"/><text x="300" y="227" class="xs b tc fade" style="--d:4.9s">datagram</text>
+          <text x="326" y="243" class="sm b c-red pop" style="--d:5.3s">✗ lost</text>
+          <g class="fade" style="--d:5.6s"><text x="320" y="332" class="xs tc">no handshake</text><text x="320" y="352" class="xs tc mut">no delivery promise</text></g>
+          <!-- ICMP -->
+          <g class="pop" style="--d:6s"><rect x="440" y="8" width="190" height="40" rx="20" class="c-gr"/><text x="535" y="35" class="b tc on-c">ICMP</text></g>
+          <text x="535" y="74" class="sm tc mut fade" style="--d:6.1s">a knock: anyone home?</text>
+          <g class="fade" style="--d:6.1s"><path d="M465 104 V300 M605 104 V300" class="ln dsh"/><text x="465" y="97" class="xs tc b">you</text><text x="605" y="97" class="xs tc b">host</text></g>
+          <path d="M465 150 H605" class="lk draw" pathLength="100" style="--d:6.3s"/><path d="M595 144 L605 150 L595 156" class="lk pop" style="--d:6.8s"/><text x="535" y="141" class="xs b tc fade" style="--d:6.3s">echo request</text>
+          <path d="M605 210 H465" class="lk draw" pathLength="100" style="--d:7.1s"/><path d="M475 204 L465 210 L475 216" class="lk pop" style="--d:7.6s"/><text x="535" y="201" class="xs b tc fade" style="--d:7.1s">echo reply</text>
+          <g class="fade" style="--d:7.9s"><text x="535" y="332" class="xs tc">ping uses this</text><text x="535" y="352" class="xs tc mut">plus error reports</text></g>
+          <g class="pop" style="--d:8.6s"><rect x="120" y="384" width="400" height="44" rx="22" class="c-pk st"/><text x="320" y="412" class="b tc tdk">ping works ≠ port 8000 works</text></g>
+        </svg>
+      </div>
+    </section>
+
+    <!-- 15 4-TUPLE -->
+    <section class="scene" data-act="4" data-dur="11" data-title="Ephemeral ports and the 4-tuple">
+      <div class="txt">
+        <h2>Clients get temporary ports too</h2>
+        <p class="sub">Linux hands each client a short-lived ephemeral port. Four values (source IP, source port, destination IP, destination port) tell every TCP connection apart.</p>
+      </div>
+      <div class="vis">
+        <svg viewBox="0 0 640 440" role="img" aria-label="The 4-tuple 192.168.1.91, 53501, 142.250.80.46, 443. Three clients with different source ports connect to one server port 443.">
+          <g class="pop" style="--d:.4s"><rect x="10" y="12" width="149" height="96" rx="14" class="c-panel sor" style="stroke-width:3"/><text x="84.5" y="42" class="xs tc mut">source IP</text><text x="84.5" y="80" class="m b sm tc">192.168.1.91</text></g>
+          <g class="pop" style="--d:.7s"><rect x="167" y="12" width="149" height="96" rx="14" class="c-panel sor" style="stroke-width:3"/><text x="241.5" y="42" class="xs tc mut">source port</text><text x="241.5" y="80" class="m b sm tc">53501</text></g>
+          <g class="pop" style="--d:1s"><rect x="324" y="12" width="149" height="96" rx="14" class="c-panel sbl" style="stroke-width:3"/><text x="398.5" y="42" class="xs tc mut">destination IP</text><text x="398.5" y="80" class="m b sm tc">142.250.80.46</text></g>
+          <g class="pop" style="--d:1.3s"><rect x="481" y="12" width="149" height="96" rx="14" class="c-panel sbl" style="stroke-width:3"/><text x="555.5" y="42" class="xs tc mut">destination port</text><text x="555.5" y="80" class="m b sm tc">443</text></g>
+          <use href="#server" x="500" y="160" width="100" height="125" class="pop" style="--d:.5s"/>
+          <g class="pop" style="--d:.6s"><rect x="478" y="296" width="144" height="30" rx="15" class="c-bl"/><text x="550" y="316" class="xs b tc on-c">:443 listening</text><text x="550" y="350" class="m xs tc">142.250.80.46</text></g>
+          <path d="M288 173 C400 173 420 222 505 222" class="nf sor draw" pathLength="100" style="stroke-width:4;--d:1.8s"/>
+          <path d="M288 261 C400 261 420 222 505 222" class="nf sgr draw" pathLength="100" style="stroke-width:4;--d:2.5s"/>
+          <path d="M288 349 C400 349 420 222 505 222" class="nf sbr draw" pathLength="100" style="stroke-width:4;--d:3.2s"/>
+          <g class="rise" style="--d:1.6s"><rect x="10" y="150" width="278" height="46" rx="23" class="c-panel st"/><text x="30" y="179" class="m sm">192.168.1.91:<tspan class="c-or b">53501</tspan></text><text x="272" y="178" class="xs te mut">tab 1</text></g>
+          <g class="rise" style="--d:2.3s"><rect x="10" y="238" width="278" height="46" rx="23" class="c-panel st"/><text x="30" y="267" class="m sm">192.168.1.91:<tspan class="c-gr b">53502</tspan></text><text x="272" y="266" class="xs te mut">tab 2</text></g>
+          <g class="rise" style="--d:3s"><rect x="10" y="326" width="278" height="46" rx="23" class="c-panel st"/><text x="30" y="355" class="m sm">10.0.0.7:<tspan class="c-br b">41822</tspan></text><text x="272" y="354" class="xs te mut">other host</text></g>
+          <g class="pop" style="--d:4.4s"><rect x="10" y="392" width="620" height="40" rx="20" class="c-soft"/><text x="320" y="418" class="sm b tc">one server port, many clients: source ports keep them apart</text></g>
+        </svg>
+      </div>
+    </section>
+
+    <!-- 16 DNS -->
+    <section class="scene" data-act="5" data-dur="14" data-title="DNS turns names into addresses">
+      <div class="txt">
+        <h2>DNS turns names into addresses</h2>
+        <p class="sub">Apps ask a local stub resolver at <code>127.0.0.53</code>, which is why <code>/etc/resolv.conf</code> often lists it. On a cache miss it asks upstream, then remembers the answer.</p>
+        <div class="chips"><code>resolvectl query example.com</code><code>resolvectl status</code><code>getent hosts example.com</code></div>
+        <p class="note">IP works but the hostname fails? Suspect DNS first.</p>
+      </div>
+      <div class="vis">
+        <svg viewBox="0 0 640 440" role="img" aria-label="curl asks the local stub 127.0.0.53, which asks upstream DNS on a cache miss. The second lookup is a cache hit and returns much faster.">
+          <use href="#laptop" x="15" y="134" width="110" height="84" class="pop" style="--d:.2s"/>
+          <text x="70" y="244" class="b tc">curl</text><text x="70" y="264" class="xs tc mut">your app</text>
+          <g class="pop" style="--d:.4s"><rect x="222" y="124" width="196" height="96" rx="16" class="c-bl st"/><text x="320" y="156" class="m b tc on-c">127.0.0.53</text><text x="320" y="180" class="xs tc on-c">systemd-resolved</text><text x="320" y="202" class="xs tc on-c">local stub + cache</text></g>
+          <use href="#router" x="505" y="134" width="110" height="74" class="pop" style="--d:.6s"/>
+          <text x="560" y="244" class="m xs b tc">192.168.1.1:53</text><text x="560" y="264" class="xs tc mut">upstream DNS</text>
+          <path d="M128 172 H222 M418 172 H505" class="ln dsh fade" style="--d:.6s"/>
+          <g class="popout" style="--d:2.1s;--d2:4.8s"><rect x="235" y="232" width="170" height="32" rx="16" class="c-soft"/><text x="320" y="254" class="xs b tc c-red">not in cache</text></g>
+          <g class="pop" style="--d:5s"><rect x="225" y="232" width="190" height="32" rx="16" class="c-soft"/><text x="320" y="254" class="xs b tc c-gr">example.com cached ✓</text></g>
+          <g class="popout" style="--d:8s;--d2:9.8s"><g class="bob"><rect x="250" y="22" width="140" height="34" rx="17" class="c-pk st"/><text x="320" y="45" class="sm b tc tdk">cache hit!</text></g></g>
+          <g transform="translate(70,92)"><g class="q1"><rect x="-68" y="-16" width="136" height="32" rx="16" class="c-pk st"/><text x="0" y="5" class="m xs b tc tdk">example.com?</text></g></g>
+          <g transform="translate(560,92)"><g class="a1"><rect x="-68" y="-16" width="136" height="32" rx="16" class="c-gr st"/><text x="0" y="5" class="m xs b tc on-c">IP address(es)</text></g></g>
+          <g transform="translate(70,92)"><g class="q2"><rect x="-68" y="-16" width="136" height="32" rx="16" class="c-pk st"/><text x="0" y="5" class="m xs b tc tdk">example.com?</text></g></g>
+          <g transform="translate(320,92)"><g class="a2"><rect x="-68" y="-16" width="136" height="32" rx="16" class="c-gr st"/><text x="0" y="5" class="m xs b tc on-c">IP address(es)</text></g></g>
+          <text x="20" y="308" class="xs mut fade" style="--d:9.2s">time to get an answer (illustration)</text>
+          <text x="20" y="344" class="sm b fade" style="--d:9.3s">first lookup</text>
+          <rect x="150" y="325" width="440" height="28" rx="8" class="c-or grow slow" style="--d:9.4s"/>
+          <text x="20" y="394" class="sm b fade" style="--d:9.3s">cached</text>
+          <rect x="150" y="375" width="44" height="28" rx="8" class="c-gr grow" style="--d:11.2s"/>
+          <text x="206" y="395" class="sm b pop" style="--d:11.6s">much faster</text>
+        </svg>
+      </div>
+    </section>
+
+    <!-- 17 FIREWALL -->
+    <section class="scene" data-act="5" data-dur="11" data-title="The firewall is the bouncer">
+      <div class="txt">
+        <h2>The firewall is the bouncer</h2>
+        <p class="sub">A service can be running, listening on <code>0.0.0.0:8000</code> and correctly routed, and still be blocked by a firewall rule.</p>
+        <div class="chips"><code>sudo ufw status verbose</code></div>
+      </div>
+      <div class="vis">
+        <svg viewBox="0 0 640 440" role="img" aria-label="Running, listening and routed are all fine, but the firewall drops traffic to port 8000">
+          <g class="pop" style="--d:.4s"><rect x="10" y="14" width="149" height="44" rx="22" class="c-soft st"/><text x="84.5" y="42" class="sm b tc"><tspan class="c-gr">✓</tspan> running</text></g>
+          <g class="pop" style="--d:.8s"><rect x="167" y="14" width="149" height="44" rx="22" class="c-soft st"/><text x="241.5" y="42" class="sm b tc"><tspan class="c-gr">✓</tspan> listening</text></g>
+          <g class="pop" style="--d:1.2s"><rect x="324" y="14" width="149" height="44" rx="22" class="c-soft st"/><text x="398.5" y="42" class="sm b tc"><tspan class="c-gr">✓</tspan> routed</text></g>
+          <g class="pop" style="--d:4.9s"><rect x="481" y="14" width="149" height="44" rx="22" class="c-red st"/><text x="555.5" y="42" class="sm b tc on-c">✗ firewall</text></g>
+          <use href="#laptop" x="20" y="196" width="110" height="84" class="pop" style="--d:.2s"/>
+          <g class="pop" style="--d:.5s">
+            <rect x="270" y="120" width="70" height="270" rx="6" class="c-br st"/>
+            <path d="M270 147 H340 M270 174 H340 M270 201 H340 M270 228 H340 M270 255 H340 M270 282 H340 M270 309 H340 M270 336 H340 M270 363 H340 M305 120 V147 M287 147 V174 M322 147 V174 M305 174 V201 M287 201 V228 M322 201 V228 M305 228 V255 M287 255 V282 M322 255 V282 M305 282 V309 M287 309 V336 M322 309 V336 M305 336 V363 M287 363 V390 M322 363 V390" style="fill:none;stroke:var(--bg);stroke-width:2;opacity:.45"/>
+            <circle cx="292" cy="198" r="9" class="c-panel st"/><circle cx="318" cy="198" r="9" class="c-panel st"/>
+            <circle cx="294" cy="200" r="4" class="c-ink"/><circle cx="320" cy="200" r="4" class="c-ink"/>
+            <path d="M281 182 L300 189 M329 182 L310 189" class="lk"/>
+            <rect x="266" y="84" width="78" height="32" rx="8" class="c-term"/><text x="305" y="106" class="b sm tc t-term">UFW</text>
+          </g>
+          <use href="#server" x="470" y="150" width="110" height="140" class="pop" style="--d:.3s"/>
+          <text x="525" y="320" class="b tc">model API</text><text x="525" y="342" class="m xs tc">0.0.0.0:8000</text>
+          <g transform="translate(110,206)"><g class="mvFw"><rect x="-12" y="-34" width="96" height="28" rx="14" class="c-pk st"/><text x="36" y="-14" class="m xs b tc tdk">port 8000</text><use href="#packy" width="48" height="36"/></g></g>
+          <g transform="translate(305,262) rotate(-12)"><g class="popout" style="--d:3.5s;--d2:7.5s"><rect x="-64" y="-26" width="128" height="52" rx="8" class="c-panel sred" style="stroke-width:4"/><text x="0" y="10" class="hd lg tc c-red">DROP</text></g></g>
+          <g class="pop" style="--d:5.6s"><rect x="120" y="392" width="400" height="40" rx="20" class="c-pk st"/><text x="320" y="418" class="b tc tdk">binding is not firewalling</text></g>
+        </svg>
+      </div>
+    </section>
+
+    <!-- 18 LADDER -->
+    <section class="scene" data-act="6" data-dur="13" data-title="Troubleshoot from the bottom up">
+      <div class="txt">
+        <h2>Troubleshoot from the bottom up</h2>
+        <p class="sub">Confirm each layer before you climb to the next. Every rung you clear rules out a whole category of failure.</p>
+        <p class="note">Nothing listening on port 8000? DNS isn’t your problem yet.</p>
+      </div>
+      <div class="vis">
+        <svg viewBox="0 0 640 440" role="img" aria-label="A nine-rung troubleshooting ladder: process, socket, binding, interface, routing, connectivity, firewall, DNS, application protocol">
+          <path d="M70 18 V422 M170 18 V422" class="lk" style="stroke-width:5"/>
+          <path d="M70 400 H170 M70 355 H170 M70 310 H170 M70 265 H170 M70 220 H170 M70 175 H170 M70 130 H170 M70 85 H170 M70 40 H170" class="lk" style="stroke-width:4"/>
+          <g class="fade" style="--d:.2s"><circle cx="38" cy="400" r="13" class="c-soft st"/><text x="38" y="405" class="xs b tc">1</text><text x="195" y="406"><tspan class="b">Process</tspan><tspan class="sm mut" dx="10">is the app running?</tspan></text></g>
+          <g class="fade" style="--d:.3s"><circle cx="38" cy="355" r="13" class="c-soft st"/><text x="38" y="360" class="xs b tc">2</text><text x="195" y="361"><tspan class="b">Socket</tspan><tspan class="sm mut m" dx="10">ss -ltnp</tspan></text></g>
+          <g class="fade" style="--d:.4s"><circle cx="38" cy="310" r="13" class="c-soft st"/><text x="38" y="315" class="xs b tc">3</text><text x="195" y="316"><tspan class="b">Binding</tspan><tspan class="sm mut" dx="10">127.0.0.1, an IP or 0.0.0.0?</tspan></text></g>
+          <g class="fade" style="--d:.5s"><circle cx="38" cy="265" r="13" class="c-soft st"/><text x="38" y="270" class="xs b tc">4</text><text x="195" y="271"><tspan class="b">Interface</tspan><tspan class="sm mut m" dx="10">ip addr</tspan></text></g>
+          <g class="fade" style="--d:.6s"><circle cx="38" cy="220" r="13" class="c-soft st"/><text x="38" y="225" class="xs b tc">5</text><text x="195" y="226"><tspan class="b">Routing</tspan><tspan class="sm mut m" dx="10">ip route get &lt;IP&gt;</tspan></text></g>
+          <g class="fade" style="--d:.7s"><circle cx="38" cy="175" r="13" class="c-soft st"/><text x="38" y="180" class="xs b tc">6</text><text x="195" y="181"><tspan class="b">Connectivity</tspan><tspan class="sm mut m" dx="10">ping, tracepath</tspan></text></g>
+          <g class="fade" style="--d:.8s"><circle cx="38" cy="130" r="13" class="c-soft st"/><text x="38" y="135" class="xs b tc">7</text><text x="195" y="136"><tspan class="b">Firewall</tspan><tspan class="sm mut m" dx="10">sudo ufw status verbose</tspan></text></g>
+          <g class="fade" style="--d:.9s"><circle cx="38" cy="85" r="13" class="c-soft st"/><text x="38" y="90" class="xs b tc">8</text><text x="195" y="91"><tspan class="b">DNS</tspan><tspan class="sm mut" dx="10">only if a hostname is involved</tspan></text></g>
+          <g class="fade" style="--d:1s"><circle cx="38" cy="40" r="13" class="c-soft st"/><text x="38" y="45" class="xs b tc">9</text><text x="195" y="46"><tspan class="b">App protocol</tspan><tspan class="sm mut" dx="10">HTTP, TLS, API, SSH</tspan></text></g>
+          <g class="pop" style="--d:1.2s"><circle cx="612" cy="400" r="13" class="c-gr"/><text x="612" y="405" class="xs b tc on-c">✓</text></g>
+          <g class="pop" style="--d:2s"><circle cx="612" cy="355" r="13" class="c-gr"/><text x="612" y="360" class="xs b tc on-c">✓</text></g>
+          <g class="pop" style="--d:3.1s"><circle cx="612" cy="310" r="13" class="c-gr"/><text x="612" y="315" class="xs b tc on-c">✓</text></g>
+          <g class="pop" style="--d:4.2s"><circle cx="612" cy="265" r="13" class="c-gr"/><text x="612" y="270" class="xs b tc on-c">✓</text></g>
+          <g class="pop" style="--d:5.3s"><circle cx="612" cy="220" r="13" class="c-gr"/><text x="612" y="225" class="xs b tc on-c">✓</text></g>
+          <g class="pop" style="--d:6.4s"><circle cx="612" cy="175" r="13" class="c-gr"/><text x="612" y="180" class="xs b tc on-c">✓</text></g>
+          <g class="pop" style="--d:7.5s"><circle cx="612" cy="130" r="13" class="c-gr"/><text x="612" y="135" class="xs b tc on-c">✓</text></g>
+          <g class="pop" style="--d:8.6s"><circle cx="612" cy="85" r="13" class="c-gr"/><text x="612" y="90" class="xs b tc on-c">✓</text></g>
+          <g class="pop" style="--d:9.7s"><circle cx="612" cy="40" r="13" class="c-gr"/><text x="612" y="45" class="xs b tc on-c">✓</text></g>
+          <g transform="translate(96,364)"><g class="climb"><use href="#packy" width="48" height="36"/></g></g>
+        </svg>
+      </div>
+    </section>
+
+    <!-- 19 CASE FILES -->
+    <section class="scene wide" data-act="6" data-dur="16" data-title="Case files: symptom to suspect">
+      <div class="txt">
+        <h2>Case files: symptom to first suspect</h2>
+        <p class="sub">Five classic failures. Each card flips to show where to look first. Tap any card to flip it yourself.</p>
+      </div>
+      <div class="vis scroll">
+        <div class="cases">
+          <button class="case" style="--d:1.6s" aria-label="Case A, tap to flip">
+            <span class="inner">
+              <span class="face front"><span class="letter">A</span><code class="snip">$ ss -ltnp | grep 8000
+<i># no output</i></code><span class="what">The command comes back empty.</span></span>
+              <span class="face back"><span class="letter">A</span><strong>Nothing is listening</strong><span class="fix">Check the process, its startup logs, the service config, or whether it picked another port.</span></span>
+            </span>
+          </button>
+          <button class="case" style="--d:4.4s" aria-label="Case B, tap to flip">
+            <span class="inner">
+              <span class="face front"><span class="letter">B</span><code class="snip">LISTEN 127.0.0.1:8000  python</code><span class="what">Works on the server itself, fails from your laptop.</span></span>
+              <span class="face back"><span class="letter">B</span><strong>Bound to loopback only</strong><span class="fix">Remote clients can’t reach it. Bind to the LAN IP or 0.0.0.0 if remote access is intended.</span></span>
+            </span>
+          </button>
+          <button class="case" style="--d:7.2s" aria-label="Case C, tap to flip">
+            <span class="inner">
+              <span class="face front"><span class="letter">C</span><code class="snip">LISTEN 0.0.0.0:8000  python</code><span class="what">Listening everywhere, still unreachable.</span></span>
+              <span class="face back"><span class="letter">C</span><strong>Look past the socket</strong><span class="fix">Check the destination IP, routing, reachability, firewall or network ACLs, then the app’s behavior.</span></span>
+            </span>
+          </button>
+          <button class="case" style="--d:10s" aria-label="Case D, tap to flip">
+            <span class="inner">
+              <span class="face front"><span class="letter">D</span><code class="snip">ping   ✓
+curl   ✗</code><span class="what">The host answers ping, but the API doesn’t.</span></span>
+              <span class="face back"><span class="letter">D</span><strong>ICMP isn’t TCP</strong><span class="fix">Ping proves packets get there and back. It says nothing about TCP port 8000 or HTTP health.</span></span>
+            </span>
+          </button>
+          <button class="case" style="--d:12.8s" aria-label="Case E, tap to flip">
+            <span class="inner">
+              <span class="face front"><span class="letter">E</span><code class="snip">curl http://10.0.0.25:8000    ✓
+curl http://model.local:8000  ✗</code><span class="what">The IP works, the name doesn’t.</span></span>
+              <span class="face back"><span class="letter">E</span><strong>Name resolution</strong><span class="fix">The direct-IP path already proved the app and network work, so DNS is the first suspect.</span></span>
+            </span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 20 MYTHS -->
+    <section class="scene wide" data-act="6" data-dur="17" data-title="Myth busting">
+      <div class="txt">
+        <h2>Myth busting</h2>
+        <p class="sub">Seven ideas that trip people up, and what’s actually true.</p>
+      </div>
+      <div class="vis scroll">
+        <ul class="myths">
+          <li class="myth" style="--d:.4s"><span class="mq"><span class="stamp">myth</span><span class="mt">0.0.0.0 means open to everyone</span></span><span class="ma">It means listen on all local IPv4 interfaces. Firewalls and routing still control who can reach it.</span></li>
+          <li class="myth" style="--d:2.3s"><span class="mq"><span class="stamp">myth</span><span class="mt">/24 is a port</span></span><span class="ma">A slash starts a CIDR prefix. A colon starts a port.</span></li>
+          <li class="myth" style="--d:4.2s"><span class="mq"><span class="stamp">myth</span><span class="mt">Ping proves a web service works</span></span><span class="ma">Ping tests ICMP reachability, not TCP or HTTP.</span></li>
+          <li class="myth" style="--d:6.1s"><span class="mq"><span class="stamp">myth</span><span class="mt">One port can only serve one client</span></span><span class="ma">One listener accepts many connections, each told apart by its endpoints and ports.</span></li>
+          <li class="myth" style="--d:8s"><span class="mq"><span class="stamp">myth</span><span class="mt">No trace reply means the router is down</span></span><span class="ma">It may forward traffic while ignoring diagnostic probes.</span></li>
+          <li class="myth" style="--d:9.9s"><span class="mq"><span class="stamp">myth</span><span class="mt">The default gateway is “the Internet”</span></span><span class="ma">It’s the next-hop router used when no more-specific route matches.</span></li>
+          <li class="myth" style="--d:11.8s"><span class="mq"><span class="stamp">myth</span><span class="mt">An IP belongs to the whole computer</span></span><span class="ma">IP addresses are assigned to interfaces, so one host can have several.</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- 21 QUIZ -->
+    <section class="scene wide" data-act="6" data-hold="1" data-dur="30" data-title="Check your understanding">
+      <div class="txt">
+        <h2>Check your understanding</h2>
+        <p class="sub">Answer each one in your head, then tap to check. Autoplay waits here; press next when you’re ready.</p>
+      </div>
+      <div class="vis scroll">
+        <ol class="quiz">
+          <li class="q" style="--d:.3s"><p class="qq">Why can <code>127.0.0.1:8000</code> work while <code>192.168.1.91:8000</code> fails on the same host?</p><button class="reveal" aria-expanded="false">Show answer</button><p class="qa" hidden>The server is bound only to loopback (127.0.0.1), so it isn’t listening on the Wi‑Fi address at all.</p></li>
+          <li class="q" style="--d:.45s"><p class="qq">What does <code>192.168.1.91/24</code> tell you that <code>192.168.1.91:8000</code> doesn’t?</p><button class="reveal" aria-expanded="false">Show answer</button><p class="qa" hidden>The network prefix: this interface lives in the 192.168.1.0/24 network. The colon version names a port instead.</p></li>
+          <li class="q" style="--d:.6s"><p class="qq"><code>ping 8.8.8.8</code> works but <code>resolvectl query example.com</code> fails. What do you investigate first?</p><button class="reveal" aria-expanded="false">Show answer</button><p class="qa" hidden>DNS, meaning name resolution. IP connectivity is already proven, so the name lookup is the strongest suspect.</p></li>
+          <li class="q" style="--d:.75s"><p class="qq">How can 100 clients connect to one server on TCP port 8000 without 100 server ports?</p><button class="reveal" aria-expanded="false">Show answer</button><p class="qa" hidden>Each connection has a unique 4-tuple. Clients use different ephemeral source ports, and accept() gives each one its own connected socket.</p></li>
+          <li class="q" style="--d:.9s"><p class="qq"><code>ss -ltnp | grep 8000</code> returns nothing. Why check the app before the firewall?</p><button class="reveal" aria-expanded="false">Show answer</button><p class="qa" hidden>Nothing is listening, which is a lower layer than the firewall. No firewall rule can make a missing listener answer.</p></li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- 22 FINALE -->
+    <section class="scene" data-act="0" data-tag="Wrap-up" data-dur="12" data-title="Trace a request end to end">
+      <div class="txt">
+        <h2>You can trace a request end to end</h2>
+        <p class="sub">Name to address, route to gateway, handshake to HTTP. When something breaks, climb in order: process, socket, binding, interface, route, connectivity, firewall, DNS, then the app.</p>
+        <div class="btns"><button class="cta" id="againBtn">Watch again</button><button class="cta ghost" id="pickBtn">Pick a chapter</button></div>
+      </div>
+      <div class="vis">
+        <svg viewBox="0 0 640 440" role="img" aria-label="The full journey of curl https://example.com: DNS, route, interface, TCP handshake, firewall, and an HTTPS 200 OK response">
+          <path d="M90 90 H550 C615 90 615 250 550 250 H90" class="ln" style="stroke-width:10"/>
+          <path d="M90 90 H550 C615 90 615 250 550 250 H90" class="nf sgr drawslow" pathLength="100" style="stroke-width:10;stroke-linecap:round;--d:1s"/>
+          <circle cx="90" cy="90" r="20" class="c-panel st"/><circle cx="320" cy="90" r="20" class="c-panel st"/><circle cx="550" cy="90" r="20" class="c-panel st"/>
+          <circle cx="550" cy="250" r="20" class="c-panel st"/><circle cx="320" cy="250" r="20" class="c-panel st"/><circle cx="90" cy="250" r="20" class="c-panel st"/>
+          <g class="pop" style="--d:1s"><circle cx="90" cy="90" r="20" class="c-bl st"/><text x="90" y="96" class="sm b tc on-c">1</text><text x="90" y="136" class="sm b tc">DNS</text><text x="90" y="156" class="xs tc mut">example.com → an IP</text></g>
+          <g class="pop" style="--d:2.64s"><circle cx="320" cy="90" r="20" class="c-gr st"/><text x="320" y="96" class="sm b tc on-c">2</text><text x="320" y="136" class="sm b tc">Route</text><text x="320" y="156" class="xs tc mut">to the default gateway</text></g>
+          <g class="pop" style="--d:4.28s"><circle cx="550" cy="90" r="20" class="c-slate st"/><text x="550" y="96" class="sm b tc on-c">3</text><text x="550" y="136" class="sm b tc">Interface</text><text x="550" y="156" class="xs tc mut">out through wlp63s0</text></g>
+          <g class="pop" style="--d:5.72s"><circle cx="550" cy="250" r="20" class="c-or st"/><text x="550" y="256" class="sm b tc on-c">4</text><text x="550" y="296" class="sm b tc">TCP</text><text x="550" y="316" class="xs tc mut">handshake to :443</text></g>
+          <g class="pop" style="--d:7.36s"><circle cx="320" cy="250" r="20" class="c-br st"/><text x="320" y="256" class="sm b tc on-c">5</text><text x="320" y="296" class="sm b tc">Firewalls</text><text x="320" y="316" class="xs tc mut">rules let it through</text></g>
+          <g class="pop" style="--d:9s"><circle cx="90" cy="250" r="20" class="c-gr st"/><text x="90" y="256" class="sm b tc on-c">6</text><text x="90" y="296" class="sm b tc">HTTPS</text><text x="90" y="316" class="xs tc mut">200 OK comes back</text></g>
+          <g transform="translate(66,72)"><g class="mvFin"><use href="#packy" width="48" height="36"/></g></g>
+          <circle cx="56" cy="214" r="5" class="c-or pop" style="--d:9.1s"/><rect x="120" y="204" width="9" height="9" rx="2" class="c-bl pop" style="--d:9.2s"/>
+          <circle cx="140" cy="226" r="4" class="c-pk pop" style="--d:9.25s"/><rect x="36" y="232" width="8" height="8" rx="2" class="c-gr pop" style="--d:9.3s"/>
+          <circle cx="104" cy="200" r="4" class="c-red pop" style="--d:9.35s"/>
+          <g class="pop" style="--d:9.6s"><rect x="20" y="352" width="600" height="76" rx="18" class="c-term"/><text x="320" y="384" class="b tc t-term">Packet delivered, answer received.</text><text x="320" y="410" class="sm tc t-term m">curl https://example.com, traced end to end</text></g>
+        </svg>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="ctrl">
+    <button id="replay" class="ib" aria-label="Replay this scene"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M4 4.5v4.6h4.6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <div class="mid">
+      <button id="prev" class="ib" aria-label="Previous scene"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <button id="play" class="ib big" aria-label="Play"></button>
+      <button id="next" class="ib" aria-label="Next scene"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    </div>
+    <span class="count" id="count" aria-live="polite">1 / 23</span>
+  </footer>
+</div>
+
+<dialog id="chap" aria-labelledby="chapTitle">
+  <div class="chap-head"><h2 id="chapTitle">Chapters</h2><button class="ib" id="chapClose" aria-label="Close chapters"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg></button></div>
+  <div id="chapList" class="chap-list"></div>
+</dialog>
+
+<script>
+(function(){
+  const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
+  const NS='http://www.w3.org/2000/svg';
+  function el(tag,attrs,parent,text){const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);if(text!=null)e.textContent=text;if(parent)parent.appendChild(e);return e}
+
+  /* generated SVG pieces */
+  const bitsG=$('#bits');
+  [192,168,1,91].forEach((n,j)=>{
+    const x0=30+155*j, bin=n.toString(2).padStart(8,'0');
+    bin.split('').forEach((b,i)=>el('rect',{x:x0+2.5+i*14,y:140,width:12,height:22,rx:3,class:(b==='1'?'c-or':'c-soft')+' pop',style:'--d:'+(1+(j*8+i)*.03).toFixed(2)+'s'},bitsG));
+    el('text',{x:x0+57.5,y:194,class:'m sm tc pop',style:'--d:'+(1.3+j*.24).toFixed(2)+'s'},bitsG,bin);
+  });
+  const cellsG=$('#cells');
+  for(let i=0;i<32;i++){const g=Math.floor(i/8),c=i%8;el('rect',{x:21+g*152+c*18,y:112,width:16,height:40,rx:4,class:(i<24?'c-gr':'c-or')+' pop',style:'--d:'+(.6+i*.035).toFixed(3)+'s'},cellsG)}
+
+  /* player */
+  const ACTS=['The big picture','Hosts and addresses','Finding the way','Who answers','How they talk','Names and walls','Fix it'];
+  const scenes=$$('.scene'), N=scenes.length;
+  const prog=$('#prog'), acttag=$('#acttag'), count=$('#count');
+  const playBtn=$('#play'), prevBtn=$('#prev'), nextBtn=$('#next');
+  const ICON_PLAY='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/></svg>';
+  const ICON_PAUSE='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.6v14H7zM13.4 5H17v14h-3.6z" fill="currentColor"/></svg>';
+  let cur=0, playing=false, elapsed=0, offT=null;
+  const dur=i=>+scenes[i].dataset.dur||10;
+  const label=s=>s.dataset.tag||ACTS[+s.dataset.act];
+
+  const segs=scenes.map((s,i)=>{
+    const b=document.createElement('button');
+    b.className='seg a'+s.dataset.act;
+    b.setAttribute('aria-label','Scene '+(i+1)+': '+s.dataset.title);
+    const f=document.createElement('span');f.className='fill';b.appendChild(f);
+    b.addEventListener('click',()=>go(i));
+    prog.appendChild(b);return b;
+  });
+
+  function resetScene(s){
+    s.querySelectorAll('.case').forEach(c=>{c.classList.remove('manual','showback');const inn=c.querySelector('.inner');inn.style.transition='';inn.style.transform=''});
+    s.querySelectorAll('.qa').forEach(a=>a.hidden=true);
+    s.querySelectorAll('.reveal').forEach(b=>{b.setAttribute('aria-expanded','false');b.textContent='Show answer'});
+    s.scrollTop=0;const v=s.querySelector('.vis');if(v)v.scrollTop=0;
+  }
+
+  function go(i){
+    i=Math.max(0,Math.min(N-1,i));
+    cur=i;elapsed=0;
+    scenes.forEach((s,k)=>{s.classList.toggle('cur',k===i);s.classList.toggle('past',k<i);s.setAttribute('aria-hidden',k===i?'false':'true');s.inert=k!==i});
+    const s=scenes[i];
+    resetScene(s);
+    s.classList.remove('on');void s.offsetWidth;s.classList.add('on');
+    clearTimeout(offT);
+    offT=setTimeout(()=>scenes.forEach((x,k)=>{if(k!==cur)x.classList.remove('on')}),700);
+    if(s.dataset.hold)setPlaying(false);
+    ui();
+  }
+
+  function ui(){
+    const s=scenes[cur];
+    acttag.className='acttag a'+s.dataset.act;
+    acttag.textContent=label(s);
+    count.textContent=(cur+1)+' / '+N;
+    segs.forEach((b,k)=>{b.classList.toggle('cur',k===cur);if(k===cur)b.setAttribute('aria-current','step');else b.removeAttribute('aria-current')});
+    prevBtn.disabled=cur===0;nextBtn.disabled=cur===N-1;
+  }
+
+  function setPlaying(p){
+    playing=p;
+    playBtn.innerHTML=p?ICON_PAUSE:ICON_PLAY;
+    playBtn.setAttribute('aria-label',p?'Pause autoplay':'Play');
+    if(p){
+      if(scenes[cur].dataset.hold)go(cur+1);
+      else if(cur===N-1&&elapsed>=dur(cur))go(1);
+    }
+  }
+
+  let last=performance.now();
+  function tick(t){
+    const dt=Math.min(.1,(t-last)/1000);last=t;
+    const s=scenes[cur];
+    if(playing&&!s.dataset.hold){
+      elapsed+=dt;
+      if(elapsed>=dur(cur)){
+        if(cur<N-1)go(cur+1);
+        else{elapsed=dur(cur);setPlaying(false)}
+      }
+    }
+    segs.forEach((b,k)=>{
+      let w=0;
+      if(k<cur)w=100;
+      else if(k===cur)w=scenes[k].dataset.hold?100:Math.min(100,elapsed/dur(k)*100);
+      b.firstChild.style.width=w+'%';
+    });
+    requestAnimationFrame(tick);
+  }
+
+  /* controls */
+  playBtn.addEventListener('click',()=>setPlaying(!playing));
+  prevBtn.addEventListener('click',()=>go(cur-1));
+  nextBtn.addEventListener('click',()=>go(cur+1));
+  $('#replay').addEventListener('click',()=>go(cur));
+  $('#startBtn').addEventListener('click',()=>{go(1);setPlaying(true)});
+  $('#againBtn').addEventListener('click',()=>{go(1);setPlaying(true)});
+
+  document.addEventListener('keydown',e=>{
+    if(chap.open)return;
+    const t=e.target;
+    if(t.matches&&t.matches('input,textarea,select'))return;
+    if(e.key==='ArrowRight'){e.preventDefault();go(cur+1)}
+    else if(e.key==='ArrowLeft'){e.preventDefault();go(cur-1)}
+    else if((e.key===' '||e.key==='k')&&!(t.matches&&t.matches('button'))){e.preventDefault();setPlaying(!playing)}
+  });
+
+  const stage=$('#stage');let tx=null,ty=0;
+  stage.addEventListener('touchstart',e=>{if(e.target.closest('input')){tx=null;return}const p=e.touches[0];tx=p.clientX;ty=p.clientY},{passive:true});
+  stage.addEventListener('touchend',e=>{if(tx==null)return;const p=e.changedTouches[0];const dx=p.clientX-tx,dy=p.clientY-ty;if(Math.abs(dx)>60&&Math.abs(dx)>Math.abs(dy)*1.4)go(cur+(dx<0?1:-1));tx=null},{passive:true});
+
+  /* CIDR slider */
+  const pfx=$('#pfx'),pv=$('#pfxv'),pr=$('#pfxr');
+  function upd(){
+    const p=+pfx.value,h=32-p,n=Math.pow(2,h);
+    const mask=[0,1,2,3].map(o=>{const bits=Math.max(0,Math.min(8,p-o*8));return 256-Math.pow(2,8-bits)}).join('.');
+    pv.textContent=p;
+    pr.innerHTML='<strong>'+h+'</strong> host bit'+(h===1?'':'s')+' → <strong>'+n.toLocaleString('en-US')+'</strong> address'+(n===1?'':'es')+'<span class="mask">mask '+mask+'</span>';
+  }
+  pfx.addEventListener('input',()=>{upd();setPlaying(false)});
+  upd();
+
+  /* case cards */
+  $$('.case').forEach(c=>c.addEventListener('click',()=>{
+    const inner=c.querySelector('.inner');
+    const curT=getComputedStyle(inner).transform;
+    let back;
+    if(c.classList.contains('manual'))back=c.classList.contains('showback');
+    else{try{back=new DOMMatrixReadOnly(curT==='none'?undefined:curT).m11<0}catch(err){back=false}}
+    inner.style.transition='none';inner.style.transform=curT==='none'?'':curT;
+    c.classList.add('manual');void inner.offsetWidth;
+    inner.style.transition='';inner.style.transform='';
+    c.classList.toggle('showback',!back);
+    setPlaying(false);
+  }));
+
+  /* quiz */
+  $$('.reveal').forEach(b=>b.addEventListener('click',()=>{
+    const a=b.nextElementSibling,open=a.hidden;
+    a.hidden=!open;b.setAttribute('aria-expanded',String(open));b.textContent=open?'Hide answer':'Show answer';
+  }));
+
+  /* chapters */
+  const chap=$('#chap'),list=$('#chapList');let lastLabel=null,ul=null;const chapBtns=[];
+  scenes.forEach((s,i)=>{
+    const l=label(s);
+    if(l!==lastLabel){const h=document.createElement('h3');h.className='a'+s.dataset.act;h.textContent=l;list.appendChild(h);ul=document.createElement('ul');list.appendChild(ul);lastLabel=l}
+    const li=document.createElement('li'),b=document.createElement('button');
+    b.textContent=(i+1)+'. '+s.dataset.title;
+    b.addEventListener('click',()=>{chap.close();go(i)});
+    li.appendChild(b);ul.appendChild(li);chapBtns.push(b);
+  });
+  function openChap(){chapBtns.forEach((b,k)=>b.classList.toggle('now',k===cur));if(chap.showModal)chap.showModal();else chap.setAttribute('open','')}
+  $('#chapBtn').addEventListener('click',openChap);
+  $('#pickBtn').addEventListener('click',openChap);
+  $('#chapClose').addEventListener('click',()=>chap.close());
+  chap.addEventListener('click',e=>{if(e.target===chap)chap.close()});
+
+  go(0);setPlaying(false);requestAnimationFrame(tick);
+
+  // Deterministic timeline hooks used by html_to_mp4.py.
+  const durations=scenes.map((_,i)=>dur(i));
+  window.__total=durations.reduce((sum,seconds)=>sum+seconds,0);
+  window.__seek=seconds=>{
+    let elapsed=Math.max(0,Math.min(window.__total,seconds));
+    let i=0;
+    while(i<N-1&&elapsed>=durations[i]) elapsed-=durations[i++];
+    if(cur!==i) go(i);
+    setPlaying(false);
+    elapsed=Math.min(elapsed,durations[i]);
+    const s=scenes[i];
+    window.clearTimeout(offT);
+    s.classList.add('on');
+    const ms=elapsed*1000;
+    segs.forEach((b,k)=>{b.firstChild.style.width=k<i?'100%':k===i?`${Math.min(100,elapsed/durations[k]*100)}%`:'0%'});
+    void s.offsetWidth;
+    s.getAnimations({subtree:true}).forEach(animation=>{animation.currentTime=ms});
+  };
+})();
+</script>
+</body>
+</html>

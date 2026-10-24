@@ -1,0 +1,1355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Docker, unboxed: an animated Day 7 explainer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Fredoka:wght@500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#E6EEFC; --stage:#FFFFFF; --wash:#F0F4FD; --slab:#DCE5F8; --line:#C9D6F1;
+  --ink:#1D2B53; --ink2:#4E5E88; --shadow:#1D2B53;
+  --sun:#FFBE2E; --teal:#14A898; --berry:#EE4D78; --grape:#6A5AE0;
+  --onacc:#16203F; --ongrape:#FFFFFF;
+  --term:#1D2B53; --termtx:#F2F5FF; --termmu:#A3B3DD;
+  --f-disp:"Fredoka","Nunito","Arial Rounded MT Bold",ui-rounded,system-ui,sans-serif;
+  --f-body:"Atkinson Hyperlegible","Segoe UI",system-ui,-apple-system,sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --sw:min(1140px, max(560px, calc((100vh - 200px) * 16 / 9)));
+  color-scheme:light;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@supports (height:100dvh){ :root{ --sw:min(1140px, max(560px, calc((100dvh - 200px) * 16 / 9))); } }
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0F1736; --stage:#18224A; --wash:#212C59; --slab:#2B3970; --line:#33437A;
+    --ink:#EEF2FF; --ink2:#A9B6DC; --shadow:#04081C;
+    --sun:#FFC94D; --teal:#2CCBB9; --berry:#FF6E95; --grape:#8E80FF;
+    --onacc:#16203F; --ongrape:#16203F;
+    --term:#0B1230; --termtx:#EEF2FF; --termmu:#8D9CC8;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0F1736; --stage:#18224A; --wash:#212C59; --slab:#2B3970; --line:#33437A;
+  --ink:#EEF2FF; --ink2:#A9B6DC; --shadow:#04081C;
+  --sun:#FFC94D; --teal:#2CCBB9; --berry:#FF6E95; --grape:#8E80FF;
+  --onacc:#16203F; --ongrape:#16203F;
+  --term:#0B1230; --termtx:#EEF2FF; --termmu:#8D9CC8;
+  color-scheme:dark;
+}
+html{height:100%;scroll-padding-top:env(safe-area-inset-top,0px)}
+*,*::before,*::after{box-sizing:inherit}
+body{margin:0;min-height:100%;background:var(--bg);color:var(--ink);font-family:var(--f-body);-webkit-font-smoothing:antialiased}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* ---------- page frame ---------- */
+.app{max-width:1200px;margin:0 auto;padding:14px clamp(10px,3vw,28px) 22px;display:flex;flex-direction:column;gap:12px}
+.top{width:min(100%,var(--sw));margin:0 auto;display:flex;justify-content:space-between;align-items:baseline;gap:6px 16px;flex-wrap:wrap}
+.top h1{margin:0;font-family:var(--f-disp);font-weight:600;font-size:clamp(21px,2.4vw,28px);letter-spacing:.2px}
+.top h1 small{font-family:var(--f-body);font-weight:400;font-size:15px;color:var(--ink2);margin-left:10px;letter-spacing:0}
+.chap{font-family:var(--f-disp);font-weight:500;font-size:16px;display:flex;align-items:center;gap:8px}
+.chap::before{content:"";width:12px;height:12px;border-radius:4px;background:var(--cc,var(--sun));border:2px solid var(--ink)}
+
+.stage{position:relative;width:min(100%,var(--sw));margin:0 auto;aspect-ratio:16/9;background-color:var(--stage);
+  background-image:radial-gradient(var(--line) 1.1px, transparent 1.3px);background-size:24px 24px;
+  border:3px solid var(--ink);border-radius:24px;box-shadow:7px 7px 0 var(--shadow);overflow:hidden;container-type:inline-size}
+.scene{position:absolute;inset:0;display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.6fr);gap:clamp(12px,2.4cqw,32px);
+  padding:clamp(14px,2.8cqw,36px);opacity:0;visibility:hidden}
+.scene.on{opacity:1;visibility:visible}
+.cap{display:flex;flex-direction:column;justify-content:center;gap:clamp(6px,1cqw,12px);min-height:0}
+.cap h2{margin:0 0 .2em;font-family:var(--f-disp);font-weight:600;font-size:clamp(21px,3cqw,36px);line-height:1.08;text-wrap:balance}
+.beat{margin:0;font-size:clamp(14px,1.55cqw,18.5px);line-height:1.42;padding-left:14px;border-left:4px solid var(--c,var(--teal));max-width:34ch}
+.beat:nth-of-type(4n+1){--c:var(--teal)} .beat:nth-of-type(4n+2){--c:var(--sun)}
+.beat:nth-of-type(4n+3){--c:var(--berry)} .beat:nth-of-type(4n+4){--c:var(--grape)}
+.beat code,.qc code{font-family:var(--f-mono);font-size:.86em;background:var(--wash);border:1.5px solid var(--line);border-radius:6px;padding:0 5px;white-space:nowrap}
+.code{margin:2px 0 0;font-family:var(--f-mono);font-size:clamp(10.5px,1.04cqw,13px);line-height:1.5;background:var(--term);color:var(--termtx);
+  border:2.5px solid var(--ink);border-radius:12px;padding:9px 12px;white-space:pre-wrap;word-break:break-word;max-width:44ch}
+.vis{display:flex;align-items:center;justify-content:center;min-height:0;min-width:0}
+.vis>svg{width:100%;height:100%;overflow:visible}
+
+/* ---------- svg vocabulary ---------- */
+.vis text{font-family:var(--f-body);fill:var(--ink)}
+.vis .d{font-family:var(--f-disp);font-weight:600}
+.vis .m{font-family:var(--f-mono)}
+.vis .bd{font-weight:700}
+.vis .mu{fill:var(--ink2)} .vis .oa{fill:var(--onacc)} .vis .og{fill:var(--ongrape)}
+.vis .tt{fill:var(--termtx)} .vis .tm{fill:var(--termmu)} .vis .sunt{fill:var(--sun)}
+.vis .good{fill:var(--teal);font-weight:700} .vis .bad{fill:var(--berry);font-weight:700}
+.vis .f-stage{fill:var(--stage)} .vis .f-wash{fill:var(--wash)} .vis .f-slab{fill:var(--slab)} .vis .f-ink{fill:var(--ink)}
+.vis .f-sun{fill:var(--sun)} .vis .f-teal{fill:var(--teal)} .vis .f-berry{fill:var(--berry)} .vis .f-grape{fill:var(--grape)} .vis .f-term{fill:var(--term)}
+.vis .ol{stroke:var(--ink);stroke-width:2.5;stroke-linejoin:round}
+.vis .ln{fill:none;stroke-linecap:round;stroke-linejoin:round}
+.vis .s-ink{stroke:var(--ink)} .vis .s-mu{stroke:var(--ink2)} .vis .s-slab{stroke:var(--slab)}
+.vis .s-sun{stroke:var(--sun)} .vis .s-teal{stroke:var(--teal)} .vis .s-berry{stroke:var(--berry)} .vis .s-grape{stroke:var(--grape)}
+.vis .w2{stroke-width:2} .vis .w3{stroke-width:3} .vis .w4{stroke-width:4} .vis .w5{stroke-width:5} .vis .w8{stroke-width:8} .vis .w12{stroke-width:12} .vis .w18{stroke-width:18}
+.vis .dash{stroke-dasharray:8 7}
+.vis .lens{fill:var(--grape);fill-opacity:.3;stroke:var(--grape);stroke-width:4}
+
+/* ---------- motion kit (runs only in the active scene) ---------- */
+[class*="fx-"]{transform-box:fill-box;transform-origin:center}
+.fx-draw{stroke-dasharray:1 1;stroke-dashoffset:1}
+@keyframes in{from{opacity:0}to{opacity:1}}
+@keyframes out{from{opacity:1}to{opacity:0}}
+@keyframes up{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+@keyframes pop{0%{opacity:0;transform:scale(.3)}60%{opacity:1;transform:scale(1.08)}100%{opacity:1;transform:scale(1)}}
+@keyframes gx{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes flip{0%{opacity:0;transform:scaleX(0)}1%{opacity:1}100%{opacity:1;transform:scaleX(1)}}
+@keyframes draw{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
+@keyframes dim{to{opacity:.5}}
+@keyframes dimto{to{opacity:.35}}
+@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
+@keyframes pulse{0%,100%{opacity:.12}50%{opacity:.9}}
+@keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-7px)}40%,80%{transform:translateX(7px)}}
+@keyframes slideL{from{opacity:0;transform:translateX(-70px)}to{opacity:1;transform:none}}
+@keyframes slideR{from{opacity:0;transform:translateX(70px)}to{opacity:1;transform:none}}
+.scene.on .fx-in{animation:in var(--t,.5s) ease var(--d,0s) both}
+.scene.on .fx-out{animation:out .45s ease var(--d,0s) both}
+.scene.on .fx-up{animation:up var(--t,.55s) cubic-bezier(.2,.8,.2,1) var(--d,0s) both}
+.scene.on .fx-pop{animation:pop var(--t,.6s) cubic-bezier(.3,1.4,.5,1) var(--d,0s) both}
+.scene.on .fx-gx{transform-origin:left center;animation:gx var(--t,.8s) cubic-bezier(.3,.8,.3,1) var(--d,0s) both}
+.scene.on .fx-flip{animation:flip .55s cubic-bezier(.3,1.3,.5,1) var(--d,0s) both}
+.scene.on .fx-draw{animation:draw var(--t,.9s) ease-in-out var(--d,0s) both}
+.scene.on .fx-span{animation:in .35s ease var(--d,0s) both, out .35s ease var(--d2,99s) forwards}
+.scene.on .fx-bob{animation:bob 2.4s ease-in-out var(--d,0s) infinite}
+.scene.on .fx-pulse{animation:pulse var(--t,1.6s) ease-in-out var(--d,0s) infinite both}
+.scene.on .fx-sl{animation:slideL .6s cubic-bezier(.2,.9,.3,1.1) var(--d,0s) both}
+.scene.on .fx-sr{animation:slideR .6s cubic-bezier(.2,.9,.3,1.1) var(--d,0s) both}
+.scene.on .beat{animation:up .55s cubic-bezier(.2,.8,.2,1) var(--d,0s) both, dim .5s ease var(--d2,99s) forwards}
+.scene.on .cap h2{animation:up .55s cubic-bezier(.2,.8,.2,1) .1s both}
+.scene.on .code{animation:up .55s cubic-bezier(.2,.8,.2,1) var(--d,.4s) both}
+
+/* scene-specific choreography */
+.s1-flapL{transform-box:view-box;transform-origin:200px 260px}
+.s1-flapR{transform-box:view-box;transform-origin:400px 260px}
+@keyframes flapL{to{transform:rotate(-118deg)}}
+@keyframes flapR{to{transform:rotate(118deg)}}
+@keyframes rise{from{transform:translateY(100px)}to{transform:translateY(0)}}
+.scene.on .s1-flapL{animation:flapL .7s cubic-bezier(.3,1.4,.5,1) .4s both}
+.scene.on .s1-flapR{animation:flapR .7s cubic-bezier(.3,1.4,.5,1) .5s both}
+.scene.on .s1-rise{animation:rise .9s cubic-bezier(.3,1.5,.5,1) 1.1s both}
+
+@keyframes s2move{0%{transform:translate(0,0)}50%{transform:translate(172px,-110px)}100%{transform:translate(345px,-40px)}}
+.scene.on .s2-move{animation:s2move 2s cubic-bezier(.5,0,.3,1) 1.6s both}
+.s2-shake{transform-box:fill-box}
+.scene.on .s2-shake{animation:shake .5s ease 3.7s both}
+
+@keyframes s7slow{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+.s3-slow{transform-box:fill-box;transform-origin:left center}
+.scene.on .s3-slow{animation:s7slow 4s linear 6.9s both}
+.scene.on .s3-fast{transform-box:fill-box;transform-origin:left center;animation:s7slow .5s ease-out 6.9s both}
+.scene.on .s7-ecg{animation:draw 3.8s linear 1.8s both}
+
+@keyframes s8pkt{0%{transform:translate(52px,128px);opacity:0}6%{opacity:1}20%{transform:translate(52px,163px)}32%{transform:translate(133px,163px)}55%{transform:translate(245px,181px)}72%{transform:translate(351px,199px)}90%{transform:translate(440px,199px);opacity:1}100%{transform:translate(440px,199px);opacity:0}}
+@keyframes s8res{0%{transform:translate(440px,199px);opacity:0}8%{opacity:1}26%{transform:translate(351px,199px)}46%{transform:translate(245px,181px)}66%{transform:translate(133px,163px)}80%{transform:translate(52px,163px)}94%{transform:translate(52px,128px);opacity:1}100%{transform:translate(52px,128px);opacity:0}}
+.s8-pkt,.s8-res{opacity:0}
+.scene.on .s8-pkt{animation:s8pkt 2.4s ease-in-out 3s both}
+.scene.on .s8-res{animation:s8res 2.2s ease-in-out 5.9s both}
+
+@keyframes s9pkt{0%{transform:translate(160px,168px);opacity:0}8%{opacity:1}25%{transform:translate(160px,233px)}75%{transform:translate(440px,233px)}92%{transform:translate(440px,168px);opacity:1}100%{transform:translate(440px,168px);opacity:0}}
+.s9-pkt{opacity:0}
+.scene.on .s9-pkt{animation:s9pkt 2.4s ease-in-out 3.6s 2 both}
+
+@keyframes s11flash{0%,30%,60%{opacity:0}15%,45%,80%,100%{opacity:1}}
+.scene.on .s11-flash{animation:s11flash .9s ease var(--d,0s) both}
+.scene.on .s11-long{transform-box:fill-box;transform-origin:left center;animation:s7slow 3s linear 6.4s both}
+
+@keyframes s12note{0%{transform:translate(140px,82px) rotate(-4deg)}45%{transform:translate(300px,40px) rotate(8deg)}100%{transform:translate(460px,82px) rotate(3deg)}}
+.s12-note{transform:translate(140px,82px) rotate(-4deg)}
+.scene.on .s12-note{animation:s12note 1.2s cubic-bezier(.5,0,.3,1) 3.9s both}
+.scene.on .s12-old{animation:dimto .5s ease 5s forwards}
+@keyframes s12drop{0%{transform:translateY(0);opacity:0}15%{opacity:1}85%{opacity:1}100%{transform:translateY(64px);opacity:0}}
+@keyframes s12flow{0%{transform:translate(0,0);opacity:0}15%{opacity:1}85%{opacity:1}100%{transform:translate(150px,12px);opacity:0}}
+.s12-drop,.s12-flow{opacity:0}
+.scene.on .s12-drop{animation:s12drop 1s ease-in var(--d,0s) infinite both}
+.scene.on .s12-flow{animation:s12flow 1s linear var(--d,0s) infinite both}
+.scene.on .s12-fill{transform-box:fill-box;transform-origin:center bottom;animation:s12rise 2.6s ease-out 6.4s both}
+@keyframes s12rise{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+
+@keyframes s13nap{0%{opacity:1}15%{opacity:.35}85%{opacity:.35}100%{opacity:1}}
+.scene.on .s13-nap{animation:s13nap 1.6s ease 3.3s both}
+@keyframes s13exit{to{transform:translate(240px,-30px) rotate(10deg);opacity:0}}
+.s13-top{transform-box:fill-box;transform-origin:center}
+.scene.on .s13-top{animation:s13exit .9s cubic-bezier(.5,0,.7,.4) 6.8s forwards}
+
+@keyframes s14fL{0%{transform:translate(150px,128px);opacity:0}15%{transform:translate(150px,128px);opacity:1}45%{transform:translate(150px,128px)}100%{transform:translate(150px,322px);opacity:1}}
+@keyframes s14fR{0%{transform:translate(450px,128px);opacity:0}15%{transform:translate(450px,128px);opacity:1}45%{transform:translate(450px,128px)}100%{transform:translate(440px,322px);opacity:1}}
+.s14-fL,.s14-fR{opacity:0}
+.scene.on .s14-fL{animation:s14fL 1.8s cubic-bezier(.5,0,.3,1) 1.9s both}
+.scene.on .s14-fR{animation:s14fR 1.8s cubic-bezier(.5,0,.3,1) 2.2s both}
+
+@keyframes s15grow{0%{transform:scale(.28)}75%{transform:scale(.9)}90%{transform:scale(1.04)}100%{transform:scale(1)}}
+@keyframes s15pop{0%{transform:scale(1);opacity:1}100%{transform:scale(1.25);opacity:0}}
+.s15-grow{transform-box:fill-box;transform-origin:50% 100%;transform:scale(.28)}
+.s15-pop{transform-box:fill-box;transform-origin:center}
+.scene.on .s15-grow{animation:s15grow 2.4s cubic-bezier(.4,0,.4,1) 3s both}
+.scene.on .s15-pop{animation:s15pop .25s ease-out 5.4s forwards}
+
+.scene.on .s16-dim{animation:dimto .5s ease 4.4s forwards}
+
+@keyframes s19ndl{0%{transform:rotate(0)}40%{transform:rotate(28deg)}70%{transform:rotate(2deg)}85%{transform:rotate(9deg)}100%{transform:rotate(5deg)}}
+.s19-ndl{transform-box:fill-box;transform-origin:100% 50%}
+.scene.on .s19-ndl{animation:s19ndl 2.4s ease-in-out 4s both}
+
+/* ---------- transition wipe ---------- */
+.wipe{position:absolute;inset:-3px;z-index:5;pointer-events:none;visibility:hidden;background:var(--wc,var(--sun));border-right:3px solid var(--ink);transform:translateX(-103%)}
+.wipe.run{visibility:visible;animation:wipe .7s cubic-bezier(.7,0,.3,1) both}
+.wipe svg{position:absolute;right:-34px;top:50%;width:64px;height:68px;margin-top:-34px}
+@keyframes wipe{0%{transform:translateX(-103%)}46%,54%{transform:translateX(0)}100%{transform:translateX(103%)}}
+
+/* ---------- controls ---------- */
+.bar{width:min(100%,var(--sw));margin:6px auto 0;display:flex;align-items:center;gap:10px}
+.btn{flex:none;width:46px;height:46px;border-radius:50%;border:2.5px solid var(--ink);background:var(--stage);color:var(--ink);display:grid;place-items:center;
+  cursor:pointer;box-shadow:3px 3px 0 var(--shadow);transition:transform .12s,box-shadow .12s;padding:0}
+.btn:active:not(:disabled){transform:translate(2px,2px);box-shadow:1px 1px 0 var(--shadow)}
+.btn:disabled{opacity:.4;cursor:default}
+.btn svg{width:20px;height:20px;fill:currentColor}
+.btn.play{width:56px;height:56px;background:var(--sun);color:var(--onacc)}
+.btn.play .i-play{display:none} .btn.play.paused .i-play{display:block} .btn.play.paused .i-pause{display:none}
+.prog{flex:1;height:14px;border:2.5px solid var(--ink);border-radius:99px;background:var(--stage);overflow:hidden}
+.prog i{display:block;height:100%;background:var(--teal);transform-origin:left center;transform:scaleX(0)}
+.count{font-family:var(--f-disp);font-weight:500;font-size:16px;min-width:4.4em;text-align:right;font-variant-numeric:tabular-nums}
+.rail{width:min(100%,var(--sw));margin:0 auto;display:flex;flex-wrap:wrap;gap:6px 18px}
+.ch{display:flex;align-items:center;gap:4px}
+.ch-name{font-size:13.5px;color:var(--ink2);margin-right:2px}
+.ch.cur .ch-name{color:var(--ink);font-weight:700}
+.dots{display:flex}
+.dot{width:24px;height:24px;border:0;background:none;padding:0;cursor:pointer;display:grid;place-items:center}
+.dot::before{content:"";width:13px;height:13px;border-radius:50%;border:2px solid var(--ink);background:var(--stage);transition:transform .2s,background .2s}
+.dot.done::before{background:var(--ink)}
+.dot.cur::before{background:var(--sun);transform:scale(1.3)}
+:focus-visible{outline:3px solid var(--grape);outline-offset:3px}
+.hint{width:min(100%,var(--sw));margin:0 auto;font-size:13px;color:var(--ink2)}
+@media (hover:none){.hint{display:none}}
+
+/* ---------- quiz ---------- */
+.quiz{display:grid;grid-template-columns:1fr 1fr;gap:clamp(10px,1.4cqw,18px);width:100%;align-content:center}
+.qc{position:relative;height:clamp(118px,15.5cqw,176px);border:0;padding:0;background:none;cursor:pointer;perspective:900px;font:inherit;color:inherit;text-align:left}
+.qc-in{position:absolute;inset:0;transition:transform .6s cubic-bezier(.3,1.25,.5,1);transform-style:preserve-3d}
+.qc[aria-pressed="true"] .qc-in{transform:rotateY(180deg)}
+.qc-f,.qc-b{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;border:3px solid var(--ink);border-radius:18px;
+  box-shadow:4px 4px 0 var(--shadow);padding:12px 16px;display:flex;flex-direction:column;justify-content:space-between;gap:6px}
+.qc-f{background:var(--stage)}
+.qc-f strong{font-family:var(--f-disp);font-weight:600;font-size:clamp(15px,1.85cqw,21px);line-height:1.2}
+.qc-f span{font-size:13px;color:var(--ink2)}
+.qc-b{transform:rotateY(180deg);color:var(--onacc);font-size:clamp(13.5px,1.5cqw,17px);line-height:1.38;justify-content:center}
+.qc:nth-child(1) .qc-b{background:var(--teal)} .qc:nth-child(2) .qc-b{background:var(--sun)}
+.qc:nth-child(3) .qc-b{background:var(--berry)} .qc:nth-child(4) .qc-b{background:var(--grape);color:var(--ongrape)}
+.qc-b code{background:rgba(255,255,255,.35);border-color:transparent;color:inherit}
+.pill-btn{align-self:flex-start;margin-top:6px;font:600 16px var(--f-disp);border:2.5px solid var(--ink);background:var(--sun);color:var(--onacc);border-radius:99px;
+  padding:10px 18px;box-shadow:3px 3px 0 var(--shadow);cursor:pointer}
+.pill-btn:active{transform:translate(2px,2px);box-shadow:1px 1px 0 var(--shadow)}
+
+/* ---------- small screens ---------- */
+@media (max-width:760px){
+  .stage{aspect-ratio:auto;border-radius:20px;box-shadow:5px 5px 0 var(--shadow)}
+  .scene{position:relative;inset:auto;display:none;grid-template-columns:1fr;padding:16px 12px 18px;gap:10px}
+  .scene.on{display:grid}
+  .cap h2{font-size:24px}
+  .beat{font-size:15.5px;max-width:none}
+  .code{font-size:12px;max-width:none}
+  .vis>svg{height:auto}
+  .quiz{grid-template-columns:1fr}
+  .qc{height:128px}
+  .count{min-width:3.6em;font-size:15px}
+  .top h1 small{display:block;margin:2px 0 0}
+}
+@media (prefers-reduced-motion:reduce){
+  .scene.on *{animation-duration:1ms !important;animation-delay:0s !important;animation-iteration-count:1 !important}
+  .scene.on .beat,.scene.on .cap h2,.scene.on .code{animation:none !important}
+  .wipe{display:none}
+  .qc-in{transition:none}
+}
+.stage.paused .scene *{animation-play-state:paused !important}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="pid" viewBox="0 0 60 64">
+      <path d="M30 12 V5" style="stroke:var(--ink);stroke-width:3;stroke-linecap:round"/>
+      <circle cx="30" cy="4.5" r="3.6" style="fill:var(--sun);stroke:var(--ink);stroke-width:2"/>
+      <rect x="4" y="12" width="52" height="48" rx="13" style="fill:var(--pc,var(--teal));stroke:var(--ink);stroke-width:3"/>
+      <circle cx="21" cy="32" r="7.5" style="fill:#fff;stroke:var(--ink);stroke-width:2"/>
+      <circle cx="39" cy="32" r="7.5" style="fill:#fff;stroke:var(--ink);stroke-width:2"/>
+      <circle cx="22.5" cy="33" r="3.4" style="fill:#16203F"/>
+      <circle cx="40.5" cy="33" r="3.4" style="fill:#16203F"/>
+      <path d="M22 46 Q30 53 38 46" style="fill:none;stroke:#16203F;stroke-width:3;stroke-linecap:round"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="app">
+  <header class="top">
+    <h1>Docker, unboxed <small>Day 7: Docker fundamentals for AI infrastructure</small></h1>
+    <div class="chap" id="chap" aria-hidden="true">Why containers</div>
+  </header>
+
+  <main class="stage" id="stage" aria-roledescription="animated explainer">
+
+<!-- 1 -->
+<section class="scene" data-title="Docker, unboxed" data-chapter="Why containers" data-dur="10000">
+  <div class="cap">
+    <h2>Docker, unboxed</h2>
+    <p class="beat" style="--d:.6s;--d2:3.2s">Meet Pid, an ordinary Linux process.</p>
+    <p class="beat" style="--d:3.2s;--d2:6s">Today Pid moves into a container.</p>
+    <p class="beat" style="--d:6s">Spoiler: a container isn’t a tiny computer. It’s a process with boundaries.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="A box opens and Pid, a smiling process, pops out surrounded by today’s topics: namespaces, cgroups, images, networks, storage and GPUs.">
+    <ellipse cx="300" cy="402" rx="160" ry="14" class="f-slab"/>
+    <rect x="208" y="246" width="184" height="18" rx="4" class="f-slab ol"/>
+    <g class="s1-rise"><g class="fx-bob" style="--d:2.4s"><use href="#pid" x="235" y="148" width="130" height="139"/></g></g>
+    <rect x="200" y="260" width="200" height="132" rx="8" class="f-sun ol"/>
+    <text x="300" y="336" text-anchor="middle" class="d oa" font-size="22">your app</text>
+    <rect class="s1-flapL f-sun ol" x="200" y="254" width="100" height="12" rx="3"/>
+    <rect class="s1-flapR f-sun ol" x="300" y="254" width="100" height="12" rx="3"/>
+    <g transform="translate(110 92)"><g class="fx-pop" style="--d:2.3s"><rect x="-74" y="-18" width="148" height="36" rx="18" class="f-grape ol"/><text y="6" text-anchor="middle" class="d og" font-size="17">namespaces</text></g></g>
+    <g transform="translate(490 92)"><g class="fx-pop" style="--d:2.6s"><rect x="-64" y="-18" width="128" height="36" rx="18" class="f-teal ol"/><text y="6" text-anchor="middle" class="d oa" font-size="17">cgroups</text></g></g>
+    <g transform="translate(92 196)"><g class="fx-pop" style="--d:2.9s"><rect x="-60" y="-18" width="120" height="36" rx="18" class="f-sun ol"/><text y="6" text-anchor="middle" class="d oa" font-size="17">images</text></g></g>
+    <g transform="translate(508 196)"><g class="fx-pop" style="--d:3.2s"><rect x="-66" y="-18" width="132" height="36" rx="18" class="f-berry ol"/><text y="6" text-anchor="middle" class="d oa" font-size="17">networks</text></g></g>
+    <g transform="translate(100 304)"><g class="fx-pop" style="--d:3.5s"><rect x="-62" y="-18" width="124" height="36" rx="18" class="f-teal ol"/><text y="6" text-anchor="middle" class="d oa" font-size="17">storage</text></g></g>
+    <g transform="translate(500 304)"><g class="fx-pop" style="--d:3.8s"><rect x="-50" y="-18" width="100" height="36" rx="18" class="f-grape ol"/><text y="6" text-anchor="middle" class="d og" font-size="17">GPUs</text></g></g>
+  </svg></div>
+</section>
+
+<!-- 2 -->
+<section class="scene" data-title="It works on my machine" data-chapter="Why containers" data-dur="12500">
+  <div class="cap">
+    <h2>“It works on my machine”</h2>
+    <p class="beat" style="--d:.6s;--d2:3s">Pid runs perfectly on your laptop…</p>
+    <p class="beat" style="--d:3s;--d2:5.4s">…then breaks on the server: different Python, a missing library, another CUDA.</p>
+    <p class="beat" style="--d:5.4s;--d2:8.2s">A container ships the app together with its userspace.</p>
+    <p class="beat" style="--d:8.2s">The host still lends the kernel and the hardware.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="Pid moves from a laptop to a server and fails on mismatched versions. Then Pid is packed in a container with its app, dependencies and filesystem, sitting on the host kernel.">
+    <g class="fx-out" style="--d:5.1s">
+      <rect x="40" y="120" width="170" height="112" rx="10" class="f-stage ol"/>
+      <rect x="52" y="132" width="146" height="88" rx="5" class="f-wash"/>
+      <path d="M22 232 H228 L244 252 H6 Z" class="f-slab ol"/>
+      <text x="125" y="282" text-anchor="middle" class="d" font-size="18">Laptop</text>
+      <text x="125" y="310" text-anchor="middle" font-size="15">Python 3.11 <tspan class="good">✓</tspan></text>
+      <text x="125" y="334" text-anchor="middle" font-size="15">CUDA 13 <tspan class="good">✓</tspan></text>
+      <g class="fx-span" style="--d:.8s;--d2:1.6s"><circle cx="190" cy="138" r="15" class="f-teal ol"/><path d="M183 138 l5 5 l9 -10" class="ln s-ink w3"/></g>
+      <rect x="390" y="80" width="160" height="172" rx="10" class="f-stage ol"/>
+      <rect x="404" y="96" width="132" height="38" rx="6" class="f-slab ol"/>
+      <rect x="404" y="142" width="132" height="38" rx="6" class="f-slab ol"/>
+      <rect x="404" y="188" width="132" height="38" rx="6" class="f-slab ol"/>
+      <circle cx="520" cy="115" r="4" class="f-teal"/><circle cx="520" cy="161" r="4" class="f-teal"/><circle cx="520" cy="207" r="4" class="f-sun"/>
+      <text x="470" y="282" text-anchor="middle" class="d" font-size="18">Server</text>
+      <g class="fx-up" style="--d:3.9s"><text x="470" y="310" text-anchor="middle" font-size="15">Python 3.9 <tspan class="bad">✗</tspan></text></g>
+      <g class="fx-up" style="--d:4.1s"><text x="470" y="334" text-anchor="middle" font-size="15">library missing <tspan class="bad">✗</tspan></text></g>
+      <g class="fx-up" style="--d:4.3s"><text x="470" y="358" text-anchor="middle" font-size="15">CUDA 12 <tspan class="bad">✗</tspan></text></g>
+      <g class="s2-move"><g class="s2-shake"><use href="#pid" x="97" y="140" width="56" height="60"/></g></g>
+      <g class="fx-pop" style="--d:3.7s"><circle cx="545" cy="90" r="16" class="f-berry ol"/><path d="M539 84 l12 12 M551 84 l-12 12" class="ln s-ink w3"/></g>
+    </g>
+    <g class="fx-up" style="--d:5.6s">
+      <rect x="40" y="392" width="520" height="64" rx="12" class="f-slab ol"/>
+      <text x="64" y="430" class="d" font-size="18">Host Linux kernel + hardware</text>
+    </g>
+    <g class="fx-in" style="--d:5.8s">
+      <rect x="110" y="120" width="380" height="262" rx="18" fill="none" class="s-teal w4 dash"/>
+      <rect x="130" y="106" width="112" height="28" rx="14" class="f-teal ol"/>
+      <text x="186" y="126" text-anchor="middle" class="d oa" font-size="15">container</text>
+    </g>
+    <g class="fx-up" style="--d:6s"><rect x="135" y="322" width="330" height="46" rx="8" class="f-wash ol"/><text x="300" y="351" text-anchor="middle" font-size="15">Image filesystem + config</text></g>
+    <g class="fx-up" style="--d:6.4s"><rect x="135" y="268" width="330" height="46" rx="8" class="f-sun ol"/><text x="300" y="297" text-anchor="middle" class="oa" font-size="15">Python, PyTorch, CUDA libraries</text></g>
+    <g class="fx-up" style="--d:6.8s"><rect x="135" y="214" width="330" height="46" rx="8" class="f-berry ol"/><text x="300" y="243" text-anchor="middle" class="oa" font-size="15">Application: inference API</text></g>
+    <g class="fx-pop" style="--d:7.2s"><use href="#pid" x="272" y="148" width="56" height="60"/></g>
+    <g class="fx-pop" style="--d:8.4s"><rect x="360" y="408" width="186" height="32" rx="16" class="f-grape ol"/><text x="453" y="429" text-anchor="middle" class="og bd" font-size="14">borrowed, not shipped</text></g>
+  </svg></div>
+</section>
+
+<!-- 3 -->
+<section class="scene" data-title="Houses vs. apartments" data-chapter="Why containers" data-dur="13000">
+  <div class="cap">
+    <h2>Houses vs. apartments</h2>
+    <p class="beat" style="--d:.6s;--d2:3.4s">A virtual machine is a house: it brings its own foundation, a guest kernel.</p>
+    <p class="beat" style="--d:3.4s;--d2:6.4s">Containers are apartments sharing one foundation: the host kernel.</p>
+    <p class="beat" style="--d:6.4s;--d2:9.6s">Sharing the kernel means fast starts and smaller images.</p>
+    <p class="beat" style="--d:9.6s">It also means security and compatibility depend on that host kernel.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="Two houses, each with its own guest kernel foundation, beside one apartment building on a single host kernel. Below, a start-up race where the container finishes far sooner.">
+    <text x="140" y="40" text-anchor="middle" class="d" font-size="20">Virtual machines</text>
+    <text x="450" y="40" text-anchor="middle" class="d" font-size="20">Containers</text>
+    <path d="M300 30 V258" class="ln s-mu w2 dash"/>
+    <g class="fx-up" style="--d:.6s"><rect x="20" y="222" width="260" height="34" rx="8" class="f-slab ol"/><text x="150" y="244" text-anchor="middle" font-size="14">Server + hypervisor</text></g>
+    <g class="fx-up" style="--d:1s"><g transform="translate(35 0)">
+      <rect x="0" y="186" width="105" height="32" rx="4" class="f-grape ol"/><text x="52" y="207" text-anchor="middle" class="og" font-size="13">guest kernel</text>
+      <rect x="8" y="120" width="89" height="66" class="f-stage ol"/><path d="M0 122 L52 80 L105 122 Z" class="f-berry ol"/>
+      <text x="52" y="142" text-anchor="middle" font-size="13">OS + app</text><rect x="41" y="152" width="22" height="34" class="f-sun ol"/>
+    </g></g>
+    <g class="fx-up" style="--d:1.3s"><g transform="translate(160 0)">
+      <rect x="0" y="186" width="105" height="32" rx="4" class="f-grape ol"/><text x="52" y="207" text-anchor="middle" class="og" font-size="13">guest kernel</text>
+      <rect x="8" y="120" width="89" height="66" class="f-stage ol"/><path d="M0 122 L52 80 L105 122 Z" class="f-teal ol"/>
+      <text x="52" y="142" text-anchor="middle" font-size="13">OS + app</text><rect x="41" y="152" width="22" height="34" class="f-sun ol"/>
+    </g></g>
+    <g class="fx-up" style="--d:3.4s"><rect x="320" y="222" width="260" height="34" rx="8" class="f-grape ol"/><text x="450" y="244" text-anchor="middle" class="og bd" font-size="15">One host kernel</text></g>
+    <g class="fx-up" style="--d:3.8s">
+      <rect x="340" y="96" width="220" height="126" class="f-stage ol"/><rect x="334" y="86" width="232" height="14" rx="4" class="f-teal ol"/>
+      <path d="M413 100 V222 M487 100 V222" class="ln s-ink w2"/>
+      <rect x="368" y="190" width="18" height="32" class="f-slab ol"/><rect x="441" y="190" width="18" height="32" class="f-slab ol"/><rect x="514" y="190" width="18" height="32" class="f-slab ol"/>
+    </g>
+    <g class="fx-pop" style="--d:4.2s"><use href="#pid" x="357" y="112" width="40" height="43" style="--pc:var(--teal)"/></g>
+    <g class="fx-pop" style="--d:4.4s"><use href="#pid" x="430" y="112" width="40" height="43" style="--pc:var(--sun)"/></g>
+    <g class="fx-pop" style="--d:4.6s"><use href="#pid" x="503" y="112" width="40" height="43" style="--pc:var(--berry)"/></g>
+    <text x="377" y="178" text-anchor="middle" font-size="13" class="fx-in" style="--d:4.4s">app 1</text>
+    <text x="450" y="178" text-anchor="middle" font-size="13" class="fx-in" style="--d:4.6s">app 2</text>
+    <text x="523" y="178" text-anchor="middle" font-size="13" class="fx-in" style="--d:4.8s">app 3</text>
+    <g class="fx-pop" style="--d:9.6s"><rect x="326" y="264" width="248" height="30" rx="15" class="f-sun ol"/><text x="450" y="284" text-anchor="middle" class="oa" font-size="13.5">security + compatibility live here</text></g>
+    <g class="fx-in" style="--d:6.4s">
+      <text x="20" y="330" class="d" font-size="16">Start-up race (typical shape, not a benchmark)</text>
+      <text x="20" y="372" font-size="15">VM boots</text>
+      <rect x="150" y="356" width="400" height="24" rx="12" class="f-wash ol"/>
+      <text x="20" y="420" font-size="15">Container starts</text>
+      <rect x="150" y="404" width="400" height="24" rx="12" class="f-wash ol"/>
+    </g>
+    <rect x="152" y="358" width="396" height="20" rx="10" class="f-berry s3-slow"/>
+    <rect x="152" y="406" width="40" height="20" rx="10" class="f-teal s3-fast"/>
+    <g class="fx-pop" style="--d:7.5s"><circle cx="214" cy="416" r="12" class="f-teal ol"/><path d="M208 416 l4 4 l7 -8" class="ln s-ink w3"/></g>
+    <g class="fx-pop" style="--d:11s"><circle cx="572" cy="368" r="12" class="f-berry ol"/><path d="M566 368 l4 4 l7 -8" class="ln s-ink w3"/></g>
+  </svg></div>
+</section>
+
+<!-- 4 -->
+<section class="scene" data-title="Namespaces: what Pid can see" data-chapter="Under the hood" data-dur="11000">
+  <div class="cap">
+    <h2>Namespaces: what Pid can see</h2>
+    <p class="beat" style="--d:.6s;--d2:3.6s">Each namespace gives a process its own private view of one system resource.</p>
+    <p class="beat" style="--d:3.6s;--d2:7s">Same process, two views: PID 152474 on the host, PID 1 inside the container.</p>
+    <p class="beat" style="--d:7s">Different hostname? That’s the UTS namespace, not PID.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="Pid wears goggles. Six cards show the PID, NET, MNT, UTS, IPC and USER namespaces. Below, one Pid carries two name tags: PID 152474 on the host and PID 1 in the container.">
+    <use href="#pid" x="265" y="10" width="70" height="75"/>
+    <g class="fx-pop" style="--d:.4s">
+      <path d="M269.7 47.3 H278.5 M321.5 47.3 H330.3" class="ln s-grape w4"/>
+      <circle cx="289.5" cy="47.3" r="11" class="lens"/><circle cx="310.5" cy="47.3" r="11" class="lens"/>
+    </g>
+    <g class="fx-pop" style="--d:1s"><rect x="18" y="108" width="176" height="70" rx="12" class="f-stage ol"/><circle cx="172" cy="128" r="9" class="f-teal ol"/><text x="32" y="136" class="d" font-size="19">PID</text><text x="32" y="162" class="mu" font-size="14">process IDs</text></g>
+    <g class="fx-pop" style="--d:1.3s"><rect x="212" y="108" width="176" height="70" rx="12" class="f-stage ol"/><circle cx="366" cy="128" r="9" class="f-sun ol"/><text x="226" y="136" class="d" font-size="19">NET</text><text x="226" y="162" class="mu" font-size="14">IPs, ports, routes</text></g>
+    <g class="fx-pop" style="--d:1.6s"><rect x="406" y="108" width="176" height="70" rx="12" class="f-stage ol"/><circle cx="560" cy="128" r="9" class="f-berry ol"/><text x="420" y="136" class="d" font-size="19">MNT</text><text x="420" y="162" class="mu" font-size="14">mounts, file view</text></g>
+    <g class="fx-pop" style="--d:1.9s"><rect x="18" y="190" width="176" height="70" rx="12" class="f-stage ol"/><circle cx="172" cy="210" r="9" class="f-grape ol"/><text x="32" y="218" class="d" font-size="19">UTS</text><text x="32" y="244" class="mu" font-size="14">hostname</text></g>
+    <g class="fx-pop" style="--d:2.2s"><rect x="212" y="190" width="176" height="70" rx="12" class="f-stage ol"/><circle cx="366" cy="210" r="9" class="f-teal ol"/><text x="226" y="218" class="d" font-size="19">IPC</text><text x="226" y="244" class="mu" font-size="14">shared IPC objects</text></g>
+    <g class="fx-pop" style="--d:2.5s"><rect x="406" y="190" width="176" height="70" rx="12" class="f-stage ol"/><circle cx="560" cy="210" r="9" class="f-sun ol"/><text x="420" y="218" class="d" font-size="19">USER</text><text x="420" y="244" class="mu" font-size="14">user ID mapping</text></g>
+    <text x="300" y="302" text-anchor="middle" class="d fx-in" font-size="17" style="--d:3.6s">One process, two name tags</text>
+    <g class="fx-pop" style="--d:3.8s"><use href="#pid" x="270" y="330" width="60" height="64" style="--pc:var(--sun)"/></g>
+    <path d="M232 364 H268" pathLength="1" class="ln s-ink w3 fx-draw" style="--d:4.3s;--t:.4s"/>
+    <path d="M332 364 H368" pathLength="1" class="ln s-ink w3 fx-draw" style="--d:4.8s;--t:.4s"/>
+    <g class="fx-sl" style="--d:4.2s"><rect x="20" y="338" width="210" height="52" rx="10" class="f-stage ol"/><text x="36" y="358" class="mu" font-size="13">host view</text><text x="36" y="381" class="d" font-size="19">PID 152474</text></g>
+    <g class="fx-sr" style="--d:4.7s"><rect x="370" y="338" width="210" height="52" rx="10" class="f-stage ol"/><text x="386" y="358" class="mu" font-size="13">container view</text><text x="386" y="381" class="d" font-size="19">PID 1</text></g>
+    <g class="fx-pop" style="--d:7s"><rect x="120" y="418" width="360" height="36" rx="18" class="f-sun ol"/><text x="300" y="441" text-anchor="middle" class="oa bd" font-size="15">hostname lives in UTS, not PID</text></g>
+  </svg></div>
+</section>
+
+<!-- 5 -->
+<section class="scene" data-title="cgroups: how much Pid can use" data-chapter="Under the hood" data-dur="11000">
+  <div class="cap">
+    <h2>cgroups: how much Pid can use</h2>
+    <p class="beat" style="--d:.6s;--d2:3s">The host has plenty: 16 logical CPUs and 31 GiB of RAM.</p>
+    <p class="beat" style="--d:3s;--d2:6.4s">A cgroup sets Pid’s budget: 2 CPUs’ worth of time and 2 GiB of memory.</p>
+    <p class="beat" style="--d:6.4s">Namespaces limit what Pid sees. cgroups limit how much Pid uses.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="Two bars show host capacity of 16 CPUs and 31 GiB. A cgroup budget fills only 2 CPUs’ worth and caps memory at 2 GiB. Below, namespaces are paired with goggles and cgroups with a gauge.">
+    <g class="fx-in" style="--d:.6s">
+      <text x="30" y="40" class="d" font-size="18">Host capacity</text>
+      <text x="30" y="90" class="d" font-size="16">CPU</text>
+      <rect x="100" y="70" width="470" height="28" rx="14" class="f-wash ol"/>
+      <g class="mu" font-size="13" text-anchor="middle"><text x="100" y="118" class="mu">0</text><text x="217.5" y="118" class="mu">4</text><text x="335" y="118" class="mu">8</text><text x="452.5" y="118" class="mu">12</text><text x="570" y="118" class="mu">16</text></g>
+      <text x="30" y="180" class="d" font-size="16">RAM</text>
+      <rect x="100" y="160" width="470" height="28" rx="14" class="f-wash ol"/>
+      <g font-size="13" text-anchor="middle"><text x="100" y="208" class="mu">0</text><text x="221" y="208" class="mu">8</text><text x="343" y="208" class="mu">16</text><text x="464" y="208" class="mu">24</text><text x="570" y="208" class="mu">31 GiB</text></g>
+    </g>
+    <rect x="101.5" y="71.5" width="58" height="25" rx="12.5" class="f-teal fx-gx" style="--d:3.2s"/>
+    <text x="172" y="90" font-size="14" class="fx-in" style="--d:3.7s">quota: 2 CPUs’ worth of time</text>
+    <rect x="101.5" y="161.5" width="29" height="25" rx="12" class="f-sun fx-gx" style="--d:3.9s"/>
+    <g class="fx-pop" style="--d:3.6s"><path d="M131 152 V196" class="ln s-berry w4"/><text x="137" y="150" font-size="13" class="bd">max 2 GiB</text></g>
+    <text x="146" y="180" font-size="14" class="fx-in" style="--d:4.2s">memory ceiling, enforced by the kernel</text>
+    <g class="fx-pop" style="--d:6.6s">
+      <rect x="30" y="250" width="255" height="180" rx="18" class="f-stage ol"/>
+      <path d="M131 300 H136 M178 300 H183" class="ln s-grape w4"/>
+      <circle cx="146" cy="300" r="13" class="lens"/><circle cx="168" cy="300" r="13" class="lens"/>
+      <text x="157" y="364" text-anchor="middle" class="d" font-size="21">Namespaces</text>
+      <text x="157" y="394" text-anchor="middle" class="mu" font-size="15">what Pid can see</text>
+    </g>
+    <g class="fx-pop" style="--d:6.9s">
+      <rect x="315" y="250" width="255" height="180" rx="18" class="f-stage ol"/>
+      <path d="M410 316 A32 32 0 0 1 474 316" class="ln s-ink w5"/>
+      <path d="M442 316 L462 296" class="ln s-berry w5"/><circle cx="442" cy="316" r="5" class="f-ink"/>
+      <text x="442" y="364" text-anchor="middle" class="d" font-size="21">cgroups</text>
+      <text x="442" y="394" text-anchor="middle" class="mu" font-size="15">how much Pid can use</text>
+    </g>
+  </svg></div>
+</section>
+
+<!-- 6 -->
+<section class="scene" data-title="Recipe, cutter, cookies" data-chapter="Images and lifecycle" data-dur="12500">
+  <div class="cap">
+    <h2>Recipe, cutter, cookies</h2>
+    <p class="beat" style="--d:.6s;--d2:2.8s"><strong>Dockerfile</strong>: the recipe, plain-text build instructions.</p>
+    <p class="beat" style="--d:2.8s;--d2:5.2s"><strong>Image</strong>: the cookie cutter, a frozen, reusable template.</p>
+    <p class="beat" style="--d:5.2s;--d2:8s"><strong>Container</strong>: one cookie stamped from it, running or stopped.</p>
+    <p class="beat" style="--d:8s"><strong>Registry</strong>: the shelf where images are shared, like Docker Hub.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="A Dockerfile recipe card becomes an image shaped like a cookie cutter through docker build. docker run stamps three identical containers. A registry shelf pushes and pulls images.">
+    <g class="fx-up" style="--d:.6s">
+      <rect x="30" y="40" width="110" height="140" rx="10" class="f-stage ol"/>
+      <text x="85" y="64" text-anchor="middle" class="d" font-size="15">Dockerfile</text>
+      <rect x="46" y="80" width="76" height="8" rx="4" class="f-slab"/><rect x="46" y="98" width="58" height="8" rx="4" class="f-slab"/>
+      <rect x="46" y="116" width="70" height="8" rx="4" class="f-slab"/><rect x="46" y="134" width="50" height="8" rx="4" class="f-slab"/>
+      <rect x="46" y="152" width="64" height="8" rx="4" class="f-slab"/>
+    </g>
+    <path d="M150 110 H228" pathLength="1" class="ln s-ink w3 fx-draw" style="--d:1.8s;--t:.6s"/>
+    <path d="M220 102 L230 110 L220 118" class="ln s-ink w3 fx-in" style="--d:2.3s"/>
+    <text x="190" y="96" text-anchor="middle" class="m fx-in" font-size="13" style="--d:1.8s">docker build</text>
+    <g class="fx-pop" style="--d:2.8s">
+      <rect x="275" y="48" width="40" height="14" rx="7" class="f-grape ol"/>
+      <rect x="245" y="62" width="100" height="96" rx="26" fill="none" class="s-ink w12"/>
+      <rect x="245" y="62" width="100" height="96" rx="26" fill="none" class="s-grape w8"/>
+      <text x="295" y="186" text-anchor="middle" class="d" font-size="17">Image</text>
+      <text x="295" y="206" text-anchor="middle" class="mu" font-size="13">read-only template</text>
+    </g>
+    <path d="M295 216 C295 260 140 250 140 296" pathLength="1" class="ln s-ink w3 fx-draw" style="--d:5s"/>
+    <path d="M295 216 V296" pathLength="1" class="ln s-ink w3 fx-draw" style="--d:5.1s"/>
+    <path d="M295 216 C295 260 450 250 450 296" pathLength="1" class="ln s-ink w3 fx-draw" style="--d:5.2s"/>
+    <g class="fx-pop" style="--d:5s"><rect x="247" y="223" width="96" height="26" rx="13" class="f-stage ol"/><text x="295" y="241" text-anchor="middle" class="m" font-size="13">docker run</text></g>
+    <g class="fx-pop" style="--d:5.4s"><use href="#pid" x="105" y="300" width="70" height="75"/></g>
+    <g class="fx-pop" style="--d:5.7s"><use href="#pid" x="260" y="300" width="70" height="75"/></g>
+    <g class="fx-pop" style="--d:6s"><use href="#pid" x="415" y="300" width="70" height="75"/></g>
+    <g class="fx-up" style="--d:6.3s" font-size="14">
+      <text x="140" y="394" text-anchor="middle">container 1</text><text x="295" y="394" text-anchor="middle">container 2</text><text x="450" y="394" text-anchor="middle">container 3</text>
+      <rect x="98" y="404" width="84" height="26" rx="13" class="f-teal ol"/><text x="140" y="422" text-anchor="middle" class="oa" font-size="13">running</text>
+      <rect x="253" y="404" width="84" height="26" rx="13" class="f-teal ol"/><text x="295" y="422" text-anchor="middle" class="oa" font-size="13">running</text>
+      <rect x="408" y="404" width="84" height="26" rx="13" class="f-slab ol"/><text x="450" y="422" text-anchor="middle" font-size="13">stopped</text>
+    </g>
+    <text x="300" y="464" text-anchor="middle" class="d fx-up" font-size="18" style="--d:7s">One image, many containers</text>
+    <g class="fx-up" style="--d:8s">
+      <rect x="442" y="40" width="144" height="130" rx="12" class="f-wash ol"/>
+      <path d="M452 105 H576" class="ln s-ink w3"/>
+      <rect x="460" y="60" width="34" height="34" rx="10" fill="none" class="s-grape w5"/><rect x="512" y="60" width="34" height="34" rx="10" fill="none" class="s-teal w5"/>
+      <rect x="478" y="120" width="34" height="34" rx="10" fill="none" class="s-berry w5"/><rect x="530" y="120" width="34" height="34" rx="10" fill="none" class="s-grape w5"/>
+      <text x="514" y="192" text-anchor="middle" class="d" font-size="17">Registry</text>
+      <text x="514" y="212" text-anchor="middle" class="mu" font-size="13">e.g. Docker Hub</text>
+    </g>
+    <path d="M354 110 H432 M362 102 L354 110 L362 118 M424 102 L432 110 L424 118" class="ln s-ink w3 fx-in" style="--d:8.4s"/>
+    <text x="393" y="96" text-anchor="middle" class="m fx-in" font-size="12" style="--d:8.4s">push / pull</text>
+  </svg></div>
+</section>
+
+<!-- 7 -->
+<section class="scene" data-title="A container lives as long as PID 1" data-chapter="Images and lifecycle" data-dur="13000">
+  <div class="cap">
+    <h2>A container lives as long as PID 1</h2>
+    <p class="beat" style="--d:.6s;--d2:3s">A container moves through four states.</p>
+    <p class="beat" style="--d:3s;--d2:6s">It stays running while its main process, PID 1, is alive.</p>
+    <p class="beat" style="--d:6s;--d2:8.6s">PID 1 exits, the container stops. Remove it when you’re done.</p>
+    <p class="beat" style="--d:8.6s">That’s why <code>hello-world</code> exits at once: it prints, finishes, and stops with code 0.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="A state diagram: Created, Running, Stopped, Removed. A heartbeat line for PID 1 runs, then goes flat, and the container moves to Stopped, then Removed. A terminal shows hello-world exiting with code 0.">
+    <g class="fx-in" style="--d:.5s">
+      <path d="M362 64 C352 22 240 22 232 64" class="ln s-mu w3"/><path d="M226 54 L232 64 L240 55" class="ln s-mu w3"/>
+      <text x="297" y="22" text-anchor="middle" class="m mu" font-size="13">start again</text>
+      <path d="M144 90 H162 M156 84 L162 90 L156 96 M292 90 H310 M304 84 L310 90 L304 96 M440 90 H458 M452 84 L458 90 L452 96" class="ln s-ink w3"/>
+      <g class="m" font-size="13" text-anchor="middle"><text x="154" y="138">start</text><text x="302" y="138">stop or exit</text><text x="450" y="138">rm</text></g>
+    </g>
+    <g class="fx-up" style="--d:.6s"><rect x="18" y="64" width="124" height="52" rx="26" class="f-stage ol"/></g>
+    <g class="fx-up" style="--d:.8s"><rect x="166" y="64" width="124" height="52" rx="26" class="f-stage ol"/></g>
+    <g class="fx-up" style="--d:1s"><rect x="314" y="64" width="124" height="52" rx="26" class="f-stage ol"/></g>
+    <g class="fx-up" style="--d:1.2s"><rect x="462" y="64" width="124" height="52" rx="26" class="f-stage ol"/></g>
+    <rect x="18" y="64" width="124" height="52" rx="26" class="f-sun ol fx-span" style="--d:1.2s;--d2:1.9s"/>
+    <rect x="166" y="64" width="124" height="52" rx="26" class="f-teal ol fx-span" style="--d:1.9s;--d2:5.7s"/>
+    <rect x="314" y="64" width="124" height="52" rx="26" class="f-sun ol fx-span" style="--d:5.7s;--d2:7.4s"/>
+    <rect x="462" y="64" width="124" height="52" rx="26" class="f-berry ol fx-span" style="--d:7.4s"/>
+    <g class="d fx-in" font-size="17" text-anchor="middle" style="--d:.7s"><text x="80" y="96">Created</text><text x="228" y="96">Running</text><text x="376" y="96">Stopped</text><text x="524" y="96">Removed</text></g>
+    <g class="fx-in" style="--d:1.5s">
+      <rect x="18" y="156" width="568" height="116" rx="14" class="f-wash ol"/>
+      <text x="34" y="182" class="d" font-size="15">PID 1</text>
+    </g>
+    <path class="ln s-teal w4 fx-draw s7-ecg" pathLength="1" d="M40 226 H70 L80 206 L90 246 L100 216 L108 226 H140 L150 206 L160 246 L170 216 L178 226 H210 L220 206 L230 246 L240 216 L248 226 H280 L290 206 L300 246 L310 216 L318 226 H350 L360 206 L370 246 L380 216 L388 226 H570"/>
+    <g class="fx-pop" style="--d:5.2s"><rect x="420" y="178" width="148" height="28" rx="14" class="f-berry ol"/><text x="494" y="197" text-anchor="middle" class="oa bd" font-size="14">PID 1 exits</text></g>
+    <g class="fx-in" style="--d:8.4s"><rect x="18" y="296" width="568" height="164" rx="14" class="f-term ol"/></g>
+    <g class="m" font-size="15">
+      <text x="36" y="332" class="tt fx-in" style="--d:8.7s">$ docker run hello-world</text>
+      <text x="36" y="362" class="tm fx-in" style="--d:9.3s">(prints a short greeting, then finishes)</text>
+      <text x="36" y="402" class="tt fx-in" style="--d:9.9s">$ docker ps -a</text>
+      <text x="36" y="432" class="tt fx-in" style="--d:10.5s">hello-world   <tspan class="sunt">Exited (0)</tspan></text>
+    </g>
+  </svg></div>
+</section>
+
+<!-- 8 -->
+<section class="scene" data-title="Port publishing, traced" data-chapter="Networking" data-dur="12000">
+  <div class="cap">
+    <h2>-p 8080:80, traced</h2>
+    <p class="beat" style="--d:.6s;--d2:3s">You start Nginx and publish a port:</p>
+    <pre class="code" style="--d:1s">docker run -d --name day7-nginx \
+  -p 8080:80 nginx:alpine</pre>
+    <p class="beat" style="--d:3s;--d2:5.8s"><code>curl</code> knocks on host port 8080. Docker forwards it to port 80 inside.</p>
+    <p class="beat" style="--d:5.8s">Nginx never moved. It still listens on 80 in its own network namespace.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="A request from curl enters host port 8080, Docker forwards it to port 80 in the container where Nginx listens, and the response travels back. A myth card says Nginx now listens on 8080; a fact card says host 8080 forwards to container 80.">
+    <g class="fx-in" style="--d:.5s">
+      <rect x="132" y="20" width="458" height="310" rx="20" class="f-wash ol"/>
+      <text x="152" y="48" class="d" font-size="17">Host</text>
+      <rect x="350" y="70" width="222" height="236" rx="16" class="f-stage ol"/>
+      <text x="368" y="98" class="d" font-size="16">Container</text>
+      <text x="368" y="120" class="mu" font-size="13">own network namespace</text>
+    </g>
+    <g class="fx-pop" style="--d:1.2s"><rect x="392" y="150" width="150" height="96" rx="12" class="f-teal ol"/><text x="467" y="190" text-anchor="middle" class="d oa" font-size="20">Nginx</text><text x="467" y="216" text-anchor="middle" class="m oa" font-size="13">listening on :80</text></g>
+    <g class="fx-up" style="--d:1.6s"><rect x="4" y="40" width="96" height="88" rx="10" class="f-term ol"/><g class="m tt" font-size="13"><text x="14" y="66" class="tt">$ curl</text><text x="14" y="88" class="tt">localhost</text><text x="14" y="110" class="tt">:8080</text></g></g>
+    <path d="M52 128 V163 H104" pathLength="1" class="ln s-ink w3 fx-draw" style="--d:2s;--t:.5s"/>
+    <g class="fx-pop" style="--d:2.2s"><rect x="104" y="146" width="58" height="34" rx="8" class="f-sun ol"/><text x="133" y="169" text-anchor="middle" class="m oa bd" font-size="15">8080</text></g>
+    <g class="fx-pop" style="--d:2.4s"><rect x="328" y="182" width="46" height="34" rx="8" class="f-sun ol"/><text x="351" y="205" text-anchor="middle" class="m oa bd" font-size="15">80</text></g>
+    <path d="M162 163 C240 163 260 199 328 199" pathLength="1" class="ln s-grape w4 fx-draw" style="--d:2.6s"/>
+    <text x="244" y="150" text-anchor="middle" class="d fx-in" font-size="15" style="--d:2.8s">Docker forwards</text>
+    <rect x="386" y="144" width="162" height="108" rx="15" fill="none" class="s-sun w5 fx-span" style="--d:4.9s;--d2:6s"/>
+    <g class="s8-pkt"><rect x="-13" y="-9" width="26" height="18" rx="3" class="f-berry ol"/><path d="M-13 -9 L0 2 L13 -9" class="ln s-ink w2"/></g>
+    <g class="s8-res"><rect x="-13" y="-9" width="26" height="18" rx="3" class="f-teal ol"/><path d="M-13 -9 L0 2 L13 -9" class="ln s-ink w2"/></g>
+    <g class="fx-up" style="--d:5.8s">
+      <rect x="20" y="350" width="270" height="112" rx="14" class="f-stage ol"/>
+      <circle cx="46" cy="380" r="13" class="f-berry ol"/><path d="M41 375 l10 10 M51 375 l-10 10" class="ln s-ink w3"/>
+      <text x="68" y="386" class="d" font-size="17">Myth</text>
+      <text x="36" y="420" font-size="15">Nginx now listens</text><text x="36" y="442" font-size="15">on port 8080</text>
+    </g>
+    <path d="M32 415 H166 M32 437 H128" pathLength="1" class="ln s-berry w3 fx-draw" style="--d:6.6s;--t:.6s"/>
+    <g class="fx-up" style="--d:6.2s">
+      <rect x="310" y="350" width="270" height="112" rx="14" class="f-stage ol"/>
+      <circle cx="336" cy="380" r="13" class="f-teal ol"/><path d="M330 380 l4 4 l7 -8" class="ln s-ink w3"/>
+      <text x="358" y="386" class="d" font-size="17">Fact</text>
+      <text x="326" y="420" font-size="15">Host port 8080 forwards</text><text x="326" y="442" font-size="15">to container port 80</text>
+    </g>
+  </svg></div>
+</section>
+
+<!-- 9 -->
+<section class="scene" data-title="The bridge: a shared hallway" data-chapter="Networking" data-dur="11500">
+  <div class="cap">
+    <h2>The bridge: a shared hallway</h2>
+    <p class="beat" style="--d:.6s;--d2:3.2s">By default, containers plug into Docker’s bridge network.</p>
+    <p class="beat" style="--d:3.2s;--d2:6.4s"><code>docker0</code> is the hallway. Each container gets its own door: an IP address.</p>
+    <p class="beat" style="--d:6.4s">Something unreachable? Ask the same three questions every time.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="Two containers with IPs 172.17.0.2 and 172.17.0.3 connect to the docker0 bridge, gateway 172.17.0.1. A packet travels between them. Three debugging questions follow.">
+    <g class="fx-in" style="--d:.4s"><rect x="10" y="10" width="580" height="290" rx="20" class="f-wash ol"/><text x="30" y="38" class="d" font-size="15">Host network namespace</text></g>
+    <g class="fx-up" style="--d:.6s"><rect x="60" y="56" width="200" height="100" rx="14" class="f-stage ol"/><use href="#pid" x="74" y="76" width="52" height="55"/><text x="196" y="98" text-anchor="middle" class="d" font-size="16">Container A</text><text x="196" y="122" text-anchor="middle" class="m" font-size="14">172.17.0.2</text></g>
+    <g class="fx-up" style="--d:.8s"><rect x="340" y="56" width="200" height="100" rx="14" class="f-stage ol"/><use href="#pid" x="354" y="76" width="52" height="55" style="--pc:var(--berry)"/><text x="476" y="98" text-anchor="middle" class="d" font-size="16">Container B</text><text x="476" y="122" text-anchor="middle" class="m" font-size="14">172.17.0.3</text></g>
+    <rect x="40" y="210" width="520" height="46" rx="23" class="f-sun ol fx-gx" style="--d:1.2s"/>
+    <g class="fx-in" style="--d:1.8s"><text x="60" y="239" class="d oa" font-size="16">docker0 bridge</text><text x="540" y="239" text-anchor="end" class="m oa" font-size="13">gateway 172.17.0.1/16</text></g>
+    <path d="M160 156 V210" pathLength="1" class="ln s-ink w4 fx-draw" style="--d:2.2s;--t:.5s"/>
+    <path d="M440 156 V210" pathLength="1" class="ln s-ink w4 fx-draw" style="--d:2.4s;--t:.5s"/>
+    <circle r="9" class="f-berry ol s9-pkt"/>
+    <g class="fx-up" style="--d:6.6s"><rect x="10" y="322" width="580" height="42" rx="21" class="f-stage ol"/><circle cx="36" cy="343" r="13" class="f-grape"/><text x="36" y="348" text-anchor="middle" class="og bd" font-size="14">1</text><text x="60" y="349" font-size="16">Which network namespace owns the socket?</text></g>
+    <g class="fx-up" style="--d:7.2s"><rect x="10" y="374" width="580" height="42" rx="21" class="f-stage ol"/><circle cx="36" cy="395" r="13" class="f-grape"/><text x="36" y="400" text-anchor="middle" class="og bd" font-size="14">2</text><text x="60" y="401" font-size="16">Which IP and port is actually listening?</text></g>
+    <g class="fx-up" style="--d:7.8s"><rect x="10" y="426" width="580" height="42" rx="21" class="f-stage ol"/><circle cx="36" cy="447" r="13" class="f-grape"/><text x="36" y="452" text-anchor="middle" class="og bd" font-size="14">3</text><text x="60" y="453" font-size="16">How is traffic routed to it?</text></g>
+  </svg></div>
+</section>
+
+<!-- 10 -->
+<section class="scene" data-title="Four lines, one image" data-chapter="Building images" data-dur="13000">
+  <div class="cap">
+    <h2>Four lines, one image</h2>
+    <p class="beat" style="--d:.6s;--d2:2.6s"><code>FROM</code> picks a starting image: Linux userspace plus Python 3.11.</p>
+    <p class="beat" style="--d:2.6s;--d2:4.6s"><code>WORKDIR</code> sets <code>/app</code>. <code>COPY</code> brings in <code>app.py</code>.</p>
+    <p class="beat" style="--d:4.6s;--d2:6.8s"><code>CMD</code> names the default process, stored as metadata.</p>
+    <p class="beat" style="--d:6.8s">The final dot is the build context: files Docker may read. <code>COPY</code> takes only what you name.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="A four-line Dockerfile builds a stack: a python base, an /app directory, app.py, and a CMD tag. Below, the dot in docker build points to a folder; only app.py is copied into the image.">
+    <g class="fx-in" style="--d:.3s"><rect x="10" y="20" width="300" height="190" rx="14" class="f-term ol"/><text x="26" y="48" class="m tm" font-size="13">Dockerfile</text></g>
+    <g class="m tt" font-size="14">
+      <text x="26" y="86" class="tt fx-in" style="--d:.8s"><tspan class="sunt">FROM</tspan> python:3.11-slim</text>
+      <text x="26" y="118" class="tt fx-in" style="--d:2.8s"><tspan class="sunt">WORKDIR</tspan> /app</text>
+      <text x="26" y="150" class="tt fx-in" style="--d:3.6s"><tspan class="sunt">COPY</tspan> app.py .</text>
+      <text x="26" y="182" class="tt fx-in" style="--d:4.8s"><tspan class="sunt">CMD</tspan> ["python", "app.py"]</text>
+    </g>
+    <g class="fx-up" style="--d:1s"><rect x="340" y="150" width="250" height="60" rx="10" class="f-slab ol"/><text x="465" y="176" text-anchor="middle" class="m" font-size="14">python:3.11-slim</text><text x="465" y="197" text-anchor="middle" class="mu" font-size="13">base layers</text></g>
+    <g class="fx-up" style="--d:3s"><rect x="340" y="112" width="250" height="32" rx="8" class="f-wash ol"/><text x="465" y="133" text-anchor="middle" class="m" font-size="14">/app</text></g>
+    <g class="fx-up" style="--d:3.8s"><rect x="340" y="74" width="250" height="32" rx="8" class="f-berry ol"/><text x="465" y="95" text-anchor="middle" class="m oa" font-size="14">app.py</text></g>
+    <g class="fx-pop" style="--d:5s"><rect x="380" y="28" width="170" height="34" rx="17" class="f-grape ol"/><text x="465" y="50" text-anchor="middle" class="m og" font-size="13">CMD python app.py</text></g>
+    <text x="465" y="18" text-anchor="middle" class="mu fx-in" font-size="13" style="--d:5.3s">metadata, not a file</text>
+    <text x="465" y="232" text-anchor="middle" class="m fx-in" font-size="13" style="--d:6s">image: day7-python:v1</text>
+    <g class="fx-in" style="--d:6.6s"><rect x="10" y="262" width="580" height="44" rx="12" class="f-term ol"/><text x="28" y="291" class="m tt" font-size="15" textLength="306" lengthAdjust="spacingAndGlyphs">$ docker build -t day7-python:v1 .</text></g>
+    <circle cx="329.5" cy="286" r="13" fill="none" class="s-sun w4 fx-pop" style="--d:7s"/>
+    <path d="M322 299 C300 330 230 318 196 334" pathLength="1" class="ln s-sun w3 fx-draw" style="--d:7.2s;--t:.6s"/>
+    <g class="fx-up" style="--d:7.4s">
+      <rect x="40" y="326" width="78" height="20" rx="6" class="f-sun ol"/>
+      <rect x="40" y="338" width="240" height="124" rx="12" class="f-sun ol"/>
+      <text x="56" y="362" class="d oa" font-size="15">build context: this folder</text>
+    </g>
+    <rect x="52" y="376" width="96" height="22" rx="11" class="f-berry fx-in" style="--d:8.2s"/>
+    <g class="fx-in" style="--d:7.8s">
+      <rect x="60" y="379" width="12" height="15" rx="2" class="f-stage ol"/><text x="80" y="392" class="m oa" font-size="14">app.py</text>
+      <rect x="60" y="403" width="12" height="15" rx="2" class="f-stage ol"/><text x="80" y="416" class="m oa" font-size="14">notes.txt</text>
+      <rect x="60" y="427" width="12" height="15" rx="2" class="f-stage ol"/><text x="80" y="440" class="m oa" font-size="14">data.csv</text>
+    </g>
+    <g class="fx-up" style="--d:8.4s"><rect x="320" y="338" width="262" height="124" rx="12" class="f-stage ol"/><text x="336" y="362" class="d" font-size="15">Copied into the image</text></g>
+    <path d="M150 387 C230 387 250 393 318 393" pathLength="1" class="ln s-berry w3 fx-draw" style="--d:8.6s;--t:.5s"/>
+    <g class="fx-in" style="--d:9s"><text x="336" y="396" class="m" font-size="14">/app/app.py <tspan class="good">✓</tspan></text><text x="336" y="424" class="m mu" font-size="13">notes.txt, data.csv</text><text x="336" y="444" class="mu" font-size="13">visible to the build, not copied</text></g>
+  </svg></div>
+</section>
+
+<!-- 11 -->
+<section class="scene" data-title="Stable first, volatile later" data-chapter="Building images" data-dur="13000">
+  <div class="cap">
+    <h2>Stable first, volatile later</h2>
+    <p class="beat" style="--d:.6s;--d2:3s">Each instruction becomes a cached layer.</p>
+    <p class="beat" style="--d:3s;--d2:6s">Edit <code>app.py</code>, and every layer from the change upward rebuilds.</p>
+    <p class="beat" style="--d:6s;--d2:9s">Copy <code>requirements.txt</code> first, so the heavy <code>pip install</code> stays cached.</p>
+    <p class="beat" style="--d:9s">For PyTorch-sized images, that’s minutes versus seconds.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="Two five-layer stacks. After app.py changes, the poorly ordered stack rebuilds three layers including pip install; the better ordered stack rebuilds only the top layer. Bars compare rebuild time: minutes versus seconds.">
+    <text x="150" y="34" text-anchor="middle" class="d" font-size="17">Poor order</text>
+    <text x="450" y="34" text-anchor="middle" class="d" font-size="17">Better order</text>
+    <g class="m" font-size="13">
+      <g class="fx-up" style="--d:.6s"><rect x="25" y="240" width="250" height="40" rx="8" class="f-stage ol"/><rect x="325" y="240" width="250" height="40" rx="8" class="f-stage ol"/><text x="40" y="265">FROM python:3.11-slim</text><text x="340" y="265">FROM python:3.11-slim</text></g>
+      <g class="fx-up" style="--d:.9s"><rect x="25" y="194" width="250" height="40" rx="8" class="f-stage ol"/><rect x="325" y="194" width="250" height="40" rx="8" class="f-stage ol"/><text x="40" y="219">WORKDIR /app</text><text x="340" y="219">WORKDIR /app</text></g>
+      <g class="fx-up" style="--d:1.2s"><rect x="25" y="148" width="250" height="40" rx="8" class="f-stage ol"/><rect x="325" y="148" width="250" height="40" rx="8" class="f-stage ol"/></g>
+      <g class="fx-up" style="--d:1.5s"><rect x="25" y="102" width="250" height="40" rx="8" class="f-stage ol"/><rect x="325" y="102" width="250" height="40" rx="8" class="f-stage ol"/></g>
+      <g class="fx-up" style="--d:1.8s"><rect x="25" y="56" width="250" height="40" rx="8" class="f-stage ol"/><rect x="325" y="56" width="250" height="40" rx="8" class="f-stage ol"/></g>
+      <rect x="25" y="148" width="250" height="40" rx="8" class="f-berry ol s11-flash" style="--d:3.4s"/>
+      <rect x="25" y="102" width="250" height="40" rx="8" class="f-berry ol s11-flash" style="--d:3.7s"/>
+      <rect x="25" y="56" width="250" height="40" rx="8" class="f-berry ol s11-flash" style="--d:4s"/>
+      <rect x="325" y="56" width="250" height="40" rx="8" class="f-berry ol s11-flash" style="--d:3.4s"/>
+      <g class="fx-in" style="--d:1.2s"><text x="40" y="173">COPY . .</text><text x="340" y="173">COPY requirements.txt .</text></g>
+      <g class="fx-in" style="--d:1.5s"><text x="40" y="127">RUN pip install</text><text x="340" y="127">RUN pip install</text></g>
+      <g class="fx-in" style="--d:1.8s"><text x="40" y="81">CMD python app.py</text><text x="340" y="81">COPY app.py + CMD</text></g>
+    </g>
+    <g font-size="12" class="bd">
+      <g class="fx-pop" style="--d:3.4s"><circle cx="256" cy="260" r="11" class="f-teal ol"/><path d="M251 260 l3 3 l6 -7" class="ln s-ink w3"/><circle cx="256" cy="214" r="11" class="f-teal ol"/><path d="M251 214 l3 3 l6 -7" class="ln s-ink w3"/></g>
+      <g class="fx-pop" style="--d:3.4s"><circle cx="556" cy="260" r="11" class="f-teal ol"/><path d="M551 260 l3 3 l6 -7" class="ln s-ink w3"/><circle cx="556" cy="214" r="11" class="f-teal ol"/><path d="M551 214 l3 3 l6 -7" class="ln s-ink w3"/><circle cx="556" cy="168" r="11" class="f-teal ol"/><path d="M551 168 l3 3 l6 -7" class="ln s-ink w3"/><circle cx="556" cy="122" r="11" class="f-teal ol"/><path d="M551 122 l3 3 l6 -7" class="ln s-ink w3"/></g>
+    </g>
+    <g class="fx-in" style="--d:4.4s"><text x="150" y="304" text-anchor="middle" class="bad" font-size="14">3 layers rebuild, incl. pip</text><text x="450" y="304" text-anchor="middle" font-size="14"><tspan class="good">4 cached</tspan>, 1 quick rebuild</text></g>
+    <g class="fx-pop" style="--d:3s"><rect x="226" y="10" width="148" height="30" rx="15" class="f-sun ol"/><text x="300" y="30" text-anchor="middle" class="d oa" font-size="15">app.py edited</text></g>
+    <g class="fx-in" style="--d:6s">
+      <text x="20" y="352" class="d" font-size="15">Rebuild after a code edit (illustrative)</text>
+      <text x="20" y="392" font-size="14">Poor order</text>
+      <rect x="130" y="376" width="374" height="24" rx="12" class="f-wash ol"/>
+      <text x="20" y="442" font-size="14">Better order</text>
+      <rect x="130" y="426" width="374" height="24" rx="12" class="f-wash ol"/>
+    </g>
+    <rect x="132" y="378" width="370" height="20" rx="10" class="f-berry s11-long"/>
+    <rect x="132" y="428" width="40" height="20" rx="10" class="f-teal fx-gx" style="--d:6.4s;--t:.5s"/>
+    <text x="514" y="393" font-size="14" class="bd fx-in" style="--d:9.4s">minutes</text>
+    <text x="182" y="443" font-size="14" class="bd fx-in" style="--d:7s">seconds</text>
+  </svg></div>
+</section>
+
+<!-- 12 -->
+<section class="scene" data-title="Two quiet gotchas" data-chapter="Building images" data-dur="14000">
+  <div class="cap">
+    <h2>Two quiet gotchas</h2>
+    <p class="beat" style="--d:.6s;--d2:3.4s">A tag is a sticky note pointing at an image, not the image itself.</p>
+    <p class="beat" style="--d:3.4s;--d2:6s">Rebuild <code>v5</code> and the note moves to a new image ID. Release with versions or Git commits.</p>
+    <p class="beat" style="--d:6s;--d2:9s">Empty logs from a running app? Python may be buffering its output.</p>
+    <p class="beat" style="--d:9s"><code>python -u</code> sends each line straight to <code>docker logs</code>.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="A sticky note labelled day7-python:v5 moves from an old image ID to a new one after a rebuild. Below, print output drips into a buffer bucket while docker logs stays empty; with python -u, lines flow straight to the logs.">
+    <g class="s12-old"><g class="fx-up" style="--d:.6s"><rect x="40" y="82" width="200" height="110" rx="14" class="f-stage ol"/><text x="140" y="148" text-anchor="middle" class="mu" font-size="13">image ID</text><text x="140" y="172" text-anchor="middle" class="m" font-size="17">3f9a…</text></g></g>
+    <text x="140" y="214" text-anchor="middle" class="mu fx-in" font-size="14" style="--d:5.2s">now untagged</text>
+    <path d="M250 137 H348 M340 129 L350 137 L340 145" pathLength="1" class="ln s-ink w3 fx-draw" style="--d:3.2s;--t:.5s"/>
+    <text x="300" y="126" text-anchor="middle" class="m fx-in" font-size="13" style="--d:3.2s">rebuild</text>
+    <g class="fx-pop" style="--d:3.5s"><rect x="360" y="82" width="200" height="110" rx="14" class="f-stage ol"/><text x="460" y="148" text-anchor="middle" class="mu" font-size="13">image ID</text><text x="460" y="172" text-anchor="middle" class="m" font-size="17">c71e…</text></g>
+    <g class="s12-note"><g class="fx-pop" style="--d:1.1s"><path d="M-74 -20 H60 L74 -6 V20 H-74 Z" class="f-sun ol"/><path d="M60 -20 V-6 H74" class="ln s-ink w2"/><text y="6" text-anchor="middle" class="m oa bd" font-size="14">day7-python:v5</text></g></g>
+    <path d="M10 232 H590" class="ln s-mu w2 dash"/>
+    <g class="fx-up" style="--d:6s"><rect x="30" y="250" width="150" height="56" rx="12" class="f-teal ol"/><text x="105" y="274" text-anchor="middle" class="d oa" font-size="16">app.py</text><text x="105" y="294" text-anchor="middle" class="m oa" font-size="13">print()</text></g>
+    <g class="fx-up" style="--d:6.2s"><path d="M58 352 L152 352 L142 440 L68 440 Z" class="f-wash ol"/><text x="105" y="464" text-anchor="middle" class="mu" font-size="14">buffer</text></g>
+    <rect x="70" y="400" width="70" height="38" class="f-grape s12-fill" style="opacity:.7"/>
+    <g class="fx-out" style="--d:9s">
+      <circle cx="105" cy="316" r="6" class="f-grape s12-drop" style="--d:6.4s"/>
+      <circle cx="105" cy="316" r="6" class="f-grape s12-drop" style="--d:6.75s"/>
+      <circle cx="105" cy="316" r="6" class="f-grape s12-drop" style="--d:7.1s"/>
+    </g>
+    <circle cx="186" cy="278" r="6" class="f-grape s12-flow" style="--d:9.3s"/>
+    <circle cx="186" cy="278" r="6" class="f-grape s12-flow" style="--d:9.6s"/>
+    <circle cx="186" cy="278" r="6" class="f-grape s12-flow" style="--d:9.9s"/>
+    <g class="fx-up" style="--d:6.2s"><rect x="330" y="250" width="250" height="190" rx="14" class="f-term ol"/><text x="346" y="276" class="m tm" font-size="14">docker logs -f</text></g>
+    <text x="346" y="312" class="m tm fx-span" font-size="14" style="--d:6.6s;--d2:9.3s">(nothing yet…)</text>
+    <g class="m" font-size="14">
+      <text x="346" y="312" class="tt fx-in" style="--d:9.6s">heartbeat</text>
+      <text x="346" y="338" class="tt fx-in" style="--d:10.4s">heartbeat</text>
+      <text x="346" y="364" class="tt fx-in" style="--d:11.2s">heartbeat</text>
+      <text x="346" y="390" class="tt fx-in" style="--d:12s">heartbeat</text>
+    </g>
+    <g class="fx-pop" style="--d:9s"><rect x="196" y="346" width="118" height="34" rx="17" class="f-sun ol"/><text x="255" y="368" text-anchor="middle" class="m oa bd" font-size="14">python -u</text></g>
+  </svg></div>
+</section>
+
+<!-- 13 -->
+<section class="scene" data-title="The writable layer" data-chapter="Storage" data-dur="11500">
+  <div class="cap">
+    <h2>The writable layer</h2>
+    <p class="beat" style="--d:.6s;--d2:3s">Image layers are read-only. Each container gets a thin writable layer on top.</p>
+    <p class="beat" style="--d:3s;--d2:6.4s">Stop and start the same container: your files are still there.</p>
+    <p class="beat" style="--d:6.4s">Remove the container, and its writable layer goes with it.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="Three locked read-only image layers with a yellow writable layer on top holding ckpt.pt. After docker stop and start, the file is kept. After docker rm, the writable layer and the file are gone.">
+    <path d="M30 222 V378" class="ln s-mu w2 fx-in" style="--d:1.2s"/>
+    <text x="20" y="300" transform="rotate(-90 20 300)" text-anchor="middle" class="mu fx-in" font-size="13" style="--d:1.2s">read-only</text>
+    <g class="fx-up" style="--d:.6s"><rect x="40" y="330" width="290" height="50" rx="10" class="f-slab ol"/><text x="58" y="361" font-size="15">Base image layers</text></g>
+    <g class="fx-up" style="--d:.8s"><rect x="40" y="274" width="290" height="50" rx="10" class="f-slab ol"/><text x="58" y="305" font-size="15">Dependency layers</text></g>
+    <g class="fx-up" style="--d:1s"><rect x="40" y="218" width="290" height="50" rx="10" class="f-slab ol"/><text x="58" y="249" font-size="15">Application layer</text></g>
+    <g class="fx-in" style="--d:1.2s">
+      <g transform="translate(305 357)"><rect x="-8" y="-2" width="16" height="12" rx="2" class="f-ink"/><path d="M-5 -2 V-6 A5 5 0 0 1 5 -6 V-2" class="ln s-ink w2"/></g>
+      <g transform="translate(305 301)"><rect x="-8" y="-2" width="16" height="12" rx="2" class="f-ink"/><path d="M-5 -2 V-6 A5 5 0 0 1 5 -6 V-2" class="ln s-ink w2"/></g>
+      <g transform="translate(305 245)"><rect x="-8" y="-2" width="16" height="12" rx="2" class="f-ink"/><path d="M-5 -2 V-6 A5 5 0 0 1 5 -6 V-2" class="ln s-ink w2"/></g>
+    </g>
+    <g class="fx-in" style="--d:7.6s"><rect x="40" y="152" width="290" height="60" rx="10" fill="none" class="s-mu w3 dash"/><text x="185" y="188" text-anchor="middle" class="mu" font-size="14">removed with the container</text></g>
+    <g class="s13-top">
+      <g class="fx-up" style="--d:1.6s"><rect x="40" y="152" width="290" height="60" rx="10" class="f-sun ol"/><text x="58" y="188" class="d oa" font-size="16">Writable layer</text></g>
+      <g class="fx-pop" style="--d:2.2s"><rect x="222" y="166" width="94" height="32" rx="6" class="f-stage ol"/><text x="269" y="187" text-anchor="middle" class="m" font-size="13">ckpt.pt</text></g>
+      <g class="s13-nap"><g class="fx-pop" style="--d:1.3s"><use href="#pid" x="150" y="86" width="56" height="60"/></g></g>
+      <text x="218" y="100" class="d mu fx-span" font-size="18" style="--d:3.5s;--d2:4.7s">z z</text>
+    </g>
+    <g class="fx-up" style="--d:3.2s"><rect x="362" y="96" width="218" height="40" rx="20" class="f-stage ol"/><text x="471" y="122" text-anchor="middle" class="m" font-size="15">docker stop</text></g>
+    <g class="fx-up" style="--d:4.6s"><rect x="362" y="146" width="218" height="40" rx="20" class="f-stage ol"/><text x="471" y="172" text-anchor="middle" class="m" font-size="15">docker start</text></g>
+    <g class="fx-pop" style="--d:5.2s"><rect x="362" y="196" width="218" height="40" rx="20" class="f-teal ol"/><text x="471" y="222" text-anchor="middle" class="oa bd" font-size="15">✓ ckpt.pt still there</text></g>
+    <g class="fx-up" style="--d:6.4s"><rect x="362" y="266" width="218" height="40" rx="20" class="f-stage ol"/><text x="471" y="292" text-anchor="middle" class="m" font-size="15">docker rm</text></g>
+    <g class="fx-pop" style="--d:7.8s"><rect x="362" y="316" width="218" height="40" rx="20" class="f-berry ol"/><text x="471" y="342" text-anchor="middle" class="oa bd" font-size="15">✗ ckpt.pt is gone</text></g>
+  </svg></div>
+</section>
+
+<!-- 14 -->
+<section class="scene" data-title="Data that outlives containers" data-chapter="Storage" data-dur="13000">
+  <div class="cap">
+    <h2>Data that outlives containers</h2>
+    <p class="beat" style="--d:.6s;--d2:3.4s">To keep data, write it somewhere outside the container.</p>
+    <p class="beat" style="--d:3.4s;--d2:6.4s"><strong>Bind mount</strong>: you pick the host folder. <strong>Volume</strong>: Docker manages the spot.</p>
+    <p class="beat" style="--d:6.4s;--d2:9.4s">Remove the container, even with <code>--rm</code>, and the data stays.</p>
+    <p class="beat" style="--d:9.4s">Mount big datasets instead of baking them in. Add <code>:ro</code> for read-only.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="Two containers write result.txt to /data. One file lands in a host folder chosen by you, the other in a Docker-managed volume. The containers are removed but both files remain.">
+    <text x="150" y="30" text-anchor="middle" class="d" font-size="18">Bind mount</text>
+    <text x="450" y="30" text-anchor="middle" class="d" font-size="18">Docker volume</text>
+    <g class="fx-in" style="--d:7s">
+      <rect x="45" y="48" width="210" height="100" rx="16" fill="none" class="s-mu w3 dash"/><text x="150" y="104" text-anchor="middle" class="mu" font-size="14">container removed</text>
+      <rect x="345" y="48" width="210" height="100" rx="16" fill="none" class="s-mu w3 dash"/><text x="450" y="104" text-anchor="middle" class="mu" font-size="14">container removed</text>
+    </g>
+    <g class="fx-out" style="--d:6.6s">
+      <g class="fx-up" style="--d:.6s"><rect x="45" y="48" width="210" height="100" rx="16" class="f-stage ol"/><use href="#pid" x="60" y="68" width="50" height="53"/><text x="190" y="100" text-anchor="middle" class="m" font-size="17">/data</text></g>
+      <g class="fx-up" style="--d:.8s"><rect x="345" y="48" width="210" height="100" rx="16" class="f-stage ol"/><use href="#pid" x="360" y="68" width="50" height="53" style="--pc:var(--berry)"/><text x="490" y="100" text-anchor="middle" class="m" font-size="17">/data</text></g>
+      <path d="M150 150 V256" pathLength="1" class="ln s-teal w8 fx-draw" style="--d:1.2s;--t:.6s"/>
+      <path d="M450 150 V256" pathLength="1" class="ln s-grape w8 fx-draw" style="--d:1.4s;--t:.6s"/>
+    </g>
+    <g class="fx-up" style="--d:.9s">
+      <rect x="60" y="252" width="72" height="20" rx="6" class="f-sun ol"/>
+      <rect x="60" y="262" width="180" height="104" rx="12" class="f-sun ol"/>
+      <text x="150" y="290" text-anchor="middle" class="m oa" font-size="13">~/ai-infra/day7-data</text>
+      <text x="150" y="354" text-anchor="middle" class="oa" font-size="13">you choose the path</text>
+    </g>
+    <g class="fx-up" style="--d:1.1s">
+      <rect x="350" y="258" width="180" height="108" rx="12" class="f-grape ol"/>
+      <rect x="508" y="298" width="9" height="26" rx="4" class="f-stage ol"/>
+      <text x="436" y="290" text-anchor="middle" class="m og" font-size="14">day7-volume</text>
+      <text x="436" y="354" text-anchor="middle" class="og" font-size="13">Docker picks the path</text>
+    </g>
+    <g class="s14-fL"><rect x="-46" y="-14" width="92" height="28" rx="6" class="f-stage ol"/><text y="5" text-anchor="middle" class="m" font-size="12.5">result.txt</text></g>
+    <g class="s14-fR"><rect x="-46" y="-14" width="92" height="28" rx="6" class="f-stage ol"/><text y="5" text-anchor="middle" class="m" font-size="12.5">result.txt</text></g>
+    <g class="fx-in" style="--d:3.4s"><text x="150" y="392" text-anchor="middle" class="m" font-size="12.5">-v ~/ai-infra/day7-data:/data</text><text x="440" y="392" text-anchor="middle" class="m" font-size="13">-v day7-volume:/data</text></g>
+    <g class="fx-pop" style="--d:7.6s"><circle cx="238" cy="264" r="15" class="f-teal ol"/><path d="M231 264 l5 5 l9 -10" class="ln s-ink w3"/></g>
+    <g class="fx-pop" style="--d:7.8s"><circle cx="528" cy="264" r="15" class="f-teal ol"/><path d="M521 264 l5 5 l9 -10" class="ln s-ink w3"/></g>
+    <g class="fx-pop" style="--d:9.4s"><rect x="60" y="418" width="480" height="42" rx="21" class="f-sun ol"/><text x="300" y="445" text-anchor="middle" class="d oa" font-size="16">500 GB dataset? Mount it, don’t bake it in.</text></g>
+  </svg></div>
+</section>
+
+<!-- 15 -->
+<section class="scene" data-title="When memory runs out" data-chapter="Limits and exits" data-dur="12500">
+  <div class="cap">
+    <h2>When memory runs out</h2>
+    <p class="beat" style="--d:.6s;--d2:3s"><code>--memory=100m</code> sets a ceiling for Pid’s cgroup. It doesn’t reserve a block of RAM.</p>
+    <p class="beat" style="--d:3s;--d2:5.4s">Pid tries to grab 300 MB…</p>
+    <p class="beat" style="--d:5.4s;--d2:7.8s">The kernel steps in and kills it with SIGKILL.</p>
+    <p class="beat" style="--d:7.8s">Exit 137 says how it ended. <code>OOMKilled=true</code> says why.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="Pid inflates a 300 MB balloon inside a cgroup box with a 100 MiB ceiling. The balloon pops, Pid is stamped SIGKILL, and an equation shows 137 equals 128 plus 9. docker inspect reports Exit=137 and OOMKilled=true.">
+    <g class="fx-in" style="--d:.4s"><rect x="30" y="60" width="270" height="360" rx="18" class="f-wash ol"/><text x="50" y="90" class="d" font-size="15">cgroup</text></g>
+    <g class="fx-in" style="--d:.8s"><path d="M30 140 H300" class="ln s-berry w4 dash"/><text x="290" y="130" text-anchor="end" font-size="14" class="bd">limit: 100 MiB</text></g>
+    <use href="#pid" x="135" y="330" width="60" height="64"/>
+    <path d="M165 322 Q158 328 165 334" class="ln s-ink w2 fx-in" style="--d:1.6s"/>
+    <g class="fx-in" style="--d:1.6s"><g class="s15-pop"><g class="s15-grow">
+      <circle cx="165" cy="228" r="86" class="f-berry ol"/>
+      <ellipse cx="135" cy="190" rx="14" ry="22" fill="#fff" opacity=".35"/>
+      <path d="M158 322 L165 312 L172 322 Z" class="f-berry ol"/>
+      <text x="165" y="237" text-anchor="middle" class="d oa" font-size="26">300 MB</text>
+    </g></g></g>
+    <g class="fx-span" style="--d:5.4s;--d2:6.4s"><polygon points="165,120 179.5,154.9 214.5,140.5 200.1,175.5 235,190 200.1,204.5 214.5,239.5 179.5,225.1 165,260 150.5,225.1 115.5,239.5 129.9,204.5 95,190 129.9,175.5 115.5,140.5 150.5,154.9" class="f-sun ol"/><text x="165" y="198" text-anchor="middle" class="d oa" font-size="22">POP</text></g>
+    <g transform="rotate(-8 165 362)"><g class="fx-pop" style="--d:5.7s"><rect x="105" y="346" width="120" height="32" rx="6" class="f-berry ol"/><text x="165" y="368" text-anchor="middle" class="m oa bd" font-size="15">SIGKILL</text></g></g>
+    <text x="330" y="100" class="d fx-in" font-size="17" style="--d:7.6s">Why did it stop?</text>
+    <g class="fx-pop" style="--d:7.9s"><rect x="330" y="126" width="74" height="66" rx="12" class="f-stage ol"/><text x="367" y="172" text-anchor="middle" class="d" font-size="32">137</text></g>
+    <text x="418" y="170" text-anchor="middle" class="d fx-in" font-size="28" style="--d:8.2s">=</text>
+    <g class="fx-pop" style="--d:8.4s"><rect x="432" y="126" width="74" height="66" rx="12" class="f-stage ol"/><text x="469" y="172" text-anchor="middle" class="d" font-size="32">128</text></g>
+    <text x="521" y="170" text-anchor="middle" class="d fx-in" font-size="28" style="--d:8.7s">+</text>
+    <g class="fx-pop" style="--d:8.9s"><rect x="536" y="126" width="54" height="66" rx="12" class="f-sun ol"/><text x="563" y="172" text-anchor="middle" class="d oa" font-size="32">9</text></g>
+    <g class="fx-in mu" font-size="13" text-anchor="middle" style="--d:9.1s"><text x="367" y="214" class="mu">exit code</text><text x="469" y="214" class="mu">signal exit</text><text x="563" y="214" class="mu">SIGKILL</text></g>
+    <g class="fx-up" style="--d:9.4s"><rect x="330" y="240" width="260" height="104" rx="12" class="f-term ol"/><text x="344" y="266" class="m tm" font-size="12.5">$ docker inspect oom-test</text></g>
+    <text x="344" y="296" class="m tt fx-in" font-size="16" style="--d:9.8s">Exit=137</text>
+    <text x="344" y="324" class="m sunt fx-in" font-size="16" style="--d:10.2s">OOMKilled=true</text>
+    <g class="fx-up" style="--d:10.6s"><rect x="330" y="362" width="260" height="58" rx="14" class="f-wash ol"/><text x="344" y="386" font-size="14">Exit code: how it ended.</text><text x="344" y="407" font-size="14">OOMKilled: why it ended.</text></g>
+  </svg></div>
+</section>
+
+<!-- 16 -->
+<section class="scene" data-title="How much time vs. which seats" data-chapter="Limits and exits" data-dur="11500">
+  <div class="cap">
+    <h2>How much time vs. which seats</h2>
+    <p class="beat" style="--d:.6s;--d2:4s"><code>--cpus=2</code>: about two CPUs’ worth of time, spread across any cores.</p>
+    <p class="beat" style="--d:4s;--d2:7.4s"><code>--cpuset-cpus="2,3"</code>: only CPUs 2 and 3 may run it.</p>
+    <p class="beat" style="--d:7.4s">One limits how much, the other limits where. Watch both live with <code>docker stats</code>.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="Two grids of 16 CPUs. With --cpus=2, activity flickers across many CPUs but totals about two. With --cpuset-cpus 2,3, only CPUs 2 and 3 light up. A terminal shows docker stats.">
+    <text x="24" y="42" class="m bd fx-in" font-size="17" style="--d:.4s">--cpus=2</text>
+    <text x="576" y="42" text-anchor="end" class="mu fx-in" font-size="15" style="--d:.4s">how much time</text>
+    <g class="fx-in" style="--d:.6s"><g data-grid="cpus" data-y="56"></g></g>
+    <g class="fx-in" style="--d:2.4s"><rect x="24" y="176" width="552" height="22" rx="11" class="f-wash ol"/></g>
+    <rect x="25.5" y="177.5" width="67" height="19" rx="9.5" class="f-teal fx-gx" style="--d:2.6s"/>
+    <text x="104" y="192" font-size="13.5" class="fx-in" style="--d:3s">total ≈ 2 of 16 CPUs, wherever the scheduler puts it</text>
+    <text x="24" y="250" class="m bd fx-in" font-size="17" style="--d:4s">--cpuset-cpus="2,3"</text>
+    <text x="576" y="250" text-anchor="end" class="mu fx-in" font-size="15" style="--d:4s">which seats</text>
+    <g class="fx-in" style="--d:4.1s"><g data-grid="cpuset" data-y="264"></g></g>
+    <text x="24" y="398" font-size="14" class="fx-in" style="--d:5.4s">runs only on CPUs 2 and 3; the rest are off-limits</text>
+    <g class="fx-up" style="--d:7.6s"><rect x="24" y="418" width="552" height="44" rx="22" class="f-term ol"/><text x="46" y="446" class="m tt" font-size="15">$ docker stats</text><text x="556" y="446" text-anchor="end" class="m tm" font-size="13">CPU %   MEM USAGE / LIMIT</text></g>
+  </svg></div>
+</section>
+
+<!-- 17 -->
+<section class="scene" data-title="Read the exit code" data-chapter="Limits and exits" data-dur="12000">
+  <div class="cap">
+    <h2>Read the exit code</h2>
+    <p class="beat" style="--d:.6s;--d2:3.4s">Killed by a signal? The code is 128 + the signal number.</p>
+    <p class="beat" style="--d:3.4s;--d2:6.4s">0 means success. 137 means a forced kill, so check <code>OOMKilled</code>.</p>
+    <p class="beat" style="--d:6.4s">A graceful <code>docker stop</code> sends SIGTERM first, so the app can clean up.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="Four cards: 0 success, 130 SIGINT, 137 SIGKILL, 143 SIGTERM. Below, a graceful stop flows from docker stop to SIGTERM to cleanup to exit 143, with a fallback to SIGKILL after a timeout.">
+    <g class="fx-flip" style="--d:.8s"><rect x="14" y="40" width="134" height="190" rx="16" class="f-stage ol"/><rect x="15.5" y="41.5" width="131" height="84" rx="14" class="f-teal"/><rect x="15.5" y="100" width="131" height="26" class="f-teal"/><path d="M14 126 H148" class="ln s-ink w3"/><text x="81" y="102" text-anchor="middle" class="d oa" font-size="46">0</text><text x="81" y="156" text-anchor="middle" class="d" font-size="16">no signal</text><text x="81" y="184" text-anchor="middle" class="mu" font-size="13">success</text></g>
+    <g class="fx-flip" style="--d:1.1s"><rect x="160" y="40" width="134" height="190" rx="16" class="f-stage ol"/><rect x="161.5" y="41.5" width="131" height="84" rx="14" class="f-sun"/><rect x="161.5" y="100" width="131" height="26" class="f-sun"/><path d="M160 126 H294" class="ln s-ink w3"/><text x="227" y="102" text-anchor="middle" class="d oa" font-size="46">130</text><text x="227" y="156" text-anchor="middle" class="d" font-size="16">SIGINT (2)</text><text x="227" y="184" text-anchor="middle" class="mu" font-size="13">usually Ctrl+C</text></g>
+    <g class="fx-flip" style="--d:1.4s"><rect x="306" y="40" width="134" height="190" rx="16" class="f-stage ol"/><rect x="307.5" y="41.5" width="131" height="84" rx="14" class="f-berry"/><rect x="307.5" y="100" width="131" height="26" class="f-berry"/><path d="M306 126 H440" class="ln s-ink w3"/><text x="373" y="102" text-anchor="middle" class="d oa" font-size="46">137</text><text x="373" y="156" text-anchor="middle" class="d" font-size="16">SIGKILL (9)</text><text x="373" y="184" text-anchor="middle" class="mu" font-size="13">forced kill,</text><text x="373" y="203" text-anchor="middle" class="mu" font-size="13">maybe OOM</text></g>
+    <g class="fx-flip" style="--d:1.7s"><rect x="452" y="40" width="134" height="190" rx="16" class="f-stage ol"/><rect x="453.5" y="41.5" width="131" height="84" rx="14" class="f-grape"/><rect x="453.5" y="100" width="131" height="26" class="f-grape"/><path d="M452 126 H586" class="ln s-ink w3"/><text x="519" y="102" text-anchor="middle" class="d og" font-size="46">143</text><text x="519" y="156" text-anchor="middle" class="d" font-size="16">SIGTERM (15)</text><text x="519" y="184" text-anchor="middle" class="mu" font-size="13">graceful stop</text><text x="519" y="203" text-anchor="middle" class="mu" font-size="13">request</text></g>
+    <rect x="8" y="34" width="146" height="202" rx="20" fill="none" class="s-teal w5 fx-pop" style="--d:3.5s"/>
+    <rect x="300" y="34" width="146" height="202" rx="20" fill="none" class="s-berry w5 fx-pop" style="--d:4.1s"/>
+    <g class="fx-pop" style="--d:6.6s"><rect x="14" y="274" width="128" height="46" rx="23" class="f-stage ol"/><text x="78" y="302" text-anchor="middle" class="m" font-size="14">docker stop</text></g>
+    <path d="M146 290 L154 297 L146 304" class="ln s-ink w3 fx-in" style="--d:6.9s"/>
+    <g class="fx-pop" style="--d:7s"><rect x="160" y="274" width="128" height="46" rx="23" class="f-sun ol"/><text x="224" y="302" text-anchor="middle" class="m oa bd" font-size="14">SIGTERM</text></g>
+    <path d="M292 290 L300 297 L292 304" class="ln s-ink w3 fx-in" style="--d:7.3s"/>
+    <g class="fx-pop" style="--d:7.4s"><rect x="306" y="274" width="128" height="46" rx="23" class="f-stage ol"/><text x="370" y="302" text-anchor="middle" font-size="14">app cleans up</text></g>
+    <path d="M438 290 L446 297 L438 304" class="ln s-ink w3 fx-in" style="--d:7.7s"/>
+    <g class="fx-pop" style="--d:7.8s"><rect x="452" y="274" width="128" height="46" rx="23" class="f-grape ol"/><text x="516" y="302" text-anchor="middle" class="og bd" font-size="14">exits: 143</text></g>
+    <g class="fx-up" style="--d:8.6s"><rect x="14" y="340" width="566" height="48" rx="24" class="f-wash ol dash"/><text x="297" y="370" text-anchor="middle" font-size="14">Ignores SIGTERM? After a timeout (10 s by default), SIGKILL: exit 137.</text></g>
+    <g class="fx-up" style="--d:9.4s"><rect x="14" y="408" width="566" height="50" rx="14" class="f-term ol"/><text x="30" y="439" class="m tt" font-size="14">$ docker ps -a   …   <tspan class="sunt">Exited (137)</tspan> 5 seconds ago</text></g>
+  </svg></div>
+</section>
+
+<!-- 18 -->
+<section class="scene" data-title="How a container reaches the GPU" data-chapter="GPUs" data-dur="13000">
+  <div class="cap">
+    <h2>How a container reaches the GPU</h2>
+    <p class="beat" style="--d:.6s;--d2:3s">The container brings your app and the CUDA userspace libraries.</p>
+    <p class="beat" style="--d:3s;--d2:5.4s">The host brings the NVIDIA kernel driver and the physical GPU.</p>
+    <p class="beat" style="--d:5.4s;--d2:8s">A CUDA image alone isn’t GPU access. Without <code>--gpus</code>, no device shows up.</p>
+    <p class="beat" style="--d:8s"><code>--gpus all</code> connects them through the NVIDIA container stack.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="A stack: PyTorch app and CUDA userspace in the container, the NVIDIA kernel driver and GPU on the host, and a missing link between them. A terminal reports no device until --gpus all adds the NVIDIA container toolkit link.">
+    <g class="fx-up" style="--d:.8s"><rect x="100" y="34" width="320" height="52" rx="10" class="f-berry ol"/><text x="260" y="66" text-anchor="middle" class="d oa" font-size="17">PyTorch / CUDA app</text></g>
+    <g class="fx-up" style="--d:1.2s"><rect x="100" y="94" width="320" height="52" rx="10" class="f-sun ol"/><text x="260" y="126" text-anchor="middle" class="d oa" font-size="16">CUDA userspace libraries</text></g>
+    <g class="fx-in" style="--d:1.6s"><path d="M432 34 H444 V146 H432" class="ln s-ink w3"/><text x="454" y="96" class="d" font-size="16">container</text></g>
+    <g class="fx-up" style="--d:3.4s"><rect x="100" y="282" width="320" height="56" rx="10" class="f-slab ol"/><rect x="118" y="292" width="36" height="36" rx="6" class="f-stage ol"/><path d="M126 288 V284 M136 288 V284 M146 288 V284 M126 332 V336 M136 332 V336 M146 332 V336" class="ln s-ink w2"/><text x="276" y="316" text-anchor="middle" class="d" font-size="16">Physical NVIDIA GPU</text></g>
+    <g class="fx-up" style="--d:3s"><rect x="100" y="222" width="320" height="52" rx="10" class="f-grape ol"/><text x="260" y="254" text-anchor="middle" class="d og" font-size="16">NVIDIA kernel driver</text></g>
+    <g class="fx-in" style="--d:3.8s"><path d="M432 222 H444 V338 H432" class="ln s-ink w3"/><text x="454" y="276" class="d" font-size="16">host</text><text x="454" y="296" class="mu" font-size="13">kernel lives here</text></g>
+    <g class="fx-span" style="--d:4.4s;--d2:8.3s"><rect x="100" y="158" width="320" height="52" rx="10" fill="none" class="s-mu w3 dash"/><text x="260" y="191" text-anchor="middle" class="d mu" font-size="20">missing link</text></g>
+    <g class="fx-sr" style="--d:8.3s"><rect x="100" y="158" width="320" height="52" rx="10" class="f-teal ol"/><text x="260" y="190" text-anchor="middle" class="d oa" font-size="16">NVIDIA container toolkit</text></g>
+    <circle cx="430" cy="184" r="9" class="f-sun ol fx-span" style="--d:8.7s;--d2:9.4s"/>
+    <g class="fx-in" style="--d:5.2s"><rect x="20" y="356" width="560" height="110" rx="14" class="f-term ol"/></g>
+    <g class="m" font-size="14">
+      <text x="36" y="384" class="tt fx-span" style="--d:5.4s;--d2:8s">$ docker run --rm \</text>
+      <text x="36" y="384" class="tt fx-in" style="--d:8s">$ docker run --rm <tspan class="sunt">--gpus all</tspan> \</text>
+      <text x="60" y="408" class="tt fx-in" style="--d:5.4s">nvidia/cuda:13.0.0-base-ubuntu24.04 nvidia-smi</text>
+      <text x="36" y="444" class="tt fx-span" style="--d:6.1s;--d2:8.6s"><tspan class="bad">✗</tspan> no NVIDIA device visible</text>
+      <text x="36" y="444" class="tt fx-in" style="--d:9.1s"><tspan class="good">✓</tspan> GPU listed: model, driver, memory, utilization</text>
+    </g>
+  </svg></div>
+</section>
+
+<!-- 19 -->
+<section class="scene" data-title="Reading nvidia-smi" data-chapter="GPUs" data-dur="11000">
+  <div class="cap">
+    <h2>Reading nvidia-smi</h2>
+    <p class="beat" style="--d:.6s;--d2:3.4s"><code>nvidia-smi</code> is the GPU’s dashboard.</p>
+    <p class="beat" style="--d:3.4s;--d2:6.4s">Memory used and compute utilization are two different gauges.</p>
+    <p class="beat" style="--d:6.4s">A model can sit in VRAM while the GPU does almost no work.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="Chips list nvidia-smi fields. A VRAM bar is largely full while a GPU utilization dial stays near zero percent.">
+    <g font-size="15" text-anchor="middle">
+      <g class="fx-pop" style="--d:.8s"><rect x="10" y="28" width="184" height="38" rx="19" class="f-stage ol"/><text x="102" y="52">GPU model + PCI bus</text></g>
+      <g class="fx-pop" style="--d:1s"><rect x="204" y="28" width="146" height="38" rx="19" class="f-stage ol"/><text x="277" y="52">driver version</text></g>
+      <g class="fx-pop" style="--d:1.2s"><rect x="360" y="28" width="130" height="38" rx="19" class="f-stage ol"/><text x="425" y="52">temperature</text></g>
+      <g class="fx-pop" style="--d:1.4s"><rect x="500" y="28" width="90" height="38" rx="19" class="f-stage ol"/><text x="545" y="52">power</text></g>
+      <g class="fx-pop" style="--d:1.6s"><rect x="10" y="76" width="268" height="38" rx="19" class="f-stage ol"/><text x="144" y="100">CUDA level the driver supports</text></g>
+      <g class="fx-pop" style="--d:1.8s"><rect x="288" y="76" width="176" height="38" rx="19" class="f-stage ol"/><text x="376" y="100">running processes</text></g>
+      <g class="fx-pop" style="--d:2s"><rect x="474" y="76" width="116" height="38" rx="19" class="f-sun ol"/><text x="532" y="100" class="oa">+ 2 gauges</text></g>
+    </g>
+    <g class="fx-in" style="--d:3.4s">
+      <text x="30" y="176" class="d" font-size="17">VRAM in use</text>
+      <rect x="30" y="194" width="250" height="40" rx="20" class="f-wash ol"/>
+      <text x="30" y="262" font-size="15">a model is loaded</text>
+      <text x="30" y="284" class="mu" font-size="13">example reading</text>
+      <text x="440" y="176" text-anchor="middle" class="d" font-size="17">GPU utilization</text>
+      <path d="M340 320 A100 100 0 0 1 540 320" class="ln s-slab w18"/>
+      <path d="M340 320 A100 100 0 0 1 540 320" class="ln s-ink w2" style="opacity:.5"/>
+      <text x="338" y="346" text-anchor="middle" class="mu" font-size="13">0%</text><text x="542" y="346" text-anchor="middle" class="mu" font-size="13">100%</text>
+    </g>
+    <rect x="31.5" y="195.5" width="176" height="37" rx="18.5" class="f-grape fx-gx" style="--d:3.8s;--t:1.4s"/>
+    <path d="M440 320 H358" class="ln s-berry w5 s19-ndl"/>
+    <circle cx="440" cy="320" r="9" class="f-ink fx-in" style="--d:3.4s"/>
+    <text x="440" y="286" text-anchor="middle" class="d fx-pop" font-size="28" style="--d:5.6s">≈ 0%</text>
+    <g class="fx-pop" style="--d:6.6s"><rect x="30" y="384" width="540" height="46" rx="23" class="f-sun ol"/><text x="300" y="413" text-anchor="middle" class="d oa" font-size="16">Memory held is not work done. Check both.</text></g>
+  </svg></div>
+</section>
+
+<!-- 20 -->
+<section class="scene" data-title="All together: a mini AI job" data-chapter="Putting it together" data-dur="13000">
+  <div class="cap">
+    <h2>All together: a mini AI job</h2>
+    <p class="beat" style="--d:.6s;--d2:3.6s">One command uses nearly every idea from today:</p>
+    <pre class="code" style="--d:1s">docker run -d --name day7-ai-job \
+  --gpus all --cpus=2 --memory=2g \
+  -v ~/ai-infra/day7-gpu-output:/output \
+  nvidia/cuda:13.0.0-base-ubuntu24.04 \
+  bash -c 'while true; do …; sleep 10; done'</pre>
+    <p class="beat" style="--d:3.6s;--d2:6.6s">GPU access, a CPU and memory budget, and a mounted output folder.</p>
+    <p class="beat" style="--d:6.6s;--d2:9.6s">Every 10 s it checks the GPU and appends a timestamp on the host.</p>
+    <p class="beat" style="--d:9.6s">That’s a tiny preview of a Kubernetes Pod.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="Flags fly into a container: --gpus all, --cpus=2, --memory=2g, a bind mount, detached mode and a loop. A cgroup fence surrounds it, a GPU line and a mount line reach the host, and heartbeat.txt fills with timestamps.">
+    <g class="fx-up" style="--d:.6s"><rect x="14" y="398" width="572" height="66" rx="14" class="f-slab ol"/><text x="300" y="437" text-anchor="middle" font-size="15">Host: Linux kernel + NVIDIA driver + CPU + RAM + SSD</text></g>
+    <g class="fx-in" style="--d:.8s"><rect x="180" y="124" width="240" height="176" rx="16" class="f-stage ol"/><text x="300" y="284" text-anchor="middle" class="mu" font-size="13">CUDA userspace + shell loop</text></g>
+    <g class="fx-pop" style="--d:1s"><use href="#pid" x="270" y="146" width="60" height="64"/></g>
+    <g class="fx-in" style="--d:4.2s"><rect x="150" y="96" width="300" height="246" rx="20" fill="none" class="s-berry w3 dash"/><text x="300" y="86" text-anchor="middle" font-size="14" class="bd">cgroup: 2 CPUs’ worth, 2 GiB</text></g>
+    <g class="fx-sl" style="--d:3.6s"><path d="M138 145 H180" class="ln s-ink w2 dash"/><rect x="14" y="128" width="124" height="34" rx="17" class="f-grape ol"/><text x="76" y="150" text-anchor="middle" class="m og" font-size="14">--gpus all</text></g>
+    <g class="fx-sl" style="--d:3.9s"><path d="M138 193 H180" class="ln s-ink w2 dash"/><rect x="14" y="176" width="124" height="34" rx="17" class="f-teal ol"/><text x="76" y="198" text-anchor="middle" class="m oa" font-size="14">--cpus=2</text></g>
+    <g class="fx-sl" style="--d:4.2s"><path d="M138 241 H180" class="ln s-ink w2 dash"/><rect x="14" y="224" width="124" height="34" rx="17" class="f-teal ol"/><text x="76" y="246" text-anchor="middle" class="m oa" font-size="14">--memory=2g</text></g>
+    <g class="fx-sr" style="--d:3.7s"><path d="M420 145 H462" class="ln s-ink w2 dash"/><rect x="462" y="128" width="124" height="34" rx="17" class="f-sun ol"/><text x="524" y="150" text-anchor="middle" class="m oa" font-size="14">-v …:/output</text></g>
+    <g class="fx-sr" style="--d:4s"><path d="M420 193 H462" class="ln s-ink w2 dash"/><rect x="462" y="176" width="124" height="34" rx="17" class="f-slab ol"/><text x="524" y="198" text-anchor="middle" class="m" font-size="14">-d detached</text></g>
+    <g class="fx-sr" style="--d:4.3s"><path d="M420 241 H462" class="ln s-ink w2 dash"/><rect x="462" y="224" width="124" height="34" rx="17" class="f-berry ol"/><text x="524" y="246" text-anchor="middle" class="m oa" font-size="14">while true</text></g>
+    <path d="M230 300 V396" pathLength="1" class="ln s-grape w4 fx-draw" style="--d:4.6s;--t:.6s"/>
+    <text x="238" y="376" class="fx-in bd" font-size="13" style="--d:5s">GPU access</text>
+    <path d="M400 300 C420 330 440 330 462 340" pathLength="1" class="ln s-sun w4 fx-draw" style="--d:4.8s;--t:.6s"/>
+    <g class="fx-up" style="--d:5s"><rect x="462" y="300" width="126" height="92" rx="10" class="f-stage ol"/><text x="472" y="318" class="m mu" font-size="12">heartbeat.txt</text></g>
+    <g class="m" font-size="13">
+      <text x="472" y="342" class="fx-in" style="--d:7s">10:00:00</text>
+      <text x="472" y="362" class="fx-in" style="--d:8s">10:00:10</text>
+      <text x="472" y="382" class="fx-in" style="--d:9s">10:00:20</text>
+    </g>
+    <text x="300" y="244" text-anchor="middle" font-size="14" class="bd fx-pulse" style="--d:6.8s;--t:1.4s">GPU check ✓</text>
+    <g class="fx-pop" style="--d:9.6s"><rect x="150" y="12" width="300" height="36" rx="18" class="f-sun ol"/><text x="300" y="36" text-anchor="middle" class="d oa" font-size="16">a Kubernetes Pod, in miniature</text></g>
+  </svg></div>
+</section>
+
+<!-- 21 -->
+<section class="scene" data-title="Debugging, step by step" data-chapter="Putting it together" data-dur="12500">
+  <div class="cap">
+    <h2>Debugging, step by step</h2>
+    <p class="beat" style="--d:.6s;--d2:3s">Start with the main process: is the container running?</p>
+    <p class="beat" style="--d:3s;--d2:5.6s">Not running? Read the exit code, the logs, and <code>OOMKilled</code>.</p>
+    <p class="beat" style="--d:5.6s;--d2:8.2s">Running but unreachable? Check the listen port, <code>-p</code>, and the network.</p>
+    <p class="beat" style="--d:8.2s">Reachable but broken? Look at mounts and devices.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="A decision tree. Service fails, then: container running? If no, inspect exit code, logs, OOMKilled. If yes: service reachable? If no, check listen port, -p, bridge. If yes: data or device? Storage: mounts, permissions, :ro. GPU: --gpus, nvidia-smi, runtime.">
+    <g class="fx-pop" style="--d:.4s"><rect x="200" y="14" width="200" height="40" rx="12" class="f-term ol"/><text x="300" y="40" text-anchor="middle" class="d tt" font-size="16">Service fails</text></g>
+    <path d="M300 54 V84" pathLength="1" class="ln s-ink w3 fx-draw" style="--d:.6s;--t:.3s"/>
+    <g class="fx-pop" style="--d:.8s"><rect x="190" y="84" width="220" height="44" rx="22" class="f-sun ol"/><text x="300" y="112" text-anchor="middle" class="d oa" font-size="16">Container running?</text></g>
+    <path d="M190 106 H115 V168" pathLength="1" class="ln s-ink w3 fx-draw" style="--d:3s;--t:.5s"/>
+    <text x="150" y="98" text-anchor="middle" class="bd fx-in" font-size="14" style="--d:3s">no</text>
+    <g class="fx-pop" style="--d:3.4s"><rect x="10" y="168" width="210" height="62" rx="12" class="f-stage ol"/><text x="115" y="194" text-anchor="middle" font-size="14">Inspect exit code,</text><text x="115" y="216" text-anchor="middle" font-size="14">logs, OOMKilled</text></g>
+    <path d="M380 128 V168" pathLength="1" class="ln s-ink w3 fx-draw" style="--d:5.6s;--t:.3s"/>
+    <text x="388" y="153" class="bd fx-in" font-size="14" style="--d:5.6s">yes</text>
+    <g class="fx-pop" style="--d:5.8s"><rect x="300" y="168" width="210" height="44" rx="22" class="f-sun ol"/><text x="405" y="196" text-anchor="middle" class="d oa" font-size="16">Service reachable?</text></g>
+    <path d="M320 212 V256" pathLength="1" class="ln s-ink w3 fx-draw" style="--d:6.2s;--t:.3s"/>
+    <text x="304" y="240" text-anchor="end" class="bd fx-in" font-size="14" style="--d:6.2s">no</text>
+    <g class="fx-pop" style="--d:6.5s"><rect x="150" y="256" width="210" height="62" rx="12" class="f-stage ol"/><text x="255" y="282" text-anchor="middle" font-size="14">Listen port, -p,</text><text x="255" y="304" text-anchor="middle" font-size="14">bridge network</text></g>
+    <path d="M480 212 V256" pathLength="1" class="ln s-ink w3 fx-draw" style="--d:8.2s;--t:.3s"/>
+    <text x="488" y="240" class="bd fx-in" font-size="14" style="--d:8.2s">yes</text>
+    <g class="fx-pop" style="--d:8.4s"><rect x="390" y="256" width="200" height="44" rx="22" class="f-sun ol"/><text x="490" y="284" text-anchor="middle" class="d oa" font-size="16">Data or device?</text></g>
+    <path d="M450 300 V330 H332 V360" pathLength="1" class="ln s-ink w3 fx-draw" style="--d:8.8s;--t:.5s"/>
+    <path d="M530 300 V360" pathLength="1" class="ln s-ink w3 fx-draw" style="--d:8.8s;--t:.4s"/>
+    <g class="fx-pop" style="--d:9.2s"><rect x="250" y="360" width="165" height="72" rx="12" class="f-stage ol"/><text x="332" y="386" text-anchor="middle" class="d" font-size="15">Storage</text><text x="332" y="410" text-anchor="middle" font-size="13.5">mounts, perms, :ro</text></g>
+    <g class="fx-pop" style="--d:9.4s"><rect x="425" y="360" width="165" height="72" rx="12" class="f-stage ol"/><text x="507" y="386" text-anchor="middle" class="d" font-size="15">GPU</text><text x="507" y="410" text-anchor="middle" font-size="13.5">--gpus, nvidia-smi,</text><text x="507" y="426" text-anchor="middle" font-size="13.5">runtime</text></g>
+    <text x="10" y="466" class="mu fx-in" font-size="14" style="--d:10s">Order: process, logs, ports, mounts, limits, devices.</text>
+  </svg></div>
+</section>
+
+<!-- 22 -->
+<section class="scene" data-title="The whole picture" data-chapter="Putting it together" data-dur="12000">
+  <div class="cap">
+    <h2>The whole picture</h2>
+    <p class="beat" style="--d:.6s;--d2:3.4s">A container is a Linux process, started from an image.</p>
+    <p class="beat" style="--d:3.4s;--d2:6.2s">Namespaces shape what it sees. cgroups cap what it uses.</p>
+    <p class="beat" style="--d:6.2s;--d2:9s">Networks reach it, mounts outlive it, and the host lends the kernel and GPU driver.</p>
+    <p class="beat" style="--d:9s">Next up: Docker Compose and multi-service apps.</p>
+  </div>
+  <div class="vis"><svg viewBox="0 0 600 480" role="img" aria-label="Pid at the center, linked to six ideas: image, the template; namespaces, what it sees; cgroups, how much it uses; networks, how it’s reached; mounts, what survives; GPU, host driver plus --gpus.">
+    <g class="ln s-mu w3">
+      <path d="M300 228 V60" pathLength="1" class="ln s-mu w3 fx-draw" style="--d:1s;--t:.5s"/>
+      <path d="M300 228 L120 120" pathLength="1" class="ln s-mu w3 fx-draw" style="--d:3.6s;--t:.5s"/>
+      <path d="M300 228 L480 120" pathLength="1" class="ln s-mu w3 fx-draw" style="--d:4s;--t:.5s"/>
+      <path d="M300 228 L120 330" pathLength="1" class="ln s-mu w3 fx-draw" style="--d:6.4s;--t:.5s"/>
+      <path d="M300 228 L480 330" pathLength="1" class="ln s-mu w3 fx-draw" style="--d:6.8s;--t:.5s"/>
+      <path d="M300 228 V410" pathLength="1" class="ln s-mu w3 fx-draw" style="--d:7.2s;--t:.5s"/>
+    </g>
+    <g class="fx-pop" style="--d:.5s"><g class="fx-bob" style="--d:1.2s"><use href="#pid" x="245" y="170" width="110" height="117"/></g></g>
+    <g class="fx-pop" style="--d:1.3s"><rect x="210" y="22" width="180" height="58" rx="16" class="f-stage ol"/><circle cx="232" cy="51" r="10" class="f-sun ol"/><text x="250" y="47" class="d" font-size="16">Image</text><text x="250" y="68" class="mu" font-size="13">the template</text></g>
+    <g class="fx-pop" style="--d:3.9s"><rect x="20" y="91" width="180" height="58" rx="16" class="f-stage ol"/><circle cx="42" cy="120" r="10" class="f-grape ol"/><text x="60" y="116" class="d" font-size="16">Namespaces</text><text x="60" y="137" class="mu" font-size="13">what it sees</text></g>
+    <g class="fx-pop" style="--d:4.3s"><rect x="400" y="91" width="180" height="58" rx="16" class="f-stage ol"/><circle cx="422" cy="120" r="10" class="f-teal ol"/><text x="440" y="116" class="d" font-size="16">cgroups</text><text x="440" y="137" class="mu" font-size="13">how much it uses</text></g>
+    <g class="fx-pop" style="--d:6.7s"><rect x="20" y="301" width="180" height="58" rx="16" class="f-stage ol"/><circle cx="42" cy="330" r="10" class="f-berry ol"/><text x="60" y="326" class="d" font-size="16">Networks</text><text x="60" y="347" class="mu" font-size="13">how it’s reached</text></g>
+    <g class="fx-pop" style="--d:7.1s"><rect x="400" y="301" width="180" height="58" rx="16" class="f-stage ol"/><circle cx="422" cy="330" r="10" class="f-sun ol"/><text x="440" y="326" class="d" font-size="16">Mounts</text><text x="440" y="347" class="mu" font-size="13">what survives</text></g>
+    <g class="fx-pop" style="--d:7.5s"><rect x="210" y="391" width="180" height="58" rx="16" class="f-stage ol"/><circle cx="232" cy="420" r="10" class="f-grape ol"/><text x="250" y="416" class="d" font-size="16">GPU</text><text x="250" y="437" class="mu" font-size="13">host driver + --gpus</text></g>
+    <g>
+      <rect x="214" y="150" width="12" height="12" rx="2" class="f-sun ol fx-pop" style="--d:9s"/>
+      <rect x="372" y="146" width="12" height="12" rx="2" class="f-teal ol fx-pop" style="--d:9.1s"/>
+      <circle cx="200" cy="262" r="7" class="f-berry ol fx-pop" style="--d:9.15s"/>
+      <rect x="396" y="262" width="12" height="12" rx="2" class="f-grape ol fx-pop" style="--d:9.2s"/>
+      <circle cx="252" cy="126" r="6" class="f-teal ol fx-pop" style="--d:9.25s"/>
+      <circle cx="350" cy="122" r="7" class="f-berry ol fx-pop" style="--d:9.3s"/>
+      <rect x="186" y="204" width="11" height="11" rx="2" class="f-grape ol fx-pop" style="--d:9.35s"/>
+      <circle cx="414" cy="212" r="6" class="f-sun ol fx-pop" style="--d:9.4s"/>
+      <circle cx="234" cy="302" r="6" class="f-teal ol fx-pop" style="--d:9.45s"/>
+      <rect x="364" y="300" width="11" height="11" rx="2" class="f-sun ol fx-pop" style="--d:9.5s"/>
+    </g>
+  </svg></div>
+</section>
+
+<!-- 23 -->
+<section class="scene" data-title="Quick check" data-chapter="Putting it together" data-dur="0">
+  <div class="cap">
+    <h2>Quick check</h2>
+    <p class="beat" style="--d:.4s">Answer out loud first, then tap a card to flip it.</p>
+    <p class="beat" style="--d:.8s">Stuck on one? Jump back with the dots below.</p>
+    <button class="pill-btn" type="button" data-restart>Watch again from the start</button>
+  </div>
+  <div class="vis">
+    <div class="quiz">
+      <button class="qc" type="button" aria-pressed="false"><span class="qc-in"><span class="qc-f"><strong>What does <code>-p 8080:80</code> do?</strong><span>Tap to flip</span></span><span class="qc-b">Forwards host port 8080 to port 80 inside the container. Nginx still listens on 80.</span></span></button>
+      <button class="qc" type="button" aria-pressed="false"><span class="qc-in"><span class="qc-f"><strong>Exit 137 with <code>OOMKilled=true</code> means…?</strong><span>Tap to flip</span></span><span class="qc-b">SIGKILL (128 + 9) because the container hit its memory limit.</span></span></button>
+      <button class="qc" type="button" aria-pressed="false"><span class="qc-in"><span class="qc-f"><strong><code>--cpus=2</code> vs. <code>--cpuset-cpus="2,3"</code>?</strong><span>Tap to flip</span></span><span class="qc-b">How much CPU time it gets vs. which CPUs it may run on.</span></span></button>
+      <button class="qc" type="button" aria-pressed="false"><span class="qc-in"><span class="qc-f"><strong>Why copy <code>requirements.txt</code> before <code>app.py</code>?</strong><span>Tap to flip</span></span><span class="qc-b">So a code edit doesn’t invalidate the cached dependency install.</span></span></button>
+    </div>
+  </div>
+</section>
+
+    <div class="wipe" id="wipe" aria-hidden="true"><svg viewBox="0 0 60 64" style="--pc:var(--stage)"><use href="#pid"/></svg></div>
+  </main>
+
+  <div class="bar">
+    <button class="btn" id="prev" type="button" aria-label="Previous scene"><svg viewBox="0 0 24 24"><path d="M6 5h2.5v14H6zM20 5v14L9.5 12z"/></svg></button>
+    <button class="btn play" id="play" type="button" aria-label="Pause"><svg class="i-pause" viewBox="0 0 24 24"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg><svg class="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15L20 12z"/></svg></button>
+    <button class="btn" id="next" type="button" aria-label="Next scene"><svg viewBox="0 0 24 24"><path d="M15.5 5H18v14h-2.5zM4 5v14l10.5-7z"/></svg></button>
+    <button class="btn" id="replay" type="button" aria-label="Replay this scene"><svg viewBox="0 0 24 24"><path d="M12 5V1.5L7 6l5 4.5V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z"/></svg></button>
+    <div class="prog" aria-hidden="true"><i id="fill"></i></div>
+    <div class="count" id="count">1 / 23</div>
+  </div>
+  <nav class="rail" id="rail" aria-label="Scenes"></nav>
+  <p class="hint">Keys: ← → to move between scenes, space to pause.</p>
+  <p class="sr" id="live" aria-live="polite"></p>
+</div>
+
+<script>
+(() => {
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const stage = document.getElementById('stage');
+  const scenes = Array.from(stage.querySelectorAll('.scene'));
+  const wipe = document.getElementById('wipe');
+  const btnPlay = document.getElementById('play');
+  const btnPrev = document.getElementById('prev');
+  const btnNext = document.getElementById('next');
+  const btnReplay = document.getElementById('replay');
+  const fill = document.getElementById('fill');
+  const count = document.getElementById('count');
+  const chapEl = document.getElementById('chap');
+  const rail = document.getElementById('rail');
+  const live = document.getElementById('live');
+  const accents = ['var(--sun)', 'var(--teal)', 'var(--berry)', 'var(--grape)'];
+  const chapters = [];
+  const dots = [];
+
+  // chapters + rail
+  scenes.forEach((s, i) => {
+    let ch = chapters.find(c => c.name === s.dataset.chapter);
+    if (!ch) { ch = { name: s.dataset.chapter, idx: [] }; chapters.push(ch); }
+    ch.idx.push(i);
+    s.dataset.ci = chapters.indexOf(ch);
+  });
+  chapters.forEach(ch => {
+    const grp = document.createElement('div');
+    grp.className = 'ch';
+    const name = document.createElement('span');
+    name.className = 'ch-name';
+    name.textContent = ch.name;
+    const wrap = document.createElement('span');
+    wrap.className = 'dots';
+    ch.idx.forEach(i => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'dot';
+      b.setAttribute('aria-label', 'Scene ' + (i + 1) + ': ' + scenes[i].dataset.title);
+      b.addEventListener('click', () => go(i));
+      wrap.append(b);
+      dots[i] = b;
+    });
+    grp.append(name, wrap);
+    rail.append(grp);
+    ch.el = grp;
+  });
+
+  // CPU grids for the cgroups scene
+  const NS = 'http://www.w3.org/2000/svg';
+  const mk = (tag, attrs, cls) => {
+    const e = document.createElementNS(NS, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (cls) e.setAttribute('class', cls);
+    return e;
+  };
+  document.querySelectorAll('[data-grid]').forEach(g => {
+    const mode = g.dataset.grid, y0 = +g.dataset.y;
+    const pulse = { 0: [1.0, 1.6], 2: [1.3, 2.1], 5: [1.1, 1.4], 6: [1.6, 1.9], 9: [1.2, 2.3], 11: [1.5, 1.5], 12: [1.0, 2.0], 15: [1.4, 1.7] };
+    const dim = mode === 'cpuset' ? mk('g', {}, 's16-dim') : null;
+    for (let i = 0; i < 16; i++) {
+      const x = 24 + (i % 8) * 70, y = y0 + Math.floor(i / 8) * 54;
+      const cell = mk('g', {});
+      cell.append(mk('rect', { x, y, width: 62, height: 46, rx: 9 }, 'f-wash ol'));
+      if (mode === 'cpus' && pulse[i]) {
+        const o = mk('rect', { x: x + 2.5, y: y + 2.5, width: 57, height: 41, rx: 7 }, 'f-teal fx-pulse');
+        o.style.setProperty('--d', pulse[i][0] + 's');
+        o.style.setProperty('--t', pulse[i][1] + 's');
+        cell.append(o);
+      }
+      const sel = mode === 'cpuset' && (i === 2 || i === 3);
+      if (sel) {
+        const o = mk('rect', { x, y, width: 62, height: 46, rx: 9 }, 'f-sun ol fx-in');
+        o.style.setProperty('--d', '4.6s');
+        cell.append(o);
+      }
+      const t = mk('text', { x: x + 10, y: y + 20, 'font-size': 13 }, sel ? 'bd' : 'mu');
+      t.textContent = i;
+      cell.append(t);
+      (dim && !sel ? dim : g).append(cell);
+    }
+    if (dim) g.prepend(dim);
+  });
+
+  // quiz cards
+  stage.querySelectorAll('.qc').forEach(b => b.addEventListener('click', () => {
+    b.setAttribute('aria-pressed', b.getAttribute('aria-pressed') === 'true' ? 'false' : 'true');
+  }));
+  stage.querySelector('[data-restart]').addEventListener('click', () => {
+    stage.querySelectorAll('.qc').forEach(b => b.setAttribute('aria-pressed', 'false'));
+    go(0); setPlaying(true, false);
+  });
+
+  // playback
+  let cur = 0, playing = false, elapsed = 0, last = performance.now(), swapT = null;
+
+  function activate(i) {
+    scenes.forEach((s, j) => {
+      s.classList.remove('on');
+      s.setAttribute('aria-hidden', String(j !== i));
+    });
+    void scenes[i].offsetWidth;
+    scenes[i].classList.add('on');
+  }
+
+  function update() {
+    const s = scenes[cur];
+    count.textContent = (cur + 1) + ' / ' + scenes.length;
+    chapEl.textContent = s.dataset.chapter;
+    chapEl.style.setProperty('--cc', accents[s.dataset.ci % accents.length]);
+    dots.forEach((d, i) => {
+      d.classList.toggle('done', i < cur);
+      d.classList.toggle('cur', i === cur);
+      if (i === cur) d.setAttribute('aria-current', 'step'); else d.removeAttribute('aria-current');
+    });
+    chapters.forEach((c, ci) => c.el.classList.toggle('cur', ci === +s.dataset.ci));
+    btnPrev.disabled = cur === 0;
+    btnNext.disabled = cur === scenes.length - 1;
+    live.textContent = 'Scene ' + (cur + 1) + ' of ' + scenes.length + ': ' + s.dataset.title;
+  }
+
+  function go(i, useWipe = true) {
+    if (i < 0 || i >= scenes.length) return;
+    cur = i;
+    elapsed = 0;
+    stage.classList.remove('paused');
+    update();
+    clearTimeout(swapT);
+    if (useWipe && !reduce) {
+      wipe.style.setProperty('--wc', accents[scenes[i].dataset.ci % accents.length]);
+      wipe.classList.remove('run');
+      void wipe.offsetWidth;
+      wipe.classList.add('run');
+      elapsed = -340;
+      swapT = setTimeout(() => activate(i), 340);
+    } else {
+      activate(i);
+    }
+  }
+  wipe.addEventListener('animationend', () => wipe.classList.remove('run'));
+
+  function setPlaying(v, freeze = true) {
+    playing = v;
+    stage.classList.toggle('paused', !v && freeze);
+    btnPlay.classList.toggle('paused', !v);
+    btnPlay.setAttribute('aria-label', v ? 'Pause' : 'Play');
+    if (v && +scenes[cur].dataset.dur && elapsed >= +scenes[cur].dataset.dur) go(cur);
+  }
+
+  function tick(now) {
+    const dt = Math.min(100, now - last);
+    last = now;
+    const dur = +scenes[cur].dataset.dur || 0;
+    if (playing && !dur && elapsed >= 0) setPlaying(false, false);
+    if (playing && dur) {
+      elapsed += dt;
+      if (elapsed >= dur) {
+        if (cur < scenes.length - 1) go(cur + 1);
+        else setPlaying(false, false);
+      }
+    }
+    const p = dur ? Math.max(0, Math.min(1, elapsed / dur)) : 1;
+    fill.style.transform = 'scaleX(' + p + ')';
+    requestAnimationFrame(tick);
+  }
+
+  btnPlay.addEventListener('click', () => setPlaying(!playing));
+  btnPrev.addEventListener('click', () => go(cur - 1));
+  btnNext.addEventListener('click', () => go(cur + 1));
+  btnReplay.addEventListener('click', () => go(cur));
+  document.addEventListener('keydown', e => {
+    if (e.altKey || e.ctrlKey || e.metaKey) return;
+    if (e.key === 'ArrowRight') { go(cur + 1); e.preventDefault(); }
+    else if (e.key === 'ArrowLeft') { go(cur - 1); e.preventDefault(); }
+    else if (e.key === ' ' || e.key === 'k') {
+      if (e.target.closest && e.target.closest('button')) return;
+      setPlaying(!playing); e.preventDefault();
+    }
+  });
+
+  go(0, false);
+  setPlaying(!reduce, false);
+  requestAnimationFrame(tick);
+
+  // Deterministic export hooks for html_to_mp4.py.
+  const exportDurations=scenes.map(s=>(+s.dataset.dur||0)/1000);
+  window.__total=exportDurations.reduce((sum,d)=>sum+d,0);
+  window.__seek=seconds=>{
+    let local=Math.max(0,Math.min(window.__total,seconds)),i=0;
+    while(i<scenes.length-1&&local>=exportDurations[i])local-=exportDurations[i++];
+    if(cur!==i)go(i,false);
+    setPlaying(false,false);
+    clearTimeout(swapT);wipe.classList.remove('run');
+    elapsed=local*1000;activate(i);
+    const dur=exportDurations[i]||0;
+    fill.style.transform='scaleX('+ (dur?Math.min(1,local/dur):1) +')';
+    void scenes[i].offsetWidth;
+    scenes[i].getAnimations({subtree:true}).forEach(animation=>{animation.currentTime=elapsed});
+  };
+})();
+</script>
+</body>
+</html>
