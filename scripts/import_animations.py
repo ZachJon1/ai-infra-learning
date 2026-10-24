@@ -86,23 +86,29 @@ def choose_days(sources, manifest_file=None):
     return found, unidentified
 
 
-def new_page(day, meta):
+def new_page(day, meta, animation_available=True):
     raw = TEMPLATE.read_text(encoding='utf-8')
     topic = str(meta['topic']).replace('`', '')
     name = escape(topic, quote=True)
     number = f'{day:02d}'
-    animation = f'''<section class="visual-wrap" aria-label="Interactive animation">
+    if animation_available:
+        animation = f'''<section class="visual-wrap" aria-label="Interactive animation">
       <div class="visual-header"><div><h2>Interactive visual explainer</h2><p>Control the animation to explore the system at your own pace.</p></div>
       <a class="btn" href="../../animations/day-{number}.html" target="_blank" rel="noopener noreferrer">Open full-screen ↗</a></div>
       <div class="visual-shell"><iframe src="../../animations/day-{number}.html" title="Day {day}: {name} interactive explainer" sandbox="allow-scripts allow-same-origin" loading="lazy" allowfullscreen></iframe></div>
       <div class="note">This interactive explainer illustrates the concepts. The engineering implementation and any verified measurements are in the original GitHub lab.</div>
     </section>'''
+    else:
+        animation = '<div class="note">The hands-on lab is available now. Its interactive animation will be added here when it is ready.</div>'
     lab = meta.get('lab_directory')
     lab_url = f'{REPO}/tree/main/{escape(lab,quote=True)}' if lab else REPO
+    subtitle = (f'Visual explanation for Day {day} of the AI Infrastructure & ML Systems roadmap.'
+                if animation_available else
+                f'Hands-on materials for Day {day} of the AI Infrastructure & ML Systems roadmap.')
     replacements = {
         '__DAY__': number,
         '__TITLE__': name,
-        '__SUBTITLE__': escape(f'Visual explanation for Day {day} of the AI Infrastructure & ML Systems roadmap.', quote=True),
+        '__SUBTITLE__': escape(subtitle, quote=True),
         '__LAB_URL__': lab_url,
         '__ANIMATION_SECTION__': animation,
     }

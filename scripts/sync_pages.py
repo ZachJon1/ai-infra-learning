@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Build Pages lesson indexes from day-N animation files and repository labs.
+"""Build Pages indexes from day-N repository labs and optional animations.
 
-Convention: add a standalone animation at docs/animations/day-N.html and the
-corresponding lab in a root directory named dayN-topic. The Pages workflow runs
-this script before uploading docs, so generated pages need not be committed.
+Convention: add a lab in a root directory named dayN-topic. Add its optional
+standalone animation at docs/animations/day-N.html whenever it is ready. The
+Pages workflow runs this script before uploading docs, so generated pages need
+not be committed.
 """
 from __future__ import annotations
 
@@ -65,16 +66,17 @@ def discover_labs(day, preferred=None):
     return matches
 
 
-def roadmap_card(page, day, meta):
+def roadmap_card(page, day, meta, interactive):
     number = f'{day:03d}'
     topic = escape(str(meta['topic']).replace('`', ''))
     if f'href="../days/day-{day:02d}/"' in page:
         return page
     pattern = re.compile(
         rf'<div class="day" aria-label="Day\s+0*{day} curriculum topic">.*?</div></div>', re.S)
+    label = 'Interactive' if interactive else 'Lab available'
     replacement = (f'<a class="day day-featured" href="../days/day-{day:02d}/">'
                    f'<div class="day-top"><span class="day-num">Day {number}</span>'
-                   '<span class="day-kind">Interactive</span></div>'
+                   f'<span class="day-kind">{label}</span></div>'
                    f'<div class="day-title">{topic}</div></a>')
     revised, count = pattern.subn(lambda _: replacement, page, count=1)
     if count != 1:
@@ -130,6 +132,28 @@ def replace_lesson_counts(page, count):
     return page
 
 
+def update_home_stats(page, lab_count, animation_count):
+    page = re.sub(
+        r'<strong data-count="labs">\d+</strong>',
+        f'<strong data-count="labs">{lab_count}</strong>', page)
+    page = re.sub(
+        r'<strong data-count="interactive">\d+</strong>',
+        f'<strong data-count="interactive">{animation_count}</strong>', page)
+    return page
+
+
+def update_progress_note(page, lab_count, animation_count):
+    note = ('<div class="note"><strong>Progress transparency:</strong> '
+            f'{lab_count} day lab folder(s) are available; {animation_count} include an interactive animation. '
+            'Other roadmap entries remain planned topics. The source repository records the hands-on work and evidence.'
+            '</div>')
+    pattern = re.compile(r'<div class="note"><strong>Progress transparency:</strong>.*?</div>', re.S)
+    revised, found = pattern.subn(note, page, count=1)
+    if not found:
+        raise ValueError('Could not locate the roadmap progress note')
+    return revised
+
+
 def update_home_phase_cards(page, rows):
     counts = {}
     days = {}
@@ -179,34 +203,46 @@ def main():
 
     ROADMAP_ROWS = rows
     PUBLISHED_DAYS = set(animations)
-    roadmap = ROADMAP_HTML.read_text(encoding='utf-8')
-    catalog = ANIMATIONS_HTML.read_text(encoding='utf-8')
-
-    for day, path in sorted(animations.items()):
-        meta = by_day[day]
+    lab_directories = {}
+    for day, meta in by_day.items():
         labs = discover_labs(day, meta.get('lab_directory'))
         if len(labs) > 1:
             raise ValueError(f'Multiple lab folders match Day {day}: {labs}')
         if labs:
+            lab_directories[day] = labs[0]
             meta['lab_directory'] = labs[0]
+    PUBLISHED_LAB_DAYS = set(lab_directories)
+    roadmap = ROADMAP_HTML.read_text(encoding='utf-8')
+    catalog = ANIMATIONS_HTML.read_text(encoding='utf-8')
+
+    for day in sorted(PUBLISHED_LAB_DAYS | PUBLISHED_DAYS):
+        meta = by_day[day]
         page_path = DOCS / 'days' / f'day-{day:02d}' / 'index.html'
-        title = animation_title(path, meta['topic'])
+        animation_path = animations.get(day)
+        title = animation_title(animation_path, meta['topic']) if animation_path else meta['topic']
         if not page_path.exists():
             lab = meta.get('lab_directory')
             lab_url = f'{REPO}/tree/main/{lab}' if lab else REPO
             page_path.parent.mkdir(parents=True, exist_ok=True)
-            page_path.write_text(new_page(day, {**meta, 'topic': title, 'lab_directory': lab}), encoding='utf-8')
-        roadmap = roadmap_card(roadmap, day, meta)
-        catalog = add_animation_card(catalog, day, title, meta)
-        meta['interactive_published'] = True
+            page_path.write_text(new_page(
+                day, {**meta, 'topic': title, 'lab_directory': lab},
+                animation_available=animation_path is not None), encoding='utf-8')
+        roadmap = roadmap_card(roadmap, day, meta, interactive=animation_path is not None)
+        if animation_path is not None:
+            catalog = add_animation_card(catalog, day, title, meta)
+        meta['interactive_published'] = animation_path is not None
 
-    count = len(PUBLISHED_DAYS)
-    HOME_HTML.write_text(update_home_phase_cards(replace_lesson_counts(
-        HOME_HTML.read_text(encoding='utf-8'), count), rows), encoding='utf-8')
-    ROADMAP_HTML.write_text(replace_lesson_counts(roadmap, count), encoding='utf-8')
-    ANIMATIONS_HTML.write_text(replace_lesson_counts(catalog, count), encoding='utf-8')
+    animation_count = len(PUBLISHED_DAYS)
+    lab_count = len(PUBLISHED_LAB_DAYS)
+    home = HOME_HTML.read_text(encoding='utf-8')
+    home = update_home_stats(home, lab_count, animation_count)
+    home = update_home_phase_cards(replace_lesson_counts(home, animation_count), rows)
+    HOME_HTML.write_text(home, encoding='utf-8')
+    roadmap = update_progress_note(replace_lesson_counts(roadmap, animation_count), lab_count, animation_count)
+    ROADMAP_HTML.write_text(roadmap, encoding='utf-8')
+    ANIMATIONS_HTML.write_text(replace_lesson_counts(catalog, animation_count), encoding='utf-8')
     ROADMAP_JSON.write_text(json.dumps(rows, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-    print(f'Synchronized {count} interactive lessons from docs/animations/day-N.html files.')
+    print(f'Synchronized {lab_count} lab pages and {animation_count} interactive lessons.')
 
 
 if __name__ == '__main__':
