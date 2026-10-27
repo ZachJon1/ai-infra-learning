@@ -122,6 +122,36 @@ def add_animation_card(page, day, title, meta):
     return page.replace(anchor, section + anchor, 1)
 
 
+def attach_animation_to_lesson(page, day, title, meta, animation_path):
+    """Add an animation to an existing lab page when it is published later."""
+    animation_ref = f'../../animations/{animation_path.name}'
+    if f'<iframe src="{animation_ref}"' in page:
+        return page
+
+    generated = new_page(day, {**meta, 'topic': title}, animation_available=True)
+    match = re.search(r'<section class="visual-wrap".*?</section>', generated, re.S)
+    if not match:
+        raise ValueError(f'Could not build the Day {day:02d} animation section')
+
+    revised = page.replace(
+        '  <div class="note">The hands-on lab is available now. Its interactive animation will be added here when it is ready.</div>\n',
+        '',
+        1,
+    )
+    marker = '  <div class="lesson-layout">'
+    if marker not in revised:
+        raise ValueError(f'Could not locate the lesson layout for Day {day:02d}')
+    section = match.group(0).replace(
+        f'../../animations/day-{day:02d}.html', animation_ref)
+    revised = revised.replace(marker, '  ' + section + '\n' + marker, 1)
+    revised = revised.replace(
+        f'<p class="lead">Hands-on materials for Day {day} of the AI Infrastructure &amp; ML Systems roadmap.</p>',
+        f'<p class="lead">Visual explanation for Day {day} of the AI Infrastructure &amp; ML Systems roadmap.</p>',
+        1,
+    )
+    return revised
+
+
 def replace_lesson_counts(page, count):
     page = re.sub(r'\b\d+(?= interactive lessons?\b)', str(count), page, flags=re.I)
     page = re.sub(r'\b\d+(?= interactive HTML explainers?\b)', str(count), page, flags=re.I)
@@ -227,6 +257,12 @@ def main():
             page_path.write_text(new_page(
                 day, {**meta, 'topic': title, 'lab_directory': lab},
                 animation_available=animation_path is not None), encoding='utf-8')
+        elif animation_path is not None:
+            existing_page = page_path.read_text(encoding='utf-8')
+            updated_page = attach_animation_to_lesson(
+                existing_page, day, title, meta, animation_path)
+            if updated_page != existing_page:
+                page_path.write_text(updated_page, encoding='utf-8')
         roadmap = roadmap_card(roadmap, day, meta, interactive=animation_path is not None)
         if animation_path is not None:
             catalog = add_animation_card(catalog, day, title, meta)
