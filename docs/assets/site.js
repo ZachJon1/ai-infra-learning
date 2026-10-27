@@ -57,3 +57,56 @@
       list.innerHTML = `<li class="muted">Latest updates could not be loaded. <a href="${allCommitsUrl}" target="_blank" rel="noopener noreferrer">View commits on GitHub ↗</a></li>`;
     });
 })();
+
+(() => {
+  const config = {
+    siteCode: 'zakjon',
+    productionHost: 'zachjon1.github.io',
+    path: '/portfolio',
+  };
+
+  // Do not count embedded pages. In particular, animation iframes must not
+  // generate a second visit for the page that contains them.
+  if (window.top !== window.self) return;
+
+  const footer = document.querySelector('.site-footer .footer-row');
+  if (!footer || footer.querySelector('.visitor-count')) return;
+
+  const counter = document.createElement('span');
+  counter.className = 'visitor-count';
+  counter.append('Visitors: ');
+  const value = document.createElement('span');
+  value.textContent = '—';
+  value.setAttribute('aria-live', 'polite');
+  value.setAttribute('aria-atomic', 'true');
+  counter.append(value);
+  footer.append(counter);
+
+  const siteCode = config.siteCode.trim();
+  if (window.location.hostname !== config.productionHost || !/^[a-z0-9-]+$/i.test(siteCode)) return;
+
+  const endpoint = `https://${siteCode}.goatcounter.com`;
+  const tracker = document.createElement('script');
+  tracker.async = true;
+  tracker.src = 'https://gc.zgo.at/count.js';
+  tracker.dataset.goatcounter = `${endpoint}/count`;
+  tracker.dataset.goatcounterSettings = JSON.stringify({ path: config.path });
+  document.head.append(tracker);
+
+  fetch(`${endpoint}/counter/${encodeURIComponent(config.path)}.json`, {
+    mode: 'cors',
+    credentials: 'omit',
+  })
+    .then(response => {
+      if (!response.ok) throw new Error('GoatCounter visitor count is unavailable');
+      return response.json();
+    })
+    .then(result => {
+      if (typeof result.count === 'string' && result.count.trim()) {
+        value.textContent = result.count;
+      }
+    })
+    .catch(() => {
+      // Keep the neutral placeholder if the public counter is blocked/offline.
+    });
+})();

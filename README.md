@@ -390,6 +390,18 @@ The long-term objective is to build the systems knowledge and practical portfoli
 
 ---
 
+## Portfolio Visitor Counter
+
+The portfolio footer uses GoatCounter's public visitor counter. Pages using the shared footer layout report one `/portfolio` path, regardless of their individual URL. The site code `zakjon` is configured in `docs/assets/site.js`. To activate the public count:
+
+1. In the GoatCounter `zakjon` site, open **Settings → Site settings** and enable **Allow adding visitor counts on your website**. This is separate from **Data collection**; the screenshot shows it is already enabled.
+2. Leave **Sessions** enabled under **Settings → Data collection** so refreshes and navigation during the same session count as one visit.
+3. Deploy the site. If the GoatCounter site code changes, update `siteCode` in `docs/assets/site.js` first.
+
+Tracking runs only on the production hostname. Local previews do not send requests, and embedded pages are skipped. GoatCounter's public JSON count may be cached for up to four hours. The integration sends the shared path and uses GoatCounter's standard script; it does not add custom identifiers or browser storage.
+
+---
+
 ## Repository Status
 
 This repository is actively updated as new labs are completed. Future additions will include Kubernetes observability, GPU infrastructure, production model serving, distributed training, LLM infrastructure, and system-design exercises.
