@@ -93,20 +93,26 @@
   tracker.dataset.goatcounterSettings = JSON.stringify({ path: config.path });
   document.head.append(tracker);
 
-  fetch(`${endpoint}/counter/${encodeURIComponent(config.path)}.json`, {
-    mode: 'cors',
-    credentials: 'omit',
-  })
-    .then(response => {
-      if (!response.ok) throw new Error('GoatCounter visitor count is unavailable');
-      return response.json();
-    })
-    .then(result => {
-      if (typeof result.count === 'string' && result.count.trim()) {
-        value.textContent = result.count;
-      }
-    })
-    .catch(() => {
-      // Keep the neutral placeholder if the public counter is blocked/offline.
-    });
+  const countUrl = `${endpoint}/counter/${encodeURIComponent(config.path)}.json`;
+  function loadVisitorCount(retryMissingPath = true) {
+    fetch(countUrl, { mode: 'cors', credentials: 'omit' })
+      .then(response => {
+        if (response.status === 404 && retryMissingPath) {
+          // GoatCounter may not have processed the first /portfolio hit yet.
+          window.setTimeout(() => loadVisitorCount(false), 12000);
+          return null;
+        }
+        if (!response.ok) throw new Error('GoatCounter visitor count is unavailable');
+        return response.json();
+      })
+      .then(result => {
+        if (result && typeof result.count === 'string' && result.count.trim()) {
+          value.textContent = result.count;
+        }
+      })
+      .catch(() => {
+        // Keep the neutral placeholder if the public counter is blocked/offline.
+      });
+  }
+  loadVisitorCount();
 })();
