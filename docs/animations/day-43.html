@@ -1,0 +1,884 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Model warmup and cold starts, explained</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=JetBrains+Mono:wght@400;600;700&display=swap">
+<style>
+:root{
+  --paper:#EEF2FA;--surface:#FFFFFF;--ink:#18203F;--ink-2:#525B82;--line:#CBD3EA;--code:#E2E7F5;
+  --web:#2F6BFF;--db:#7A4CF5;--client:#F5A524;--client-ink:#A35F00;--vol:#E94A89;--teal:#0E9FAE;
+  --ok:#0F9D65;--bad:#E0433F;--warn:#D98200;--net:rgba(47,107,255,.06);--on-client:#2A1C00;
+  --note:#FFE38A;--note-ink:#3B2E00;--hl:rgba(245,165,36,.42);
+  --sans:"Bricolage Grotesque",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  color-scheme:light;box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --paper:#151936;--surface:#1F2449;--ink:#ECEEFF;--ink-2:#A8AFD6;--line:#363E70;--code:#262C5A;
+  --web:#5C8DFF;--db:#9E80FF;--client:#FFBE3B;--client-ink:#FFCB5C;--vol:#FF6FA4;--teal:#29C3D2;
+  --ok:#33D08E;--bad:#FF6A6A;--warn:#FFB340;--net:rgba(92,141,255,.09);--note:#EBCF63;--note-ink:#2A2000;--hl:rgba(255,190,59,.30);color-scheme:dark}}
+:root[data-theme="dark"]{
+  --paper:#151936;--surface:#1F2449;--ink:#ECEEFF;--ink-2:#A8AFD6;--line:#363E70;--code:#262C5A;
+  --web:#5C8DFF;--db:#9E80FF;--client:#FFBE3B;--client-ink:#FFCB5C;--vol:#FF6FA4;--teal:#29C3D2;
+  --ok:#33D08E;--bad:#FF6A6A;--warn:#FFB340;--net:rgba(92,141,255,.09);--note:#EBCF63;--note-ink:#2A2000;--hl:rgba(255,190,59,.30);color-scheme:dark}
+*,*::before,*::after{box-sizing:inherit}
+html{height:100%;scroll-padding-top:env(safe-area-inset-top,0px);background:var(--paper)}
+body{height:100%;margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;overflow:hidden}
+.app{height:100%;display:grid;grid-template-rows:auto minmax(0,1fr) auto;padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
+.top{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px clamp(16px,3vw,44px) 4px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px;letter-spacing:-.01em}
+.brand svg{width:30px;height:22px}
+.where{font-size:15px;color:var(--ink-2);text-align:right}
+.where b{color:var(--ink);font-weight:650}
+.stage{position:relative;overflow:hidden}
+.scene{position:absolute;inset:0;display:grid;grid-template-columns:minmax(260px,.78fr) minmax(0,1.75fr);gap:clamp(16px,3.2vw,56px);align-items:center;padding:6px clamp(16px,3vw,44px) 10px;opacity:0;visibility:hidden;transform:translateX(48px);transition:opacity .45s ease,transform .6s cubic-bezier(.2,.8,.2,1),visibility 0s linear .6s}
+.scene.past{transform:translateX(-48px)}
+.scene.active{opacity:1;visibility:visible;transform:none;transition:opacity .55s ease .12s,transform .7s cubic-bezier(.2,.8,.2,1) .12s,visibility 0s}
+.copy{max-width:40ch;align-self:center;min-width:0}
+.copy h1{font-size:clamp(46px,6.6vw,98px);line-height:.95;letter-spacing:-.035em;margin:.08em 0 .25em;font-weight:800;font-variation-settings:"opsz" 96}
+.copy h2{font-size:clamp(26px,3.2vw,48px);line-height:1.04;letter-spacing:-.028em;margin:0 0 .45em;font-weight:760;font-variation-settings:"opsz" 96;text-wrap:balance}
+.copy p{font-size:clamp(15.5px,1.25vw,19px);line-height:1.45;color:var(--ink-2);margin:0 0 .75em;text-wrap:pretty}
+.copy p strong{color:var(--ink)}
+.copy code,.vis code{font-family:var(--mono);font-size:.84em;background:var(--code);color:var(--ink);padding:.06em .36em;border-radius:6px}
+.copy .rule{color:var(--ink);font-weight:680}
+.copy .rule span{background:linear-gradient(transparent 58%,var(--hl) 58%,var(--hl) 92%,transparent 92%);-webkit-box-decoration-break:clone;box-decoration-break:clone}
+.copy pre{font-family:var(--mono);font-size:13.5px;line-height:1.55;background:var(--code);color:var(--ink);padding:10px 12px;border-radius:10px;margin:0 0 .8em;overflow-x:auto;white-space:pre}
+.copy pre.yaml{font-size:12px;line-height:1.5;max-height:min(46vh,430px);overflow:auto}
+.copy .lede{font-size:clamp(18px,1.6vw,23px);color:var(--ink)}
+.copy .course{font-weight:650;color:var(--ink)}
+.copy .hint{font-size:14px}
+.rotate-hint{display:none}
+.start{font:inherit;font-weight:700;font-size:18px;padding:14px 24px 14px 20px;border-radius:999px;border:0;background:var(--ink);color:var(--paper);cursor:pointer;display:inline-flex;gap:10px;align-items:center;margin:.3em 0 1em;transition:background .2s,transform .15s}
+.start:hover{background:var(--web)}
+.start:active{transform:scale(.97)}
+.start svg{width:18px;height:18px}
+.vis{height:100%;min-height:0;min-width:0;display:flex;align-items:center;justify-content:center}
+.vis>svg{width:100%;height:100%;max-height:100%;overflow:visible;font-size:15px}
+.controls{display:flex;align-items:center;gap:10px;padding:8px clamp(16px,3vw,44px) 14px}
+.btn{width:44px;height:44px;border-radius:50%;border:1.5px solid var(--line);background:var(--surface);color:var(--ink);display:grid;place-items:center;cursor:pointer;flex:none;padding:0;transition:transform .15s,background .2s}
+.btn:hover{background:var(--code)}
+.btn:active{transform:scale(.94)}
+.btn:disabled{opacity:.35;cursor:default}
+.btn svg{width:20px;height:20px}
+.btn.play{width:52px;height:52px;background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.btn.play:hover{background:var(--web);border-color:var(--web)}
+:focus-visible{outline:3px solid var(--web);outline-offset:3px}
+.track{flex:1;display:flex;gap:4px;align-items:center;min-width:0}
+.seg{flex:1;height:28px;border:0;background:none;padding:0;cursor:pointer;display:flex;align-items:center;min-width:0}
+.seg.chstart{margin-left:7px}
+.seg i{display:block;width:100%;height:6px;border-radius:3px;background:var(--line);overflow:hidden;position:relative}
+.seg i b{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--ink);border-radius:3px}
+.seg:hover i{background:var(--ink-2)}
+.count{font-family:var(--mono);font-size:13px;color:var(--ink-2);min-width:4.6em;text-align:right}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+/* takeaways + quiz */
+.take{list-style:none;margin:0;padding:0;display:grid;gap:clamp(10px,1.8vh,20px);width:100%;max-width:660px}
+.take li{display:grid;grid-template-columns:64px 1fr;gap:16px;align-items:center;font-size:clamp(15px,1.25vw,19px);line-height:1.4;color:var(--ink-2)}
+.take li b{color:var(--ink)}
+.take svg{width:64px;height:auto;overflow:visible}
+.quiz{width:100%;max-width:740px;display:grid;gap:14px}
+.cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.card{perspective:1000px;border:0;background:none;padding:0;cursor:pointer;min-height:clamp(150px,23vh,210px);font:inherit;text-align:left;color:inherit;border-radius:18px}
+.card-inner{position:relative;display:block;width:100%;height:100%;min-height:inherit;transform-style:preserve-3d;transition:transform .65s cubic-bezier(.3,1.25,.5,1)}
+.card.flipped .card-inner{transform:rotateY(180deg)}
+.face{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;border-radius:18px;padding:16px 18px;display:flex;flex-direction:column;gap:8px}
+.front{background:var(--surface);border:2px solid var(--line);border-top:7px solid var(--k)}
+.back{background:var(--ink);color:var(--paper);transform:rotateY(180deg)}
+.face small{font-size:13px;font-weight:650;color:var(--ink-2)}
+.back small{color:var(--paper);opacity:.7}
+.face .q{font-size:clamp(15px,1.2vw,18px);line-height:1.35;font-weight:620}
+.face em{margin-top:auto;font-style:normal;font-size:13px;color:var(--ink-2)}
+.again{justify-self:start;font:inherit;font-weight:650;font-size:15px;padding:10px 16px;border-radius:999px;border:1.5px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+.again:hover{background:var(--code)}
+/* svg vocabulary */
+.vis text{fill:var(--ink);font-family:var(--sans);white-space:pre}
+.vis .m{font-family:var(--mono)}
+.vis .b{font-weight:700}
+.vis .mut{fill:var(--ink-2)}
+.vis .okc{fill:var(--ok)}.vis .badc{fill:var(--bad)}.vis .warnc{fill:var(--warn)}.vis .webc{fill:var(--web)}.vis .dbc{fill:var(--db)}.vis .clc{fill:var(--client-ink)}.vis .volc{fill:var(--vol)}.vis .tealc{fill:var(--teal)}.vis .wht{fill:#fff}.vis .inv{fill:var(--paper)}
+.f10{font-size:10px}.f11{font-size:11px}.f12{font-size:12px}.f13{font-size:13px}.f14{font-size:14px}.f15{font-size:15px}.f16{font-size:16px}.f17{font-size:17px}.f18{font-size:18px}.f20{font-size:20px}.f22{font-size:22px}.f30{font-size:30px}.f44{font-size:44px}
+.vis .cname{fill:var(--fg);font-size:15px;font-weight:750}
+.vis .csub{fill:var(--fg);font-family:var(--mono);font-size:10.5px;opacity:.85}
+.vis .ridge{stroke:rgba(255,255,255,.2);stroke-width:2;fill:none}
+.vis .capline{stroke:rgba(0,0,0,.14);stroke-width:2}
+.vis .eye{fill:#fff}.vis .pupil{fill:#18203F}
+.vis .mouth,.vis .lid{fill:none;stroke:var(--fg);stroke-width:3;stroke-linecap:round}
+.vis .ghost{fill-opacity:.12;stroke-width:2.5;stroke-dasharray:7 5}
+.vis .ghostf .eye{stroke:var(--fg);stroke-width:2}
+.vis .paper{fill:var(--surface);stroke:var(--ink);stroke-width:2}
+.vis .paperfold{fill:none;stroke:var(--ink);stroke-width:2}
+.vis .panel{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+.vis .codebg{fill:var(--code)}
+.vis .sep{stroke:var(--line);stroke-width:1.5}
+.vis .net{fill:var(--net);stroke:var(--ink-2);stroke-width:2;stroke-dasharray:9 7}
+.vis .hostbox{fill:none;stroke:var(--line);stroke-width:2.5}
+.vis .aline{fill:none;stroke-linecap:round}
+.vis .draw{stroke-dasharray:1 1;stroke-linecap:butt}
+.vis .dashy{stroke-dasharray:6 6}
+.vis .ahead{fill:none;stroke-linecap:round;stroke-linejoin:round}
+.vis .bub{fill:var(--surface);stroke-width:2;stroke-linejoin:round}
+.vis .note rect{fill:var(--note)}
+.vis .note text{fill:var(--note-ink);font-family:var(--mono);font-size:11.5px}
+.vis .hlbox{fill:var(--hl)}
+.vis .hlrow{fill:var(--hl)}
+.vis .badhl{fill:var(--bad);fill-opacity:.12}
+.vis .zz{fill:var(--ink-2);font-weight:800;font-size:15px}
+.vis .trackl{stroke:var(--line);stroke-width:6;stroke-linecap:round}
+.vis .post{fill:var(--ink-2)}
+.vis .okf{fill:var(--ok)}.vis .badf{fill:var(--bad)}.vis .warnf{fill:var(--warn)}.vis .mutf{fill:var(--ink-2)}.vis .inkf{fill:var(--ink)}
+.vis .ring{fill:none;stroke:var(--ink-2);stroke-width:2}
+.vis .axis{stroke:var(--ink-2);stroke-width:2;fill:none}
+.vis .playhead{stroke:var(--ink);stroke-width:2.5}
+.vis .pipe{fill:none;stroke:var(--vol);stroke-width:10;stroke-opacity:.6}
+.vis .spot{fill:none;stroke:var(--bad);stroke-width:2;stroke-dasharray:4 4}
+.vis .steth{fill:none;stroke:var(--ink);stroke-width:4;stroke-linecap:round}
+.vis .stampbox{fill:var(--surface);stroke:var(--bad);stroke-width:3}
+.vis .pill{fill:var(--surface);stroke-width:1.5}
+.vis .rowchip{fill:var(--note)}
+.vis .dim{fill:var(--paper);fill-opacity:.62}
+.vis .armstripe{stroke:var(--ink);stroke-width:12;stroke-dasharray:12 12}
+.vis .outline{fill:none;stroke:var(--ink);stroke-width:2.5}
+.vis .outline-bad{fill:none;stroke:var(--bad);stroke-width:2.5}
+.vis .glass{stroke-width:3;fill-opacity:.08}
+.vis .ic-ok-o{fill:var(--surface);stroke:var(--ok);stroke-width:2.5}
+.vis .ic-ok-s{fill:none;stroke:var(--ok);stroke-width:2.8;stroke-linecap:round;stroke-linejoin:round}
+.vis .ic-w{fill:none;stroke:#fff;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}
+.vis .ic-wf{fill:#fff}
+.vis .caret{fill:var(--ink)}
+.vis .folder{fill:var(--note);stroke:var(--note-ink);stroke-width:1.5}
+/* motion */
+.vis :is(.pop,.popout,.popoof,.drop,.poof,.shake,.wiggle,.pulse,.stamp,.fly,.slide,.bounce,.move,.travel,.press){transform-box:fill-box;transform-origin:center}
+.vis :is(.grow-x,.growshrink,.lift,.typing){transform-box:fill-box;transform-origin:left center}
+.vis .liftr{transform-box:fill-box;transform-origin:right center}
+@keyframes k-fade{from{opacity:0}to{opacity:1}}
+@keyframes k-out{from{opacity:1}to{opacity:0}}
+@keyframes k-up{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+@keyframes k-pop{0%{opacity:0;transform:scale(.45)}60%{opacity:1;transform:scale(1.07)}100%{opacity:1;transform:scale(1)}}
+@keyframes k-poof{0%{opacity:1;transform:scale(1)}35%{opacity:1;transform:scale(1.12)}100%{opacity:0;transform:scale(.15)}}
+@keyframes k-drop{0%{opacity:0;transform:translateY(-140px)}55%{opacity:1;transform:translateY(6px)}75%{transform:translateY(-6px)}100%{opacity:1;transform:none}}
+@keyframes k-draw{from{opacity:1;stroke-dashoffset:1}to{opacity:1;stroke-dashoffset:0}}
+@keyframes k-flow{to{stroke-dashoffset:-24}}
+@keyframes k-travel{0%{opacity:0;transform:translate(0,0)}12%{opacity:1}88%{opacity:1}100%{opacity:0;transform:translate(var(--tx),var(--ty))}}
+@keyframes k-move{from{transform:translate(0,0)}to{transform:translate(var(--tx,0px),var(--ty,0px))}}
+@keyframes k-fly{from{opacity:1;transform:translate(0,0) scale(1)}to{opacity:0;transform:translate(var(--tx),var(--ty)) scale(.35)}}
+@keyframes k-slide{from{opacity:0;transform:translate(var(--dx,0px),var(--dy,0px))}to{opacity:1;transform:none}}
+@keyframes k-shake{0%,100%{transform:translateX(0)}15%,55%{transform:translateX(-7px)}35%,75%{transform:translateX(7px)}}
+@keyframes k-wiggle{0%,100%{transform:rotate(0)}20%,60%{transform:rotate(-5deg)}40%,80%{transform:rotate(5deg)}}
+@keyframes k-float{0%{opacity:0;transform:translate(0,0)}25%{opacity:1}100%{opacity:0;transform:translate(8px,-22px)}}
+@keyframes k-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.2)}}
+@keyframes k-blink{0%,49%{opacity:1}50%,100%{opacity:0}}
+@keyframes k-blip{0%{opacity:0}18%{opacity:1}70%{opacity:1}100%{opacity:0}}
+@keyframes k-growx{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes k-shrinkx{from{transform:scaleX(1)}to{transform:scaleX(0)}}
+@keyframes k-stamp{0%{opacity:0;transform:scale(1.7) rotate(-3deg)}70%{opacity:1;transform:scale(.96) rotate(-3deg)}100%{opacity:1;transform:scale(1) rotate(-3deg)}}
+@keyframes k-lift{from{transform:rotate(0)}to{transform:rotate(-72deg)}}
+@keyframes k-liftr{from{transform:rotate(0)}to{transform:rotate(72deg)}}
+@keyframes k-press{0%{transform:translateY(0)}45%,60%{transform:translateY(var(--ty))}100%{transform:translateY(0)}}
+@keyframes k-bounce{0%{opacity:0;transform:translate(0,0)}10%{opacity:1}60%{opacity:1;transform:translate(var(--tx),var(--ty))}100%{opacity:0;transform:translate(calc(var(--tx) - 70px),calc(var(--ty) + 40px)) rotate(-25deg)}}
+@keyframes k-type{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+.on .fade{animation:k-fade .5s ease var(--d,0s) both}
+.on .out{animation:k-out .35s ease var(--o,0s) forwards}
+.on .inout{animation:k-fade .45s ease var(--d,0s) both,k-out .35s ease var(--o,9s) forwards}
+.on .up{animation:k-up .6s cubic-bezier(.2,.8,.2,1) var(--d,0s) both}
+.on .pop{animation:k-pop .55s cubic-bezier(.3,1.3,.5,1) var(--d,0s) both}
+.on .popout{animation:k-pop .5s cubic-bezier(.3,1.3,.5,1) var(--d,0s) both,k-out .35s ease var(--o,9s) forwards}
+.on .popoof{animation:k-pop .5s cubic-bezier(.3,1.3,.5,1) var(--d,0s) both,k-poof .55s ease-in var(--o,9s) forwards}
+.on .poof{animation:k-poof .55s ease-in var(--o,0s) forwards}
+.on .drop{animation:k-drop .85s ease-out var(--d,0s) both}
+.on .draw{animation:k-draw var(--dur,.7s) ease-in-out var(--d,0s) both}
+.on .drawout{animation:k-draw var(--dur,.7s) ease-in-out var(--d,0s) both,k-out .3s ease var(--o,9s) forwards}
+.on .dashy.fade{animation:k-fade .5s ease var(--d,0s) both,k-flow 1.1s linear var(--d,0s) infinite}
+.on .travel{animation:k-travel var(--dur,.9s) ease-in-out var(--d,0s) var(--n,1) both}
+.on .move{animation:k-move var(--dur,1s) var(--ease,cubic-bezier(.45,0,.25,1)) var(--d,0s) forwards}
+.on .fly{animation:k-fly var(--dur,.7s) cubic-bezier(.5,0,.3,1) var(--d,0s) forwards}
+.on .slide{animation:k-slide .7s cubic-bezier(.2,.8,.2,1) var(--d,0s) both}
+.on .shake{animation:k-shake .5s ease var(--d,0s) 1}
+.on .wiggle{animation:k-wiggle .8s ease var(--d,0s) 1}
+.on .zz{animation:k-float 2.4s ease-out var(--d,0s) infinite both}
+.on .pulse{animation:k-pulse 1.1s ease-in-out var(--d,0s) infinite}
+.on .blink{animation:k-blink 1s steps(1) var(--d,0s) infinite}
+.on .blip{animation:k-blip var(--dur,.9s) ease var(--d,0s) both}
+.on .grow-x{animation:k-growx var(--dur,.9s) var(--ease,cubic-bezier(.2,.8,.2,1)) var(--d,0s) both}
+.on .growshrink{animation:k-growx var(--dur,.9s) cubic-bezier(.2,.8,.2,1) var(--d,0s) both,k-shrinkx .45s ease-in var(--o,9s) forwards}
+.on .stamp{animation:k-stamp .45s cubic-bezier(.3,1.2,.5,1) var(--d,0s) both}
+.on .lift{animation:k-lift .7s cubic-bezier(.3,1.3,.5,1) var(--d,0s) forwards}
+.on .liftr{animation:k-liftr .7s cubic-bezier(.3,1.3,.5,1) var(--d,0s) forwards}
+.on .press{animation:k-press var(--dur,1.2s) ease-in-out var(--d,0s) 1}
+.on .bounce{animation:k-bounce var(--dur,1.4s) ease-in-out var(--d,0s) both}
+.on .typing{animation:k-type var(--dur,1s) var(--d,0s) both}
+.scene:not(.on) :is(.fade,.inout,.up,.pop,.popout,.popoof,.drop,.draw,.drawout,.travel,.slide,.zz,.blip,.stamp,.bounce,.grow-x,.growshrink){opacity:0}
+.scene:not(.on) .typing{transform:scaleX(0)}
+@media (max-width:820px),(max-aspect-ratio:1/1){
+  .scene{grid-template-columns:1fr;grid-template-rows:auto auto;align-items:start;align-content:start;overflow-y:auto;gap:10px;padding-top:4px}
+  .copy{max-width:62ch}
+  .copy h2{font-size:clamp(24px,6.2vw,36px);margin-bottom:.35em}
+  .copy p{font-size:15px;margin-bottom:.5em}
+  .copy pre.yaml{max-height:30vh}
+  .vis{height:auto}
+  .vis>svg{height:auto;max-height:64vh}
+}
+@media (max-width:600px) and (orientation:portrait){.rotate-hint{display:block}.cards{grid-template-columns:1fr}.card{min-height:130px}}
+@media (max-width:480px){.count{display:none}.btn{width:40px;height:40px}.btn.play{width:46px;height:46px}.brand span{font-size:14px}.where{font-size:13px}}
+@media (prefers-reduced-motion:reduce){
+  .scene,.scene.past,.scene.active{transform:none!important}
+  .scene{transition:opacity .25s ease,visibility 0s linear .25s}
+  .scene.active{transition:opacity .25s ease,visibility 0s}
+  .scene.on *{animation-duration:1ms!important;animation-iteration-count:1!important}
+  .card-inner{transition:none}
+}
+
+.vis .podseam{fill:none;stroke:rgba(255,255,255,.32);stroke-width:2.5;stroke-linecap:round}
+.vis .tagb{fill:var(--surface);stroke-width:2}
+.vis .deskbody{fill:var(--surface);stroke:var(--ink);stroke-width:2}
+.vis .clippaper{fill:var(--surface)}
+.vis .clipclip{fill:var(--ink-2)}
+.vis .lbl{fill:var(--note)}
+.vis .lbltxt{fill:var(--note-ink)}
+.vis .nodebox{fill:var(--net);stroke:var(--ink);stroke-width:2.5}
+.vis .door{fill:var(--client);stroke:var(--ink);stroke-width:2}
+.vis .road{fill:none;stroke:var(--line);stroke-width:22;stroke-linecap:round}
+.vis .roadmid{fill:none;stroke:var(--surface);stroke-width:2.5;stroke-dasharray:10 10}
+.vis .rope{fill:none;stroke:var(--bad);stroke-width:7;stroke-linecap:round}
+.vis .stanchion{fill:var(--ink-2)}
+.vis .pipe2{fill:none;stroke:var(--teal);stroke-width:14;stroke-linecap:round;stroke-linejoin:round;stroke-opacity:.28}
+.vis .flow{fill:none;stroke:var(--teal);stroke-width:4;stroke-dasharray:6 10;stroke-linecap:round}
+.vis .stop{fill:var(--surface);stroke:var(--ink-2);stroke-width:2.5}
+.vis .cniband{fill:var(--teal);fill-opacity:.1;stroke:var(--teal);stroke-width:2}
+.vis .valve{fill:var(--surface);stroke:var(--ink);stroke-width:2.5}
+.vis .brk{fill:none;stroke-width:2}
+@keyframes k-flow16{to{stroke-dashoffset:-32}}
+.on .flow.fade{animation:k-fade .5s ease var(--d,0s) both,k-flow16 .9s linear var(--d,0s) infinite}
+.on .flow.inout{animation:k-fade .5s ease var(--d,0s) both,k-out .35s ease var(--o,9s) forwards,k-flow16 .9s linear var(--d,0s) infinite}
+.take{gap:clamp(8px,1.5vh,18px)}
+.take svg{max-height:52px}
+.copy h1.long{font-size:clamp(36px,4.2vw,64px)}
+@keyframes k-unwind{from{stroke-dashoffset:0}to{stroke-dashoffset:1}}
+.on .unwind{animation:k-unwind var(--dur,3s) linear var(--d,0s) both}
+@keyframes k-spin{to{transform:rotate(360deg)}}
+.vis .spin{transform-box:fill-box;transform-origin:center}
+.on .spin{animation:k-spin 2.4s linear var(--d,0s) infinite}
+@keyframes k-ring{0%,100%{transform:rotate(0)}25%{transform:rotate(-12deg)}75%{transform:rotate(12deg)}}
+.vis .ringy{transform-box:fill-box;transform-origin:center}
+.on .ringy{animation:k-ring .22s linear var(--d,0s) 6}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand"><svg viewBox="0 0 30 22" aria-hidden="true"><path d="M15 20C9 20 6 16 7 12C8 9 11 8 11 4C14 6 15 9 14 12C16 11 17 9 17 7C21 10 23 14 21 17C20 19 18 20 15 20Z" fill="var(--warn)"/><path d="M15 19C12 19 11 17 12 15C13 14 14 13 14 11C16 13 18 15 17 17C17 18 16 19 15 19Z" fill="#fff" opacity=".7"/></svg><span>Model warmup and cold starts, explained</span></div>
+    <div class="where" id="chap"></div>
+  </header>
+  <main class="stage" id="stage"></main>
+  <nav class="controls" aria-label="Explainer controls">
+    <button class="btn" id="prev" aria-label="Previous scene"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
+    <button class="btn play" id="play" aria-label="Start auto-play" aria-pressed="false"></button>
+    <button class="btn" id="next" aria-label="Next scene"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></button>
+    <div class="track" id="track"></div>
+    <span class="count" id="count"></span>
+    <button class="btn" id="replay" aria-label="Replay this scene"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4.5h4.5"/></svg></button>
+  </nav>
+  <div class="sr" aria-live="polite" id="live"></div>
+</div>
+<script>
+const I=n=>'\u00A0'.repeat(n);
+const S=o=>{const p=[];for(const k in o){const v=o[k];if(v==null)continue;const sec=['d','o','dur'].includes(k),px=['tx','ty','dx','dy'].includes(k);p.push(`--${k}:${v}${sec?'s':px?'px':''}`)}return p.length?`style="${p.join(';')}"`:''};
+const G=(inner,o={})=>{const{x,y,an,...v}=o;let g=an?`<g class="${an}" ${S(v)}>${inner}</g>`:inner;if(x!=null||y!=null)g=`<g transform="translate(${x||0} ${y||0})">${g}</g>`;return g};
+const T=(x,y,s,o={})=>{const{c='',a,an='fade',d=0,o:oo}=o;return `<text x="${x}" y="${y}"${a?` text-anchor="${a}"`:''} class="${c} ${an}" ${an?S({d,o:oo}):''}>${s}</text>`};
+const svg=(inner,label)=>`<svg viewBox="0 0 800 500" role="img" aria-label="${label}" xml:space="preserve">${inner}</svg>`;
+let UID=0;
+
+function face(m,w,h){
+  const a=w*.36,b=w*.64,ey=h*.56,mx=w/2,my=h*.75;
+  if(m==='sleepy')return `<path class="lid" d="M${a-7} ${ey}q7 5 14 0M${b-7} ${ey}q7 5 14 0"/><path class="mouth" d="M${mx-5} ${my}h10"/>`;
+  const eyes=`<circle cx="${a}" cy="${ey}" r="8" class="eye"/><circle cx="${a+1}" cy="${ey+1}" r="3.8" class="pupil"/><circle cx="${b}" cy="${ey}" r="8" class="eye"/><circle cx="${b+1}" cy="${ey+1}" r="3.8" class="pupil"/>`;
+  const M={happy:`<path class="mouth" d="M${mx-11} ${my-3}q11 10 22 0"/>`,sad:`<path class="mouth" d="M${mx-10} ${my+4}q10 -9 20 0"/>`,flat:`<path class="mouth" d="M${mx-8} ${my}h16"/>`,worried:`<path class="mouth" d="M${mx-11} ${my+2}q5.5 -5 11 0q5.5 5 11 0"/>`,wow:`<ellipse class="mouth" cx="${mx}" cy="${my}" rx="5" ry="6"/>`};
+  return eyes+(M[m]||M.happy);
+}
+const ZZ=w=>`<text x="${w-26}" y="14" class="zz" style="--d:0s">z</text><text x="${w-14}" y="4" class="zz" style="--d:.8s">z</text><text x="${w-2}" y="-6" class="zz" style="--d:1.6s">Z</text>`;
+
+function crate({x=0,y=0,w=140,h=96,k='web',name='',sub='',mood='happy',m2,t2,m3,t3,an='',v={},s=1,ghost=false,extra=''}={}){
+  const fg=ghost?(k==='client'?'var(--client-ink)':`var(--${k})`):(k==='client'?'var(--on-client)':'#fff');
+  let r='';for(let i=16;i<w-8;i+=16)r+=`M${i} 30V${h-8}`;
+  const seq=[[mood,0]];if(m2)seq.push([m2,t2]);if(m3)seq.push([m3,t3]);
+  let faces='';
+  seq.forEach(([m,t],i)=>{const nx=seq[i+1];let cls='',st={};
+    if(i>0){cls='fade';st.d=t}
+    if(nx){cls=cls?'inout':'out';st.o=nx[1]}
+    faces+=`<g${cls?` class="${cls}" ${S(st)}`:''}>${face(m,w,h)}${m==='sleepy'?ZZ(w):''}</g>`;});
+  const body=ghost?`<rect width="${w}" height="${h}" rx="14" class="ghost" style="stroke:var(--${k});fill:var(--${k})"/>`
+    :`<rect width="${w}" height="${h}" rx="14" style="fill:var(--${k})"/><path d="${r}" class="ridge"/><path d="M8 27H${w-8}" class="capline"/>`;
+  let g=`<g class="${ghost?'ghostf':''}" style="--fg:${fg}">${body}${name?`<text x="12" y="19" class="cname">${name}</text>`:''}${sub?`<text x="${w-10}" y="18" text-anchor="end" class="csub">${sub}</text>`:''}${faces}${extra}</g>`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})${s!==1?` scale(${s})`:''}">${g}</g>`;
+}
+
+function drum({x=0,y=0,w=130,h=110,label='postgres_data',an='',v={},fs=12,ring=.5,extra=''}={}){
+  const rx=w/2,ry=13,ry2=Math.round(h*ring);
+  let g=`<path d="M0 ${ry}V${h-ry}A${rx} ${ry} 0 0 0 ${w} ${h-ry}V${ry}" style="fill:var(--vol)"/><ellipse cx="${rx}" cy="${ry}" rx="${rx}" ry="${ry}" style="fill:var(--vol)"/><ellipse cx="${rx}" cy="${ry}" rx="${rx}" ry="${ry}" fill="#fff" fill-opacity=".28"/><path d="M0 ${ry2}A${rx} ${ry} 0 0 0 ${w} ${ry2}" fill="none" stroke="#fff" stroke-opacity=".35" stroke-width="2"/>${label?`<text x="${rx}" y="${h-12}" text-anchor="middle" class="m b wht" style="font-size:${fs}px">${label}</text>`:''}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+
+function bubPath(W,H,tail,tp){
+  const top=tail==='tl'?`H${tp}L${tp+4} -12L${tp+14} 0H${W-12}`:`H${W-12}`;
+  const bot=tail==='bl'?`H${tp+14}L${tp+4} ${H+12}L${tp} ${H}H12`:`H12`;
+  return `M12 0${top}Q${W} 0 ${W} 12V${H-12}Q${W} ${H} ${W-12} ${H}${bot}Q0 ${H} 0 ${H-12}V12Q0 0 12 0Z`;
+}
+function bubble(x,y,txt,{w,c='var(--ink)',fs=14,mono=true,tail='bl',tp=16,an='pop',d=0,o}={}){
+  const plain=txt.replace(/<[^>]+>/g,'').replace(/&[a-z#0-9]+;/g,'x');
+  const W=w||Math.round(plain.length*fs*(mono?.6:.56)+26),H=fs+18;
+  const inner=`<path d="${bubPath(W,H,tail,tp)}" class="bub" style="stroke:${c}"/><text x="13" y="${(H/2+fs*.36).toFixed(1)}" class="${mono?'m ':''}b" style="fill:${c};font-size:${fs}px">${txt}</text>`;
+  let a=an;if(o!=null)a=an==='pop'?'popout':an==='fade'?'inout':an;
+  return G(inner,{x,y,an:a,d,o});
+}
+
+function arrow(p,{c='var(--ink)',d=0,dur=.7,w=2.5,dash=false}={}){
+  let path,fx,fy;const{x1,y1,x2,y2,q,c1,c2,poly}=p;let ex=x2,ey=y2;
+  if(poly){path='M'+poly.map(pt=>pt.join(' ')).join('L');const n=poly.length;[ex,ey]=poly[n-1];[fx,fy]=poly[n-2]}
+  else if(c1){path=`M${x1} ${y1}C${c1[0]} ${c1[1]} ${c2[0]} ${c2[1]} ${x2} ${y2}`;[fx,fy]=c2}
+  else if(q){path=`M${x1} ${y1}Q${q[0]} ${q[1]} ${x2} ${y2}`;[fx,fy]=q}
+  else{path=`M${x1} ${y1}L${x2} ${y2}`;fx=x1;fy=y1}
+  const ang=Math.atan2(ey-fy,ex-fx),L=12;
+  const h1=[ex+L*Math.cos(ang+2.55),ey+L*Math.sin(ang+2.55)],h2=[ex+L*Math.cos(ang-2.55),ey+L*Math.sin(ang-2.55)];
+  const head=`<path d="M${h1[0].toFixed(1)} ${h1[1].toFixed(1)}L${ex} ${ey}L${h2[0].toFixed(1)} ${h2[1].toFixed(1)}" class="ahead fade" style="stroke:${c};stroke-width:${w};--d:${(d+dur*.8).toFixed(2)}s"/>`;
+  const line=dash?`<path d="${path}" class="aline dashy fade" style="stroke:${c};stroke-width:${w};--d:${d}s"/>`
+    :`<path d="${path}" pathLength="1" class="aline draw" style="stroke:${c};stroke-width:${w};--d:${d}s;--dur:${dur}s"/>`;
+  return `<g>${line}${head}</g>`;
+}
+const packet=(x1,y1,x2,y2,{d=0,dur=.8,c='var(--web)',r=7}={})=>`<circle cx="${x1}" cy="${y1}" r="${r}" class="travel" style="fill:${c};--d:${d}s;--dur:${dur}s;--tx:${x2-x1}px;--ty:${y2-y1}px"/>`;
+
+function icon(t,x,y,{d=0,o,r=14,an='pop'}={}){
+  const s=r/14;
+  const sym={
+    kept:`<circle r="14" class="ic-ok-o"/><path d="M-6 0l4 4 8-8" class="ic-ok-s"/>`,
+    yes:`<circle r="14" class="okf"/><path d="M-6 0l4 4 8-8" class="ic-w"/>`,
+    no:`<circle r="14" class="badf"/><path d="M-5 -5l10 10M5 -5l-10 10" class="ic-w"/>`,
+    stop:`<circle r="14" class="mutf"/><path d="M-3.5 -5v10M3.5 -5v10" class="ic-w"/>`,
+    play:`<circle r="14" class="okf"/><path d="M-3.5 -6L6 0L-3.5 6Z" class="ic-wf"/>`,
+    restart:`<circle r="14" style="fill:var(--web)"/><path d="M6 1.5A6.2 6.2 0 1 1 3.6 -5" class="ic-w"/><path d="M4.5 -9.5L4 -4.6L-0.8 -5.6" class="ic-w"/>`,
+    plus:`<circle r="14" class="okf"/><path d="M0 -6V6M-6 0H6" class="ic-w"/>`,
+    warn:`<circle r="14" class="warnf"/><path d="M0 -6.5V1.5" class="ic-w"/><circle cy="6" r="1.7" class="ic-wf"/>`
+  }[t];
+  const a=o!=null?(an==='pop'?'popout':an):an;
+  return `<g transform="translate(${x} ${y})${s!==1?` scale(${s})`:''}"><g class="${a}" ${S({d,o})}>${sym}</g></g>`;
+}
+function typed(x,y,str,{fs=15,d=0,dur=1,c=''}={}){
+  const id='clip'+(UID++),w=str.length*fs*.6+6;
+  return `<clipPath id="${id}"><rect x="${x-2}" y="${y-fs}" width="${w}" height="${fs*1.5}" class="typing" style="--d:${d}s;--dur:${dur}s;animation-timing-function:steps(${str.length},end)"/></clipPath><text x="${x}" y="${y}" class="m ${c}" clip-path="url(#${id})" style="font-size:${fs}px">${str}</text>`;
+}
+function browser(x,y,w,h,addr,o={}){
+  return G(`<rect width="${w}" height="${h}" rx="10" class="panel"/><path d="M0 22H${w}" class="sep"/><circle cx="12" cy="11" r="3.5" class="badf"/><circle cx="24" cy="11" r="3.5" class="warnf"/><circle cx="36" cy="11" r="3.5" class="okf"/><rect x="8" y="32" width="${w-16}" height="24" rx="6" class="codebg"/><text x="16" y="49" class="m f12">${addr}</text>`,{x,y,...o});
+}
+const glass=(x,y,w,h,k,label,o={})=>G(`<rect width="${w}" height="${h}" rx="16" class="glass" style="stroke:var(--${k});fill:var(--${k})"/><path d="M0 16Q0 0 16 0H${label.length*8.2+30}V28H0Z" style="fill:var(--${k})"/><text x="14" y="19" class="f14 b" style="fill:${k==='client'?'var(--on-client)':'#fff'}">${label}</text>`,{x,y,...o});
+const codeLine=(x,y,s,c='')=>`<text x="${x}" y="${y}" class="m ${c}">${s}</text>`;
+// ---------- Day 10 helpers ----------
+function faceSeq(seq,w,h){let f='';seq.forEach(([m,t],i)=>{const nx=seq[i+1];let cls='',st={};if(i>0){cls='fade';st.d=t}if(nx){cls=cls?'inout':'out';st.o=nx[1]}f+=`<g${cls?` class="${cls}" ${S(st)}`:''}>${face(m,w,h)}${m==='sleepy'?ZZ(w):''}</g>`});return f}
+function pod({x=0,y=0,w=104,h=74,k='web',ip='',mood='happy',m2,t2,m3,t3,an='',v={},s=1,ghost=false,extra='',under=''}={}){
+  const fg=ghost?(k==='client'?'var(--client-ink)':`var(--${k})`):(k==='client'?'var(--on-client)':'#fff');
+  const r=Math.min(h/2,34),seq=[[mood,0]];if(m2)seq.push([m2,t2]);if(m3)seq.push([m3,t3]);
+  const body=ghost?`<rect width="${w}" height="${h}" rx="${r}" class="ghost" style="stroke:var(--${k});fill:var(--${k})"/>`
+    :`<rect width="${w}" height="${h}" rx="${r}" style="fill:var(--${k})"/><path d="M${(r*.75).toFixed(1)} 12Q${w/2} 2 ${(w-r*.75).toFixed(1)} 12" class="podseam"/>`;
+  let g=`<g class="${ghost?'ghostf':''}" style="--fg:${fg}">${body}${faceSeq(seq,w,h)}${extra}</g>${ip?`<text x="${w/2}" y="${h+17}" text-anchor="middle" class="m f12 mut">${ip}</text>`:''}${under}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})${s!==1?` scale(${s})`:''}">${g}</g>`;
+}
+const tagW=t=>Math.round(t.length*7.2+26);
+const tagD=w=>`M0 12L9.5 1.5Q11 0 13 0H${w-5}Q${w} 0 ${w} 5V19Q${w} 24 ${w-5} 24H13Q11 24 9.5 22.5Z`;
+const tagRaw=(t,k='ink-2')=>`<path d="${tagD(tagW(t))}" class="tagb" style="stroke:var(--${k})"/><circle cx="11" cy="12" r="2.5" style="fill:var(--${k})"/><text x="19" y="16.5" class="m f12">${t}</text>`;
+const tag=(x,y,t,{k='ink-2',an='fade',d=0,o}={})=>G(tagRaw(t,k),{x,y,an:o!=null?'inout':an,d,o});
+const tagHL=(x,y,t,ok,{d=0,o}={})=>{const c=ok?'ok':'bad';return `<path transform="translate(${x} ${y})" d="${tagD(tagW(t))}" class="${o!=null?'inout':'fade'}" style="fill:var(--${c});fill-opacity:.18;stroke:var(--${c});stroke-width:3;--d:${d}s${o!=null?`;--o:${o}s`:''}"/>`};
+function desk({x=0,y=0,w=170,name='Service: web',ip='',sub='',an='',v={},s=1,extra=''}={}){
+  let g=`<path d="M30 28V46M${w-30} 28V46" style="stroke:var(--ink-2);stroke-width:3"/><rect x="6" width="${w-12}" height="30" rx="8" class="inkf"/><text x="${w/2}" y="20" text-anchor="middle" class="f14 b inv">${name}</text><path d="M${w-64} 46a11 11 0 0 1 22 0Z" style="fill:var(--client)"/><circle cx="${w-53}" cy="33" r="2.6" style="fill:var(--client)"/><rect y="45" width="${w}" height="11" rx="4" class="inkf"/><rect x="8" y="56" width="${w-16}" height="58" rx="6" class="deskbody"/>${ip?`<text x="${w/2}" y="${sub?81:90}" text-anchor="middle" class="m f14 b">${ip}</text>`:''}${sub?`<text x="${w/2}" y="${ip?101:90}" text-anchor="middle" class="f12 mut">${sub}</text>`:''}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})${s!==1?` scale(${s})`:''}">${g}</g>`;
+}
+function clip({x=0,y=0,w=210,h=160,title='EndpointSlice',an='',v={},extra=''}={}){
+  let g=`<rect width="${w}" height="${h}" rx="10" class="inkf"/><rect x="8" y="12" width="${w-16}" height="${h-20}" rx="4" class="clippaper"/><rect x="${w/2-28}" y="-7" width="56" height="18" rx="5" class="clipclip"/><text x="20" y="38" class="f13 b">${title}</text><path d="M20 48H${w-20}" class="sep"/>${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function book({x=0,y=0,w=160,h=96,title='CoreDNS',sub='10.96.0.10',an='',v={},extra=''}={}){
+  let g=`<rect x="7" y="7" width="${w}" height="${h}" rx="8" style="fill:var(--note)"/><rect width="${w}" height="${h}" rx="8" class="inkf"/><path d="M18 6V${h-6}" style="stroke:var(--paper);stroke-opacity:.3;stroke-width:3"/><text x="30" y="${h/2-3}" class="f17 b inv">${title}</text>${sub?`<text x="30" y="${h/2+19}" class="m f12 inv" opacity=".78">${sub}</text>`:''}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function letterG(label=''){const w=Math.round(label.length*7.2+16);
+  return `<rect x="-14" y="-10" width="28" height="20" rx="3" class="paper"/><path d="M-14 -9L0 2L14 -9" class="paperfold"/>${label?`<rect x="${-w/2}" y="-40" width="${w}" height="22" rx="6" class="lbl"/><text x="0" y="-25" text-anchor="middle" class="m f12 b lbltxt">${label}</text>`:''}`}
+const sendL=(x1,y1,x2,y2,{d=0,dur=.8,label=''}={})=>`<g transform="translate(${x1} ${y1})"><g class="travel" ${S({d,dur,tx:x2-x1,ty:y2-y1})}>${letterG(label)}</g></g>`;
+const svcChip=(x,y,name,{w=170,an='pop',d=0}={})=>G(`<rect width="${w}" height="44" rx="12" class="deskbody"/><path d="M13 30a10 10 0 0 1 20 0Z" style="fill:var(--client)"/><rect x="10" y="29" width="26" height="4" rx="2" class="inkf"/><text x="44" y="28" class="f14 b">${name}</text>`,{x,y,an,d});
+const shieldP=`<path d="M0 -17L14 -11V0C14 9 7 15 0 18C-7 15 -14 9 -14 0V-11Z" class="inkf"/><path d="M-6 0l4 4 8-8" style="fill:none;stroke:var(--paper);stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round"/>`;
+const shield=(x,y,{s=1,an='pop',d=0}={})=>`<g transform="translate(${x} ${y}) scale(${s})"><g class="${an}" ${S({d})}>${shieldP}</g></g>`;
+const pill=(x,y,txt,{c='ok',an='pop',d=0}={})=>{const w=Math.round(txt.length*7.6+30);return G(`<rect width="${w}" height="24" rx="12" class="pill" style="stroke:var(--${c})"/><circle cx="13" cy="12" r="4.5" style="fill:var(--${c})"/><text x="23" y="16.5" class="f13 b">${txt}</text>`,{x,y,an,d})};
+const chipT=(t,w)=>`<rect x="${-w/2}" y="-12" width="${w}" height="24" rx="12" class="lbl"/><text x="0" y="5" text-anchor="middle" class="m f12 b lbltxt">${t}</text>`;
+const flyChip=(x1,y1,x2,y2,t,{d=0,dur=.8}={})=>`<g transform="translate(${x1} ${y1})"><g class="travel" ${S({d,dur,tx:x2-x1,ty:y2-y1})}>${chipT(t,Math.round(t.length*7.2+22))}</g></g>`;
+// ---------- Day 11 helpers ----------
+function ticket({x=0,y=0,w=170,h=96,title='PVC',lines=[],an='',v={},extra='',k='client'}={}){
+  const n=9,m=h/2;
+  const d=`M10 0H${w-10}Q${w} 0 ${w} 10V${m-n}A${n} ${n} 0 0 0 ${w} ${m+n}V${h-10}Q${w} ${h} ${w-10} ${h}H10Q0 ${h} 0 ${h-10}V${m+n}A${n} ${n} 0 0 0 0 ${m-n}V10Q0 0 10 0Z`;
+  let g=`<path d="${d}" class="paper"/><path d="M10 1H${w-10}Q${w-1} 1 ${w-1} 10V12H1V10Q1 1 10 1Z" style="fill:var(--${k})"/><text x="14" y="${m-9}" class="m f13 b">${title}</text><path d="M${n+5} ${m}H${w-n-5}" class="sep" style="stroke-dasharray:4 4"/>${lines.map((l,i)=>`<text x="14" y="${m+22+i*18}" class="m f12">${l}</text>`).join('')}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function pad({x=0,y=0,w=120,h=86,title='emptyDir',lines=[],an='',v={},extra=''}={}){
+  let rings='';for(let i=14;i<=w-20;i+=22)rings+=`<rect x="${i}" y="-6" width="6" height="14" rx="3" class="inkf"/>`;
+  let g=`<rect width="${w}" height="${h}" rx="8" style="fill:var(--note)"/>${rings}<text x="12" y="28" class="m f12 b lbltxt">${title}</text>${lines.map((l,i)=>`<text x="12" y="${50+i*18}" class="m f12 lbltxt">${l}</text>`).join('')}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function rack({x=0,y=0,w=110,h=90,label='backing storage',an='',v={}}={}){
+  const sh=(h-20)/3;let g=`<rect width="${w}" height="${h}" rx="10" style="fill:var(--ink-2)"/>`;
+  for(let i=0;i<3;i++){const yy=10+i*sh;g+=`<rect x="10" y="${yy}" width="${w-20}" height="${sh-6}" rx="4" fill="#fff" fill-opacity=".16"/><circle cx="${w-22}" cy="${yy+(sh-6)/2}" r="3.5" class="okf"/>`}
+  if(label)g+=`<text x="${w/2}" y="${h+18}" text-anchor="middle" class="f12 mut">${label}</text>`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function menuCard({x=0,y=0,w=200,h=150,title='StorageClass',rows='',an='',v={}}={}){
+  let g=`<rect width="${w}" height="${h}" rx="12" class="panel"/><path d="M12 0H${w-12}Q${w} 0 ${w} 12V32H0V12Q0 0 12 0Z" class="inkf"/><text x="14" y="21" class="f14 b inv">${title}</text>${rows}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+const HAT=w=>`<path d="M${w/2-36} -2Q${w/2-46} -20 ${w/2-28} -24Q${w/2-20} -40 ${w/2} -32Q${w/2+18} -42 ${w/2+28} -24Q${w/2+46} -20 ${w/2+36} -2Z" style="fill:#fff;stroke:var(--ink);stroke-width:2;stroke-linejoin:round"/>`;
+const nodeBox=(x,y,w,h,label,o={})=>G(`<rect width="${w}" height="${h}" rx="14" class="nodebox"/><text x="12" y="22" class="f13 b">${label}</text>`,{x,y,...o});
+const jersey=n=>`<circle cx="16" cy="16" r="12" class="stop"/><text x="16" y="21" text-anchor="middle" class="f13 b">${n}</text>`;
+const fileI=`<path d="M0 3Q0 0 3 0H12L18 6V21Q18 24 15 24H3Q0 24 0 21Z" class="paper"/><path d="M12 0.5V6H17.5" class="paperfold"/>`;
+const fileChip=(x,y,name,{an='fade',d=0,o,c=''}={})=>G(`${fileI}<text x="26" y="17" class="m f13 ${c}">${name}</text>`,{x,y,an:o!=null?'inout':an,d,o});
+const flyFile=(x1,y1,x2,y2,name='',{d=0,dur=.9}={})=>`<g transform="translate(${x1} ${y1})"><g class="travel" ${S({d,dur,tx:x2-x1,ty:y2-y1})}>${fileI}${name?`<text x="24" y="16" class="m f12 b">${name}</text>`:''}</g></g>`;
+const PENCIL=`<path d="M-7 7L-6 2L4 -8L8 -4L-2 6Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.8;stroke-linejoin:round"/>`;
+const EYE=`<path d="M-10 0Q0 -8 10 0Q0 8 -10 0Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.8"/><circle r="3" class="inkf"/>`;
+const LOCK=`<path d="M-6 -2V-7A6 6 0 0 1 6 -7V-2" style="fill:none;stroke:var(--ink);stroke-width:2.5"/><rect x="-9" y="-3" width="18" height="15" rx="3" class="inkf"/>`;
+const TRASH=`<rect x="-6" y="0" width="72" height="10" rx="3" class="inkf"/><rect x="22" y="-6" width="16" height="8" rx="2" class="inkf"/><path d="M2 14H58L54 76H6Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:2.5;stroke-linejoin:round"/><path d="M20 26V64M30 26V64M40 26V64" style="stroke:var(--ink-2);stroke-width:2.5"/>`;
+const sym=(g,x,y,{d=0,an='pop',s=1}={})=>`<g transform="translate(${x} ${y}) scale(${s})"><g class="${an}" ${S({d})}>${g}</g></g>`;
+const STAIRS=`<rect x="0" y="34" width="15" height="14" rx="3" style="fill:var(--web)"/><rect x="16" y="23" width="15" height="25" rx="3" style="fill:var(--teal)"/><rect x="32" y="12" width="15" height="36" rx="3" style="fill:var(--db)"/><rect x="48" y="1" width="15" height="47" rx="3" style="fill:var(--vol)"/>`;
+const term=(x,y,w,h,L,{fs=12,lh=24,top=26,d=0}={})=>G(`<rect width="${w}" height="${h}" rx="12" class="codebg"/>`+L.map(([t,c,dd],i)=>T(16,top+i*lh,t.replace(/ /g,'\u00A0'),{c:`m f${fs} ${c}`,d:dd})).join(''),{x,y,an:'fade',d});
+const chipsRow=(x,y,arr,{maxX=380,d=0,k='line'}={})=>{let s='',cx=x,cy=y;arr.forEach((t,i)=>{const w=Math.round(t.length*6.9+22);if(cx+w>maxX){cx=x;cy+=36}s+=G(`<rect width="${w}" height="28" rx="14" class="pill" style="stroke:var(--${k})"/><text x="${w/2}" y="19" text-anchor="middle" class="f13">${t}</text>`,{x:cx,y:cy,an:'pop',d:d+i*.15});cx+=w+8});return s};
+// ---------- Day 12 helpers ----------
+const LOCKW=`<path d="M-6 -2V-7A6 6 0 0 1 6 -7V-2" style="fill:none;stroke:#fff;stroke-width:2.5"/><rect x="-9" y="-3" width="18" height="15" rx="3" fill="#fff"/>`;
+function cfgCard({x=0,y=0,w=240,kind='cm',name='inference-config',rows=[],rh=24,an='',v={},extra=''}={}){
+  const k=kind==='cm'?'teal':'db',h=46+rows.length*rh;
+  let g=`<rect width="${w}" height="${h}" rx="12" class="panel"/><path d="M12 0H${w-12}Q${w} 0 ${w} 12V34H0V12Q0 0 12 0Z" style="fill:var(--${k})"/>${kind==='sec'?`<g transform="translate(${w-20} 18) scale(.75)">${LOCKW}</g>`:''}<text x="14" y="22" class="f13 b wht">${kind==='cm'?'ConfigMap':'Secret'}: ${name}</text>`;
+  rows.forEach(([kk,vv],i)=>{g+=`<text x="14" y="${58+i*rh}" class="m f12"><tspan class="b">${kk}</tspan><tspan class="mut">: </tspan>${vv}</text>`});
+  g+=extra;if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+const polaroid=(x,y,lines,{w=170,an='pop',d=0,o,label='photo at start'}={})=>{const h=40+lines.length*22+28;return G(`<rect width="${w}" height="${h}" rx="4" style="fill:#fff;stroke:var(--ink);stroke-width:2"/><rect x="10" y="10" width="${w-20}" height="${h-44}" rx="2" style="fill:#1F2449"/>${lines.map((l,i)=>`<text x="20" y="${36+i*22}" class="m f13 b" style="fill:#FFE38A">${l}</text>`).join('')}<text x="${w/2}" y="${h-12}" text-anchor="middle" class="f12" style="fill:#18203F">${label}</text>`,{x,y,an:an?(o!=null?'popout':an):'',d,o})};
+const liveWin=(x,y,w,h,title,o={})=>G(`<rect width="${w}" height="${h}" rx="10" class="panel"/><path d="M10 0H${w-10}Q${w} 0 ${w} 10V26H0V10Q0 0 10 0Z" class="codebg"/><circle cx="14" cy="13" r="4" class="badf"/><circle cx="28" cy="13" r="4" class="warnf"/><circle cx="42" cy="13" r="4" class="okf"/><text x="56" y="18" class="m f11 mut">${title}</text>`,{x,y,...o});
+const DISGUISE=`<circle cx="-15" cy="0" r="11" style="fill:var(--surface);fill-opacity:.2;stroke:var(--ink);stroke-width:3"/><circle cx="15" cy="0" r="11" style="fill:var(--surface);fill-opacity:.2;stroke:var(--ink);stroke-width:3"/><path d="M-4 0Q0 -4 4 0M-26 -2L-34 -6M26 -2L34 -6" style="fill:none;stroke:var(--ink);stroke-width:3;stroke-linecap:round"/><path d="M-22 20Q-11 12 0 18Q11 12 22 20Q11 26 0 22Q-11 26 -22 20Z" class="inkf"/>`;
+const room=(x,y,w,h,name,o={})=>{const tw=Math.round((11+name.length)*8.1+30);return G(`<rect width="${w}" height="${h}" rx="16" class="nodebox"/><path d="M16 0H${tw}V30H0V16Q0 0 16 0Z" class="inkf"/><text x="14" y="20" class="f13 b inv">namespace: ${name}</text>`,{x,y,...o})};
+const BOLT=`<path d="M8 0L0 18H8L4 34L20 12H11L16 0Z" style="fill:var(--warn);stroke:var(--ink);stroke-width:1.5;stroke-linejoin:round"/>`;
+const pillT=(x,y,t,{k='line',an='pop',d=0,o,c='f13'}={})=>{const w=Math.round(t.length*6.9+28);return G(`<rect width="${w}" height="32" rx="16" class="pill" style="stroke:var(--${k})"/><text x="14" y="21" class="${c}">${t}</text>`,{x,y,an:o!=null?'popout':an,d,o})};
+const valX=k=>14+(k.length+2)*7.2;
+// ---------- Day 13 helpers ----------
+function nodeCard({x=0,y=0,w=200,h=150,name='node',k='ink',an='',v={},extra=''}={}){
+  const head=k==='ink'?'class="inkf"':`style="fill:var(--${k})"`,tc=k==='ink'?'class="f13 b inv"':(k==='client'?'class="f13 b" style="fill:var(--on-client)"':'class="f13 b wht"');
+  let g=`<rect width="${w}" height="${h}" rx="14" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><path d="M14 0H${w-14}Q${w} 0 ${w} 14V30H0V14Q0 0 14 0Z" ${head}/><text x="14" y="21" ${tc}>${name}</text>${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function signRaw(t){const w=Math.round(t.length*7.2+24);let st='';for(let i=4;i<w-12;i+=12)st+=`M${i} 12L${i+8} 0`;return `<rect width="${w}" height="44" rx="6" style="fill:var(--surface);stroke:var(--ink);stroke-width:2"/><path d="M6 1H${w-6}Q${w-1} 1 ${w-1} 6V12H1V6Q1 1 6 1Z" style="fill:var(--warn)"/><path d="${st}" style="stroke:var(--ink);stroke-width:2.5"/><text x="12" y="33" class="m f12 b">${t}</text>`}
+const sign=(x,y,t,{an='pop',d=0,o}={})=>G(signRaw(t),{x,y,an:o!=null?'popout':an,d,o});
+function badgeRaw(t,k='ok'){const w=Math.round(t.length*6.6+44);return `<rect width="${w}" height="34" rx="8" style="fill:var(--surface);stroke:var(--${k});stroke-width:2.5"/><rect width="14" height="34" rx="6" style="fill:var(--${k})"/><circle cx="7" cy="9" r="2.5" style="fill:var(--surface)"/><text x="24" y="22" class="m f11 b">${t}</text>`}
+const badge=(x,y,t,{k='ok',an='pop',d=0,o}={})=>G(badgeRaw(t,k),{x,y,an:o!=null?'popout':an,d,o});
+function pizza(cx,cy,r,frac,{d=0}={}){let wedge;
+  if(frac>=1)wedge=`<circle cx="${cx}" cy="${cy}" r="${r-4}" style="fill:var(--warn)"/><circle cx="${cx-12}" cy="${cy-10}" r="5" class="badf"/><circle cx="${cx+14}" cy="${cy-4}" r="5" class="badf"/><circle cx="${cx-2}" cy="${cy+14}" r="5" class="badf"/>`;
+  else{const a=-Math.PI/2+frac*2*Math.PI,x2=cx+(r-4)*Math.cos(a),y2=cy+(r-4)*Math.sin(a),lg=frac>.5?1:0;wedge=`<path d="M${cx} ${cy}L${cx} ${cy-r+4}A${r-4} ${r-4} 0 ${lg} 1 ${x2.toFixed(1)} ${y2.toFixed(1)}Z" style="fill:var(--warn);stroke:var(--client-ink);stroke-width:2;stroke-linejoin:round"/>`}
+  return G(`<circle cx="${cx}" cy="${cy}" r="${r}" style="fill:none;stroke:var(--line);stroke-width:2;stroke-dasharray:5 5"/>${wedge}${frac>=1?`<circle cx="${cx}" cy="${cy}" r="${r-2}" style="fill:none;stroke:var(--client-ink);stroke-width:4"/>`:''}`,{an:'pop',d});}
+const BALLOON=`<ellipse cx="0" cy="0" rx="24" ry="30" style="fill:var(--vol)"/><ellipse cx="-8" cy="-10" rx="6" ry="9" fill="#fff" fill-opacity=".35"/><path d="M-4 29L4 29L0 35Z" style="fill:var(--vol)"/><path d="M0 35Q8 48 0 60" style="fill:none;stroke:var(--ink-2);stroke-width:2"/>`;
+const FUNNEL=`<path d="M0 0H60L38 26V46L22 54V26Z" style="fill:var(--teal)"/>`;
+const MAG=`<circle cx="20" cy="20" r="15" style="fill:var(--surface);stroke:var(--ink);stroke-width:5"/><path d="M31 31L46 46" style="stroke:var(--ink);stroke-width:7;stroke-linecap:round"/>`;
+const TARGET=`<circle r="16" style="fill:none;stroke:var(--web);stroke-width:4"/><circle r="8" style="fill:none;stroke:var(--web);stroke-width:4"/><circle r="3" style="fill:var(--web)"/>`;
+const miniPod=(x,y,k='web')=>`<g transform="translate(${x} ${y})"><rect width="32" height="24" rx="8" style="fill:var(--${k})"/><circle cx="11" cy="12" r="3" fill="#fff"/><circle cx="21" cy="12" r="3" fill="#fff"/></g>`;
+// ---------- Day 14 helpers ----------
+const ptick=(x,y,ok,{d=0,r=8}={})=>`<circle cx="${x}" cy="${y}" r="${r}" class="pop" style="fill:var(--${ok?'ok':'bad'});--d:${d}s"/>`;
+const CLOCK=`<circle r="10" class="warnf"/><path d="M0 -6V0L4 3" style="fill:none;stroke:#fff;stroke-width:2;stroke-linecap:round"/>`;
+const ptag=(x,y,name,k,{d=0,an='pop'}={})=>G(`<rect width="${Math.round(name.length*8.2+24)}" height="26" rx="13" style="fill:var(--${k})"/><text x="12" y="18" class="f13 b wht">${name}</text>`,{x,y,an,d});
+const spill=(x,y,txt,k='ok',{d=0,o,an}={})=>{const w=Math.round(txt.length*7.6+30);return G(`<rect width="${w}" height="24" rx="12" class="pill" style="stroke:var(--${k})"/><circle cx="13" cy="12" r="4.5" style="fill:var(--${k})"/><text x="23" y="16.5" class="f13 b">${txt}</text>`,{x,y,an:an||(o!=null?'inout':'pop'),d,o})};
+const pbox=(x,y,w,h,k,t,q,d)=>G(`<rect width="${w}" height="${h}" rx="14" class="panel" style="stroke:var(--${k});stroke-width:3"/><rect x="14" y="14" width="${Math.round(t.length*8.6+24)}" height="26" rx="13" style="fill:var(--${k})"/><text x="26" y="32" class="f14 b wht">${t}</text><text x="16" y="66" class="f14">${q}</text>`,{x,y,an:'pop',d});
+// ---------- Day 15 helpers ----------
+const crowd=(x,y,n,cols,{first=0,d0=.6,d1=1.8,gap=16,k='ink-2'}={})=>{let s='';for(let i=0;i<n;i++){const cx=x+(i%cols)*gap,cy=y+Math.floor(i/cols)*gap,d=i<first?d0:d1+(i-first)*.012;s+=`<circle cx="${cx}" cy="${cy}" r="5.5" class="pop" style="fill:var(--${k});--d:${d.toFixed(2)}s"/>`}return s};
+const meterCard=(x,y,w,h,title,val,frac,k,cap,{d=0,extra=''}={})=>G(`<rect width="${w}" height="${h}" rx="14" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><text x="16" y="30" class="f13 b mut">${title}</text>${val?`<text x="16" y="84" class="f30 b" style="fill:var(--${k})">${val}</text>`:''}<rect x="16" y="108" width="${w-32}" height="14" rx="7" style="fill:var(--line)"/><rect x="16" y="108" width="${Math.round((w-32)*frac)}" height="14" rx="7" class="grow-x" style="fill:var(--${k});--d:${d+.3}s"/><text x="16" y="150" class="f12">${cap}</text>${extra}`,{x,y,an:'pop',d});
+// ---------- Day 16 helpers ----------
+function house({x=0,y=0,w=150,h=140,name='inference-dev',k='teal',an='',v={},extra='',solar=false}={}){
+  const rh=Math.round(h*.38),bh=h-rh;
+  let g=`<path d="M${w/2} 0L${w} ${rh}H0Z" style="fill:var(--${k})"/>${solar?`<path d="M${w*.56} ${rh*.32}L${w*.86} ${rh*.82}L${w*.74} ${rh*.82}L${w*.48} ${rh*.42}Z" class="inkf" opacity=".75"/>`:''}<rect x="${w*.08}" y="${rh}" width="${w*.84}" height="${bh-24}" style="fill:var(--surface);stroke:var(--ink);stroke-width:2.5"/><rect x="${w/2-12}" y="${h-24-34}" width="24" height="34" rx="3" style="fill:var(--${k});fill-opacity:.6"/><rect x="${w*.18}" y="${rh+14}" width="22" height="18" rx="3" style="fill:var(--note)"/><rect x="${w*.82-22}" y="${rh+14}" width="22" height="18" rx="3" style="fill:var(--note)"/><rect y="${h-22}" width="${w}" height="22" rx="6" class="inkf"/><text x="${w/2}" y="${h-7}" text-anchor="middle" class="m f11 b inv">${name}</text>${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function blueprint({x=0,y=0,w=160,h=110,title='inference-chart',lines=[],an='',v={}}={}){
+  let grid='';for(let i=12;i<w;i+=16)grid+=`M${i} 0V${h}`;for(let j=12;j<h;j+=16)grid+=`M0 ${j}H${w}`;
+  let g=`<rect width="${w}" height="${h}" rx="8" style="fill:var(--web)"/><path d="${grid}" style="stroke:#fff;stroke-opacity:.14;stroke-width:1"/><path d="M${w-50} ${h-12}V${h-34}L${w-32} ${h-50}L${w-14} ${h-34}V${h-12}Z" style="fill:none;stroke:#fff;stroke-width:2;stroke-opacity:.75"/><text x="12" y="22" class="m f12 b wht">${title}</text>${lines.map((l,i)=>`<text x="12" y="${42+i*17}" class="m f11 wht">${l}</text>`).join('')}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function gears({x=0,y=0,w=150,h=120,label='helm render',an='',v={},d=0}={}){
+  const gear=(cx,cy,r,dd)=>{let t='';for(let i=0;i<8;i++)t+=`<rect x="${(cx-3.5).toFixed(1)}" y="${(cy-r-6).toFixed(1)}" width="7" height="10" rx="2" transform="rotate(${i*45} ${cx} ${cy})"/>`;return `<g class="spin" style="--d:${dd}s"><g style="fill:var(--ink-2)">${t}<circle cx="${cx}" cy="${cy}" r="${r}"/></g><circle cx="${cx}" cy="${cy}" r="${(r*.4).toFixed(1)}" style="fill:var(--surface)"/></g>`};
+  let g=`<rect width="${w}" height="${h}" rx="14" class="panel" style="stroke:var(--db);stroke-width:3"/>${gear(w*.36,h*.42,18,d)}${gear(w*.66,h*.58,13,d)}<text x="${w/2}" y="${h-12}" text-anchor="middle" class="m f12 b dbc">${label}</text>`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function docPaper({x=0,y=0,w=130,h=150,title='',lines=[],an='',v={},extra=''}={}){
+  let g=`<path d="M0 8Q0 0 8 0H${w-22}L${w} 22V${h-8}Q${w} ${h} ${w-8} ${h}H8Q0 ${h} 0 ${h-8}Z" class="paper"/><path d="M${w-22} 1V22H${w-1}" class="paperfold"/>${title?`<text x="12" y="22" class="m f11 b">${title}</text>`:''}${lines.map((l,i)=>`<text x="12" y="${46+i*18}" class="m f11">${l}</text>`).join('')}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+const PARCEL=w=>`<rect width="${w}" height="80" rx="6" style="fill:var(--warn);fill-opacity:.35;stroke:var(--ink);stroke-width:2.5"/><rect x="${w/2-9}" width="18" height="80" style="fill:var(--warn)"/><path d="M0 22H${w}" style="stroke:var(--ink);stroke-width:2"/>`;
+const bx2=(x,y,w,h,a,b,k,d)=>G(`<rect width="${w}" height="${h}" rx="12" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><text x="${w/2}" y="${b?h/2-3:h/2+5}" text-anchor="middle" class="f14 b">${a}</text>${b?`<text x="${w/2}" y="${h/2+15}" text-anchor="middle" class="f11 mut">${b}</text>`:''}`,{x,y,an:'pop',d});
+// ---------- Day 17 helpers ----------
+function idCard({x=0,y=0,w=150,h=80,name='model-sa',sub='ServiceAccount',k='teal',an='',v={}}={}){
+  const m=h/2+10;
+  let g=`<rect x="${w/2-14}" y="-10" width="28" height="16" rx="5" class="inkf"/><rect width="${w}" height="${h}" rx="10" style="fill:var(--surface);stroke:var(--${k});stroke-width:3"/><path d="M0 10Q0 0 10 0H${w-10}Q${w} 0 ${w} 10V18H0Z" style="fill:var(--${k})"/><circle cx="26" cy="${m}" r="14" style="fill:var(--${k});fill-opacity:.22"/><circle cx="26" cy="${m-4}" r="5" style="fill:var(--${k})"/><path d="M17 ${m+11}Q26 ${m+1} 35 ${m+11}Z" style="fill:var(--${k})"/><text x="48" y="${m-1}" class="m f12 b">${name}</text><text x="48" y="${m+15}" class="f11 mut">${sub}</text>`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function rdoor(x,y,label,{k='web',d=0,open=null,deny=null,w=64,h=96}={}){
+  let s=G(`<rect width="${w}" height="${h}" rx="4" style="fill:var(--line);stroke:var(--ink);stroke-width:2.5"/><rect x="6" y="6" width="${w-12}" height="${h-6}" rx="3" style="fill:var(--${k});fill-opacity:.55"/><circle cx="${w-14}" cy="${h/2+6}" r="3.5" class="inkf"/>${label?`<text x="${w/2}" y="${h+18}" text-anchor="middle" class="f12 b">${label}</text>`:''}`,{x,y,an:'pop',d});
+  s+=`<circle cx="${x+w/2}" cy="${y-10}" r="6" class="${open!=null?'inout':'pop'}" style="fill:var(--bad);--d:${d}s${open!=null?`;--o:${open}s`:''}"/>`;
+  if(open!=null)s+=G(`<rect x="6" y="6" width="${w-12}" height="${h-6}" rx="3" class="inkf" opacity=".85"/><path d="M6 6L${Math.round(w*.32)} 14V${h-4}L6 ${h}Z" style="fill:var(--${k})"/><circle cx="${w/2}" cy="-10" r="6" style="fill:var(--ok)"/>`,{x,y,an:'fade',d:open});
+  if(deny!=null)s+=icon('no',x+w/2,y+h/2,{r:13,d:deny});
+  return s;
+}
+const keyI=(x,y,{s=1,d=0,o,an='pop',k='warn'}={})=>G(`<g transform="scale(${s})"><circle cx="12" cy="15" r="10" style="fill:none;stroke:var(--${k});stroke-width:6"/><rect x="21" y="12" width="40" height="7" rx="3" style="fill:var(--${k})"/><rect x="47" y="18" width="6" height="9" rx="2" style="fill:var(--${k})"/><rect x="55" y="18" width="6" height="12" rx="2" style="fill:var(--${k})"/></g>`,{x,y,an:o!=null?'inout':an,d,o});
+const bindBand=(x,y,w,h,a,b,{d=0,k='vol'}={})=>G(`<rect width="${w}" height="${h}" rx="${h/2}" style="fill:var(--${k});fill-opacity:.18;stroke:var(--${k});stroke-width:3"/><g transform="translate(14 ${h/2-8})" style="fill:none;stroke:var(--${k});stroke-width:3"><rect width="16" height="10" rx="5"/><rect x="10" y="6" width="16" height="10" rx="5"/></g><text x="${w/2+14}" y="${b?h/2-2:h/2+5}" text-anchor="middle" class="f13 b">${a}</text>${b?`<text x="${w/2+14}" y="${h/2+14}" text-anchor="middle" class="f11 mut">${b}</text>`:''}`,{x,y,an:'pop',d});
+const mchip=(x,y,t,k,{d=0,o}={})=>{const w=Math.round(t.length*7.2+20);return G(`<rect width="${w}" height="24" rx="12" style="fill:var(--${k});fill-opacity:.18;stroke:var(--${k});stroke-width:2"/><text x="${w/2}" y="17" text-anchor="middle" class="m f12 b">${t}</text>`,{x,y,an:o!=null?'inout':'pop',d,o})};
+const hlr=(x,y,w,h,k,d)=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="4" class="fade" style="fill:var(--${k});fill-opacity:.22;stroke:var(--${k});stroke-width:1.5;--d:${d}s"/>`;
+// ---------- Day 18 helpers ----------
+function alarmClock(x,y,{s=1,an='pop',d=0,ring=null,k='warn'}={}){
+  const face=`<circle cx="9" cy="10" r="8" style="fill:var(--${k})"/><circle cx="51" cy="10" r="8" style="fill:var(--${k})"/><path d="M14 58L8 66M46 58L52 66" style="stroke:var(--ink);stroke-width:4;stroke-linecap:round"/><circle cx="30" cy="36" r="26" style="fill:var(--surface);stroke:var(--ink);stroke-width:4"/><path d="M30 20V36L41 42" style="fill:none;stroke:var(--ink);stroke-width:3.5;stroke-linecap:round"/><circle cx="30" cy="36" r="3" class="inkf"/>`;
+  const inner=ring!=null?`<g class="ringy" style="--d:${ring}s">${face}</g>`:face;
+  return G(`<g transform="scale(${s})">${inner}</g>`,{x,y,an,d});
+}
+function clipb({x=0,y=0,w=90,h=100,title='Job',k='db',an='pop',v={},extra=''}={}){
+  let g=`<rect width="${w}" height="${h}" rx="8" style="fill:var(--surface);stroke:var(--${k});stroke-width:3"/><rect x="${w/2-18}" y="-8" width="36" height="16" rx="5" style="fill:var(--${k})"/><text x="${w/2}" y="30" text-anchor="middle" class="f13 b">${title}</text><path d="M14 46H${w-14}M14 62H${w-14}M14 78H${w-30}" style="stroke:var(--line);stroke-width:4;stroke-linecap:round"/>${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+const gbar=(x,y,w,h,k,d,label='',{dur=.8,lc='wht',op=1}={})=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="5" class="grow-x" style="fill:var(--${k});fill-opacity:${op};--d:${d}s;--dur:${dur}s"/>`+(label?T(x+8,y+h/2+4.5,label,{c:`f12 b ${lc}`,d:d+dur*.6}):'');
+const vline=(x,y1,y2,k,d,dash=true)=>`<path d="M${x} ${y1}V${y2}" class="fade" style="stroke:var(--${k});stroke-width:2.5;${dash?'stroke-dasharray:6 5;':''}--d:${d}s"/>`;
+// ---------- Day 19 helpers ----------
+const evCard=(x,y,w,h,lines,{d=0,k='warn',an='pop',rot=0}={})=>G(`<g transform="rotate(${rot} ${w/2} ${h/2})"><rect width="${w}" height="${h}" rx="6" style="fill:var(--note);stroke:var(--ink);stroke-width:1.5"/><circle cx="${w/2}" cy="8" r="6" style="fill:var(--${k});stroke:var(--ink);stroke-width:1.5"/>${lines.map(([t,c],i)=>`<text x="14" y="${34+i*20}" class="${c||'f12'} lbltxt">${t}</text>`).join('')}</g>`,{x,y,an,d});
+const chip=(x,y,w,t,k,{d=0,o,mono=false,h=30}={})=>G(`<rect width="${w}" height="${h}" rx="${h/2}" style="fill:var(--${k});fill-opacity:.16;stroke:var(--${k});stroke-width:2"/><text x="${w/2}" y="${h/2+4.5}" text-anchor="middle" class="${mono?'m ':''}f12 b">${t}</text>`,{x,y,an:o!=null?'inout':'pop',d,o});
+const stepsChain=(items,y,{x0=20,gap=14,d0=0,step=.4,h=34}={})=>{let s='',x=x0;items.forEach(([t,w,k],i)=>{s+=chip(x,y,w,t,k,{d:d0+i*step,h});if(i<items.length-1)s+=arrow({x1:x+w+2,y1:y+h/2,x2:x+w+gap-2,y2:y+h/2},{d:d0+i*step+.2,dur:.15,c:'var(--ink-2)',w:2});x+=w+gap});return s};
+// ---------- Day 21 helpers ----------
+const cgrid=(x,y,cols,rows,cell,gap,k,{d0=0,step=.01,op=1,an='pop',rnd=false}={})=>{let s='';for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){const i=r*cols+c,d=d0+(rnd?((i*37)%97)/97*step*cols*rows:i*step);s+=`<rect x="${x+c*(cell+gap)}" y="${y+r*(cell+gap)}" width="${cell}" height="${cell}" rx="${Math.max(2,cell/5)}" class="${an}" style="fill:var(--${k});fill-opacity:${op};--d:${d.toFixed(2)}s"/>`}return s};
+const progRing=(cx,cy,r,frac,k,d,{w=12}={})=>{const a=-Math.PI/2+frac*2*Math.PI,x=cx+r*Math.cos(a),y=cy+r*Math.sin(a),big=frac>.5?1:0;return `<circle cx="${cx}" cy="${cy}" r="${r}" class="fade" style="fill:none;stroke:var(--line);stroke-width:${w};--d:${d}s"/><path d="M${cx} ${cy-r}A${r} ${r} 0 ${big} 1 ${x.toFixed(1)} ${y.toFixed(1)}" pathLength="1" class="aline draw" style="stroke:var(--${k});stroke-width:${w};stroke-linecap:round;--d:${d}s;--dur:1.2s"/>`};
+const hbar=(x,y,w,h,k,d,{dur=.8,op=1,label='',lc='wht'}={})=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="4" class="grow-x" style="fill:var(--${k});fill-opacity:${op};--d:${d}s;--dur:${dur}s"/>`+(label?T(x+8,y+h/2+4.5,label,{c:`f12 b ${lc}`,d:d+dur*.6}):'');
+const vbar=(x,base,w,h,k,d,{op=1}={})=>`<rect x="${x}" y="${base-h}" width="${w}" height="${h}" rx="3" class="up" style="fill:var(--${k});fill-opacity:${op};--d:${d}s"/>`;
+const zbox=(x,y,w,h,a,b,{k='ink',d=0,inv=false,an='pop',o}={})=>G(inv?`<rect width="${w}" height="${h}" rx="10" class="inkf"/><text x="${w/2}" y="${b?h/2-2:h/2+5}" text-anchor="middle" class="f13 b inv">${a}</text>${b?`<text x="${w/2}" y="${h/2+15}" text-anchor="middle" class="m f11 inv" opacity=".8">${b}</text>`:''}`:`<rect width="${w}" height="${h}" rx="10" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><text x="${w/2}" y="${b?h/2-2:h/2+5}" text-anchor="middle" class="f13 b">${a}</text>${b?`<text x="${w/2}" y="${h/2+15}" text-anchor="middle" class="m f11 mut">${b}</text>`:''}`,{x,y,an:o!=null?'inout':an,d,o});
+// ---------- Day 22 helpers ----------
+const STK=[['Application','Python / C++ / model serving','ink'],['Framework','PyTorch / TensorFlow','vol'],['CUDA runtime + libraries','libcudart.so · cuBLAS · cuDNN · NCCL','teal'],['CUDA Driver API','libcuda.so','db'],['NVIDIA host driver','user-space + kernel modules','web'],['Physical GPU','','ok']];
+const stackL=(x,y,w,L,{h=44,gap=10,d0=0,step=.2,rev=false,an='pop'}={})=>L.map(([n,sub,k],i)=>{const yy=y+i*(h+gap),d=d0+(rev?(L.length-1-i):i)*step;return G(`<rect width="${w}" height="${h}" rx="10" style="fill:var(--${k})"/><text x="16" y="${sub?h/2-2:h/2+5}" class="f14 b wht">${n}</text>${sub?`<text x="16" y="${h/2+15}" class="m f11 wht" opacity=".88">${sub}</text>`:''}`,{x,y:yy,an,d})}).join('');
+const vtag=(x,y,w,h,k,d,inner)=>G(`<path d="M24 0H${w-8}Q${w} 0 ${w} 8V${h-8}Q${w} ${h} ${w-8} ${h}H24L0 ${h/2}Z" style="fill:var(--surface);stroke:var(--${k});stroke-width:3;stroke-linejoin:round"/><circle cx="22" cy="${h/2}" r="6" style="fill:var(--paper);stroke:var(--${k});stroke-width:2.5"/>${inner}`,{x,y,an:'pop',d});
+// ---------- Day 23 helpers ----------
+const halfGauge=(cx,cy,r,frac,k,d,{w=12}={})=>{const a=Math.PI+Math.max(.001,Math.min(1,frac))*Math.PI,x=cx+r*Math.cos(a),y=cy+r*Math.sin(a);return `<path d="M${cx-r} ${cy}A${r} ${r} 0 0 1 ${cx+r} ${cy}" class="fade" style="fill:none;stroke:var(--line);stroke-width:${w};stroke-linecap:round;--d:${d}s"/><path d="M${cx-r} ${cy}A${r} ${r} 0 0 1 ${x.toFixed(1)} ${y.toFixed(1)}" pathLength="1" class="aline draw" style="stroke:var(--${k});stroke-width:${w};stroke-linecap:round;--d:${d}s;--dur:1.2s"/>`};
+const thermo=(x,y,frac,k,d)=>G(`<rect x="8" y="0" width="16" height="80" rx="8" style="fill:var(--surface);stroke:var(--ink);stroke-width:2.5"/><circle cx="16" cy="92" r="14" style="fill:var(--${k});stroke:var(--ink);stroke-width:2.5"/>`,{x,y,an:'pop',d})+`<rect x="${x+12}" y="${y+80-70*frac}" width="8" height="${70*frac+12}" rx="4" class="up" style="fill:var(--${k});--d:${d+.3}s"/>`;
+const lineP=(pts,k,d,{w=3.5,dash=false,dur=2}={})=>`<path d="M${pts.map(p=>p.join(' ')).join('L')}" pathLength="1" class="aline draw" style="stroke:var(--${k});stroke-width:${w};${dash?'stroke-dasharray:1 1;':''}--d:${d}s;--dur:${dur}s"/>`;
+// ---------- Day 24 helpers ----------
+const vramBar=(x,y,w,h,segs,{d0=0,step=.3,total=null,lab=true}={})=>{const tot=total||segs.reduce((a,s)=>a+s[0],0);let cx=x,s='';segs.forEach(([v,k,l,hat],i)=>{const sw=Math.round(v/tot*w),d=d0+i*step;s+=`<rect x="${cx}" y="${y}" width="${Math.max(sw,1)}" height="${h}" rx="3" class="grow-x" style="fill:var(--${k});fill-opacity:${hat?.25:1};${hat?`stroke:var(--${k});stroke-width:2;stroke-dasharray:5 4;`:''}--d:${d}s;--dur:.5s"/>`;if(lab&&l&&sw>l.length*6.6+12)s+=T(cx+sw/2,y+h/2+4,l,{c:`f11 b ${hat||k==='line'?'':'wht'}`,a:'middle',d:d+.3});cx+=sw});return s};
+const brk=(x1,x2,y,label,k,d,{up=false,c='f12 b'}={})=>{const t=up?-8:8;return `<path d="M${x1} ${y}V${y+t}H${x2}V${y}" class="fade" style="fill:none;stroke:var(--${k});stroke-width:2.5;--d:${d}s"/>`+T((x1+x2)/2,y+(up?-14:24),label,{c:`${c}`,a:'middle',d})};
+const lot=(x,y,slots,{w=40,h=56,gap=6,d0=0,step=.08}={})=>slots.split('').map((ch,i)=>{const sx=x+i*(w+gap),d=d0+i*step;let g=`<rect x="${sx}" y="${y}" width="${w}" height="${h}" rx="5" class="fade" style="fill:none;stroke:var(--line);stroke-width:2;stroke-dasharray:4 3;--d:${d0}s"/>`;if(ch==='L')g+=G(`<rect x="4" y="8" width="${w-8}" height="${h-16}" rx="8" style="fill:var(--teal)"/><rect x="9" y="14" width="${w-18}" height="10" rx="3" style="fill:#fff;opacity:.55"/>`,{x:sx,y,an:'drop',d});if(ch==='C')g+=G(`<path d="M${w/2} 12L${w/2+10} ${h-12}H${w/2-10}Z" style="fill:var(--db)"/><rect x="${w/2-13}" y="${h-14}" width="26" height="5" rx="2" style="fill:var(--db)"/>`,{x:sx,y,an:'pop',d});if(ch==='X')g+=G(`<rect x="4" y="8" width="${w-8}" height="${h-16}" rx="6" style="fill:var(--ink-2)"/>`,{x:sx,y,an:'pop',d});return g}).join('');
+// ---------- Day 25 helpers ----------
+const laneL=(x,y,t,d,{w=680,c='f12 b'}={})=>T(x,y+18,t,{c,d})+`<path d="M${x+60} ${y+28}H${x+60+w}" class="fade" style="stroke:var(--line);stroke-width:1.5;--d:${d}s"/>`;
+const blk=(x,y,w,k,d,label='',{h=28,op=1,dash=false,lc='wht',dur=.4}={})=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="5" class="grow-x" style="fill:var(--${k});fill-opacity:${op};${dash?`stroke:var(--${k});stroke-width:2;stroke-dasharray:5 4;`:''}--d:${d}s;--dur:${dur}s"/>`+(label?T(x+w/2,y+h/2+4.5,label,{c:`f11 b ${lc}`,a:'middle',d:d+dur*.7}):'');
+const tkt=(x,y,t,k,d,{an='drop'}={})=>G(`<path d="M0 0H44V46L38 52L32 46L26 52L20 46L14 52L8 46L2 52L0 50Z" style="fill:var(--surface);stroke:var(--${k});stroke-width:2.5"/><text x="22" y="30" text-anchor="middle" class="m f15 b" style="fill:var(--${k})">${t}</text>`,{x,y,an,d});
+// ---------- Day 26 helpers ----------
+const lockI=(x,y,{d=0,k='bad',s=1,an='pop',o}={})=>G(`<g transform="scale(${s})"><path d="M6 14V9A8 8 0 0 1 22 9V14" style="fill:none;stroke:var(--${k});stroke-width:3.5"/><rect x="1" y="14" width="26" height="20" rx="4" style="fill:var(--${k})"/><circle cx="14" cy="23" r="3" style="fill:#fff"/></g>`,{x,y,an:o!=null?'inout':an,d,o});
+const gpuChip=(x,y,w,h,label,{d=0,k='ok',an='pop'}={})=>G(`<rect width="${w}" height="${h}" rx="8" style="fill:var(--${k})"/><rect x="8" y="8" width="${w-16}" height="${h-16}" rx="4" style="fill:none;stroke:#fff;stroke-width:1.5;opacity:.6"/>`+[0,1,2,3].map(i=>`<path d="M${10+i*(w-20)/3} ${h}V${h+5}M${10+i*(w-20)/3} -5V0" style="stroke:var(--${k});stroke-width:2"/>`).join('')+`<text x="${w/2}" y="${h/2+5}" text-anchor="middle" class="f12 b wht">${label}</text>`,{x,y,an,d});
+const nbox=(x,y,w,h,lines,k,d,{an='pop',fill=.12,first='f13 b',rest='f12',lh=19,top=26}={})=>G(`<rect width="${w}" height="${h}" rx="12" style="fill:var(--${k});fill-opacity:${fill};stroke:var(--${k});stroke-width:2"/>`+lines.map((l,i)=>`<text x="14" y="${top+i*lh}" class="${i===0?first:rest}">${l}</text>`).join(''),{x,y,an,d});
+// ---------- Day 43 visuals 0-8 ----------
+const wrapL=(t,n)=>{const w=t.split(' ');let L=[''];w.forEach(x=>{if((L[L.length-1]+' '+x).trim().length>n)L.push(x);else L[L.length-1]=(L[L.length-1]+' '+x).trim()});return L};
+const oven=(x,y,hot,d)=>G(`<rect width="120" height="100" rx="12" style="fill:var(--ink-2)"/><rect x="14" y="26" width="92" height="60" rx="8" style="fill:${hot?'var(--warn)':'var(--db)'};fill-opacity:${hot?.85:.35}"/><circle cx="24" cy="14" r="5" style="fill:${hot?'var(--bad)':'var(--line)'}"/><circle cx="42" cy="14" r="5" style="fill:${hot?'var(--bad)':'var(--line)'}"/>`+(hot?`<path d="M40 70Q46 50 40 36M60 70Q66 50 60 36M80 70Q86 50 80 36" style="fill:none;stroke:#fff;stroke-width:3;opacity:.7"/>`:''),{x,y,an:'pop',d});
+function V0(){
+  let s=T(400,40,'From the first GPU operation to production-ready inference',{c:'f15 b',a:'middle',d:.1});
+  [['container starts','ink-2'],['load model + device','vol'],['warm up execution','warn'],['ready to serve','ok']].forEach(([t,k],i)=>{const x=24+i*192,d=.3+i*.5;s+=G(`<rect width="172" height="70" rx="14" style="fill:var(--${k})"/><text x="86" y="${t.length>16?32:40}" text-anchor="middle" class="f13 b wht">${t.length>16?t.split(' ').slice(0,2).join(' '):t}</text>`+(t.length>16?`<text x="86" y="50" text-anchor="middle" class="f13 b wht">${t.split(' ').slice(2).join(' ')}</text>`:''),{x,y:80,an:'pop',d});if(i<3)s+=arrow({x1:x+174,y1:115,x2:x+190,y2:115},{d:d+.2,dur:.1,c:'var(--ink-2)',w:2})});
+  s+=brk(24,580,168,'warmup happens before normal client traffic','warn',2.2,{c:'f12 b warnc'});
+  [0,1,2].forEach(i=>{s+=pod({x:640+i*44,y:200,s:.38,k:'teal',mood:i===0?'flat':'happy',an:'pop',v:{d:1.0+i*.15}})});
+  s+=G(`<rect width="10" height="60" rx="3" style="fill:var(--bad)"/>`,{x:620,y:196,an:'inout',d:.8,o:2.6})+G(`<rect width="10" height="60" rx="3" style="fill:var(--ok)"/>`,{x:620,y:196,an:'pop',d:2.7})+T(690,280,'traffic waits for “ready”',{c:'f11 b',a:'middle',d:1.2});
+  s+=G(`<rect width="370" height="110" rx="16" style="fill:var(--bad);fill-opacity:.08;stroke:var(--bad);stroke-width:2.5"/><text x="185" y="36" text-anchor="middle" class="f13 b">first forward pass</text><text x="185" y="76" text-anchor="middle" class="m f30 b badc">53–79 ms</text>`,{x:20,y:320,an:'up',d:3.0});
+  s+=G(`<rect width="370" height="110" rx="16" style="fill:var(--ok);fill-opacity:.08;stroke:var(--ok);stroke-width:2.5"/><text x="185" y="36" text-anchor="middle" class="f13 b">warm forward pass, p50</text><text x="185" y="76" text-anchor="middle" class="m f30 b okc">~0.11 ms</text>`,{x:410,y:320,an:'up',d:3.4});
+  s+=T(400,458,'measured in the Day 43 CUDA lab, on a small synthetic model',{c:'f11 mut',a:'middle',d:3.8});
+  return svg(s,'From the first GPU operation to production-ready inference: the container starts, the model and device are loaded, execution is warmed up, and only then is the service ready to serve. Warmup happens before normal client traffic, which waits behind a gate until ready. Measured in the Day 43 CUDA lab on a small synthetic model: the first forward pass took 53 to 79 ms, while a warm forward pass took about 0.11 ms at the median.');
+}
+
+function V1(){
+  let s=G(`<rect width="370" height="300" rx="16" class="panel" style="stroke:var(--db);stroke-width:2.5"/><text x="18" y="32" class="f14 b">The first order</text><text x="18" y="52" class="f12 mut">ovens cold, stations not set up</text>`,{x:20,y:16,an:'up',d:.2});
+  s+=oven(60,90,false,.4)+pod({x:210,y:104,s:.6,k:'warn',mood:'flat',an:'pop',v:{d:.6}})+G(`<circle r="26" style="fill:none;stroke:var(--bad);stroke-width:3.5"/><path d="M0 -15V0L10 7" style="fill:none;stroke:var(--bad);stroke-width:3.5;stroke-linecap:round"/>`,{x:320,y:116,an:'pop',d:.9})+T(205,238,'switch on ovens, prep ingredients,',{c:'f12',a:'middle',d:1.1})+T(205,256,'arrange workstations… then cook',{c:'f12',a:'middle',d:1.1})+T(205,290,'slow',{c:'f15 b badc',a:'middle',d:1.3});
+  s+=G(`<rect width="370" height="300" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="18" y="32" class="f14 b">Every later order</text><text x="18" y="52" class="f12 mut">everything already in place</text>`,{x:410,y:16,an:'up',d:1.4});
+  s+=oven(450,90,true,1.6)+pod({x:600,y:104,s:.6,k:'warn',mood:'happy',an:'pop',v:{d:1.8}});
+  [0,1,2].forEach(i=>{s+=G(`<ellipse cx="0" cy="0" rx="22" ry="7" style="fill:var(--surface);stroke:var(--ok);stroke-width:2.5"/><circle cy="-5" r="7" style="fill:var(--warn)"/>`,{x:700,y:96+i*36,an:'slide',d:2.0+i*.3,dx:-30})});
+  s+=T(595,238,'the cooking itself',{c:'f12',a:'middle',d:2.4})+T(595,290,'fast',{c:'f15 b okc',a:'middle',d:2.6});
+  s+=G(`<rect width="760" height="138" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="18" y="34" class="f15 b">Loading isn’t warmup.</text><text x="18" y="64" class="f13"><tspan class="b">Loading</tspan> puts parameters and resources in place: groceries in the kitchen.</text><text x="18" y="86" class="f13"><tspan class="b">Warmup</tspan> runs representative operations before users arrive: ovens switched on.</text><text x="18" y="114" class="f12 mut">a model can be fully loaded and still pay first-forward overhead</text>`,{x:20,y:332,an:'up',d:3.0});
+  return svg(s,'Switch on the ovens first: a restaurant’s first order is slow because it must switch on cold ovens, prepare ingredients and arrange workstations before cooking; every later order is fast because everything is already in place. An inference server is similar. Loading isn’t warmup: loading puts parameters and resources in place, like groceries in the kitchen, while warmup runs representative operations before users arrive, like switching on the ovens. A loaded model can still pay first-forward overhead.');
+}
+
+function V2(){
+  let s=G(`<rect width="760" height="230" rx="16" class="panel"/><text x="18" y="30" class="f13 b">The full lifecycle (illustrative: block widths imply no durations)</text>`,{x:20,y:16,an:'fade',d:.1});
+  const B=[['schedule Pod','ink-2'],['pull image (if needed)','db'],['start process','web'],['prepare model + input','vol'],['first use + warmup','warn'],['ready: serve traffic','ok']];
+  B.forEach(([t,k],i)=>{const x=36+i*122,d=.3+i*.3;s+=G(`<rect width="116" height="62" rx="10" style="fill:var(--${k})"/>`+wrapL(t,14).map((l,j,a)=>`<text x="58" y="${(a.length>1?26:36)+j*16}" text-anchor="middle" class="f12 b wht">${l}</text>`).join(''),{x,y:110,an:'pop',d})});
+  s+=brk(36,766,92,'system / Pod time-to-ready','ink',2.2,{up:true,c:'f12 b'})+brk(280,640,190,'application initialization','vol',2.6,{c:'f12 b'});
+  s+=`<path d="M523 104V178" class="fade" style="stroke:var(--bad);stroke-width:3;--d:3.0s"/>`+T(523,230,'first forward pass: one small slice',{c:'f11 b badc',a:'middle',d:3.0}).replace('y="230"','y="238"');
+  s+=G(`<rect width="760" height="210" rx="16" class="panel"/><text x="36" y="30" class="f12 b mut">metric</text><text x="230" y="30" class="f12 b mut">starts and stops at…</text>`,{x:20,y:262,an:'fade',d:3.2});
+  [['first-forward latency','call the model once; wait for the GPU to finish'],['warm forward latency','timed calls after warmup, stable inputs'],['app time-to-ready','app init begins → it reports it can serve'],['end-to-end HTTP latency','client sends → response received'],['Pod time-to-ready','Pod created → Pod becomes Ready']].forEach(([a,b],i)=>{const y=318+i*30,d=3.4+i*.15;s+=T(40,y,a,{c:'f13 b',d})+T(230,y,b,{c:'f13',d})});
+  return svg(s,'The full cold start, illustrated: schedule the Pod, pull the image if needed, start the process, prepare the model and input, run first use and warmup, and then become ready to serve traffic. System or Pod time-to-ready spans all of it; application initialization spans process start through warmup; the first forward pass is only one small slice. Each metric has its own boundaries: first-forward latency, warm forward latency, app time-to-ready, end-to-end HTTP latency and Pod time-to-ready.');
+}
+
+function V3(){
+  let s='';
+  [['runtime + device setup','pick the CUDA device, create a context, prepare the allocator','web'],['memory + parameters','create tensors, copy weights to GPU memory, reserve buffers','vol'],['kernel + library init','load kernels, initialize library routines on first use','teal'],['shape-sensitive choices','pick or compile paths for particular shapes or dtypes','warn']].forEach(([t,b,k],i)=>{const x=20+(i%2)*390,y=16+Math.floor(i/2)*146,d=.2+i*.35;s+=G(`<rect width="370" height="134" rx="16" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><circle cx="34" cy="34" r="16" style="fill:var(--${k})"/><text x="34" y="40" text-anchor="middle" class="f14 b wht">${i+1}</text><text x="62" y="40" class="f15 b">${t}</text>`+wrapL(b,46).map((l,j)=>`<text x="18" y="${76+j*20}" class="f13">${l}</text>`).join(''),{x,y,an:'up',d})});
+  s+=T(400,312,'cheap to reuse, expensive to initialize: the exact mix depends on PyTorch, CUDA, hardware and operators',{c:'f11 mut',a:'middle',d:1.8});
+  s+=G(`<rect width="760" height="148" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="18" y="34" class="f14 b">Warmup absorbs some first-use costs, not every delay</text><text x="18" y="58" class="f12">a few representative inputs, sent before client traffic. Still capable of behaving differently:</text>`,{x:20,y:322,an:'up',d:2.2})+chipsRow(36,402,['a new input shape','a longer sequence','a different batch size','competing GPU work'],{maxX:772,d:2.4});
+  return svg(s,'The GPU’s hidden first-use work: runtime and device setup (picking the device, creating a context, preparing the allocator); memory and parameters (creating tensors, copying weights, reserving buffers); kernel and library initialization on first use; and shape-sensitive choices for particular shapes or dtypes. These are cheap to reuse but expensive to initialize. Warmup with a few representative inputs absorbs some of the cost, but a new input shape, longer sequence, different batch size or competing GPU work can still behave differently.');
+}
+
+function V4(){
+  let s=G(`<rect width="760" height="220" rx="16" class="panel"/><text x="18" y="30" class="f13 b">Asynchronous launch: the host races ahead (illustrative)</text>`,{x:20,y:16,an:'fade',d:.1});
+  s+=laneL(36,70,'CPU / Python',.2,{w:640})+laneL(36,150,'CUDA stream',.2,{w:640});
+  s+=blk(180,72,100,'vol',.4,'queue work')+blk(280,152,320,'ok',.8,'GPU executes queued kernels',{dur:.8});
+  s+=`<path d="M180 108V118H280V108" class="fade" style="fill:none;stroke:var(--bad);stroke-width:2.5;--d:1.2s"/>`+T(290,120,'naive timer stops here ✗',{c:'f11 b badc',d:1.2});
+  s+=`<path d="M600 60V190" class="fade" style="stroke:var(--ink);stroke-width:3;stroke-dasharray:5 4;--d:2.0s"/>`+T(606,60,'synchronize',{c:'m f11 b',d:2.0});
+  s+=`<path d="M180 200V208H600V200" class="fade" style="fill:none;stroke:var(--ok);stroke-width:2.5;--d:2.4s"/>`+T(390,226,'synchronized wall-clock: includes the GPU’s real work',{c:'f11 b okc',a:'middle',d:2.4});
+  s+=term(20,252,440,234,[['def measure_ms(model, x, device):','',2.8],['    if device.type == "cuda":','',2.8],['        torch.cuda.synchronize(device)    # before','tealc b',3.0],['    start = time.perf_counter()','',2.8],['    with torch.inference_mode():','',2.8],['        _ = model(x)','',2.8],['    if device.type == "cuda":','',2.8],['        torch.cuda.synchronize(device)    # after','tealc b',3.2],['    return (time.perf_counter() - start) * 1000','okc',3.2]],{fs:11,lh:22,top:30,d:2.7});
+  s+=G(`<rect width="300" height="234" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="16" y="32" class="f14 b">Two separate switches</text><text x="16" y="66" class="m f13 b tealc">model.eval()</text><text x="16" y="86" class="f12">Dropout and BatchNorm switch</text><text x="16" y="104" class="f12">to evaluation behavior</text><text x="16" y="142" class="m f13 b warnc">torch.inference_mode()</text><text x="16" y="162" class="f12">turns off autograd bookkeeping</text><text x="16" y="200" class="f12 b">The second doesn’t do the first.</text><text x="16" y="220" class="f11 mut">CUDA Events: a lower-overhead option</text>`,{x:480,y:252,an:'up',d:3.6});
+  return svg(s,'Time the GPU honestly: PyTorch CUDA operations are asynchronous, so the CPU queues work and races ahead while the GPU executes later. A naive timer stops after queueing; a synchronized wall-clock time includes the GPU’s real work. The measure_ms helper synchronizes the device before starting the timer and again after the forward pass inside inference_mode. Remember two separate switches: model.eval() sets Dropout and BatchNorm to evaluation behavior, and torch.inference_mode() turns off autograd bookkeeping.');
+}
+
+function V5(){
+  let s=G(`<rect width="760" height="150" rx="16" class="panel"/><text x="18" y="30" class="f13 b">A small synthetic network, intentionally not a pretrained production model</text>`,{x:20,y:16,an:'fade',d:.1});
+  [['input','32 × 1024','ink-2',120],['Linear','1024 → 2048','vol',130],['ReLU','','teal',80],['Linear','2048 → 1024','vol',130],['output','32 × 1024','ok',120]].reduce((x,[a,b,k,w],i)=>{const d=.3+i*.2;s+=G(`<rect width="${w}" height="66" rx="12" style="fill:var(--${k})"/><text x="${w/2}" y="${b?28:40}" text-anchor="middle" class="f14 b wht">${a}</text>`+(b?`<text x="${w/2}" y="50" text-anchor="middle" class="m f12 wht">${b}</text>`:''),{x,y:58,an:'pop',d});if(i<4)s+=arrow({x1:x+w+2,y1:91,x2:x+w+20,y2:91},{d:d+.1,dur:.08,c:'var(--ink-2)',w:2});return x+w+22},40);
+  s+=G(`<rect width="760" height="180" rx="16" class="panel"/><text x="18" y="30" class="f13 b">The protocol (every timed pass synchronized)</text>`,{x:20,y:182,an:'fade',d:1.4});
+  [['setup','model + input','ink-2',110],['first pass','timed once','bad',110],['warmup × 5','discarded','warn',150],['steady × 100','timed → p50 / p95 / p99','ok',230],['CSV','latencies.csv','teal',90]].reduce((x,[a,b,k,w],i)=>{const d=1.6+i*.3;s+=G(`<rect width="${w}" height="60" rx="10" style="fill:var(--${k});fill-opacity:.9"/><text x="${w/2}" y="26" text-anchor="middle" class="f13 b wht">${a}</text><text x="${w/2}" y="46" text-anchor="middle" class="f11 wht">${b}</text>`,{x,y:238,an:'pop',d});return x+w+6},40);
+  s+=T(40,330,'nearest-rank percentile: ordered[ceil(p/100 × n) − 1]',{c:'m f12',d:3.2});
+  s+=G(`<rect width="760" height="114" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="18" y="30" class="f14 b">What this lab didn’t include</text><text x="18" y="56" class="f13">No checkpoint or remote model artifact was loaded: the model was built in memory.</text><text x="18" y="76" class="f13">So “setup” here isn’t a real weight-loading time, and the first pass isn’t a total cold start.</text><text x="18" y="100" class="f12 mut">real checkpoint loading and caching come on Day 44</text>`,{x:20,y:372,an:'up',d:3.6});
+  return svg(s,'The Day 43 benchmark uses a small synthetic network, not a pretrained production model: a 32 by 1024 input, a 1024 to 2048 linear layer, ReLU, and a 2048 to 1024 linear layer giving a 32 by 1024 output. The protocol sets up the model and input on the device, times one first pass, runs five discarded warmup passes, then times 100 steady-state passes for p50, p95 and p99, with synchronized timing and a CSV output. No checkpoint was loaded, so setup isn’t real weight loading and the first pass isn’t a total cold start.');
+}
+
+function V6(){
+  const Y=v=>Math.round(300-(Math.log10(v)+2)*45);
+  let s=G(`<rect width="500" height="330" rx="16" class="panel"/><text x="18" y="30" class="f13 b">Latency, ms (log scale) · measured, two runs</text>`,{x:20,y:16,an:'fade',d:.1});
+  s+=`<path d="M80 60V300H500" class="axis fade" style="--d:.1s"/>`+[0.01,0.1,1,10,100].map(v=>T(74,Y(v)+4,String(v),{c:'m f11 mut',a:'end',d:.1})+`<path d="M80 ${Y(v)}H500" class="fade" style="stroke:var(--line);stroke-width:1;--d:.1s"/>`).join('');
+  const D=[['first pass',79.383,53.176],['warm p50',0.116,0.111],['warm p95',0.144,0.118],['warm p99',0.314,0.320]];
+  D.forEach(([l,a,b],i)=>{const x=104+i*100,d=.3+i*.4;s+=vbar(x,300,32,300-Y(a),'vol',d)+vbar(x+36,300,32,300-Y(b),'teal',d+.15)+T(x+34,320,l,{c:'f12 b',a:'middle',d})+T(x+16,Y(a)-6,a<1?a.toFixed(3):a.toFixed(1),{c:'m f11 b',a:'middle',d:d+.4})+T(x+52,Y(b)-6,b<1?b.toFixed(3):b.toFixed(1),{c:'m f11 b tealc',a:'middle',d:d+.5})});
+  s+=`<rect x="380" y="66" width="14" height="10" rx="2" class="fade" style="fill:var(--vol);--d:.3s"/>`+T(400,75,'run 1',{c:'f11',d:.3})+`<rect x="440" y="66" width="14" height="10" rx="2" class="fade" style="fill:var(--teal);--d:.3s"/>`+T(460,75,'run 2',{c:'f11',d:.3});
+  s+=G(`<rect width="240" height="330" rx="16" class="panel"/><text x="16" y="32" class="f13 b">Two fresh processes</text><text x="140" y="64" class="m f11 b mut">run 1</text><text x="196" y="64" class="m f11 b mut">run 2</text>`,{x:540,y:16,an:'fade',d:2.0});
+  [['setup','146.290','124.476'],['first','79.383','53.176'],['p50','0.116','0.111'],['p95','0.144','0.118'],['p99','0.314','0.320']].forEach(([a,b,c],i)=>{const y=102+i*40,d=2.2+i*.15;s+=T(556,y,a,{c:'f12 b',d})+T(674,y,b,{c:'m f12',a:'middle',d})+T(730,y,c,{c:'m f12',a:'middle',d})});
+  s+=T(556,326,'all values in ms, CUDA',{c:'f11 mut',d:3.0});
+  s+=G(`<rect width="760" height="124" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="18" y="34" class="f14 b">Why a log scale?</text><text x="18" y="62" class="f13">The first pass (tens of milliseconds) and warm passes (a tenth of a millisecond) differ by hundreds</text><text x="18" y="82" class="f13">of times. On a linear axis the warm bars would be invisible slivers. Note p99 ≈ 0.32 ms &gt; p50, too.</text>`,{x:20,y:362,an:'up',d:3.2});
+  return svg(s,'First pass versus warm passes, measured in two fresh processes on a log scale. The first forward pass took 79.383 ms in run 1 and 53.176 ms in run 2; the warm p50 was 0.116 and 0.111 ms, p95 0.144 and 0.118 ms, and p99 0.314 and 0.320 ms. Setup took 146.290 and 124.476 ms. A log scale shows tens of milliseconds and a tenth of a millisecond together; on a linear axis the warm bars would be invisible. Even warm passes have a distribution, with p99 around 0.32 ms above p50.');
+}
+
+function V7(){
+  let s=G(`<rect width="760" height="140" rx="16" class="panel"/><text x="18" y="30" class="f13 b">First pass ÷ warm median</text>`,{x:20,y:16,an:'fade',d:.1});
+  s+=G(`<text x="40" y="92" class="m f17 b">run 1: 79.383 / 0.116 ≈ <tspan class="badc f30">684×</tspan></text><text x="420" y="92" class="m f17 b">run 2: 53.176 / 0.111 ≈ <tspan class="badc f30">479×</tspan></text>`,{an:'fade',d:.4})+T(40,134,'a genuine difference, for this specific small model and test setup',{c:'f12 b',d:1.2});
+  s+=G(`<rect width="370" height="190" rx="16" class="panel" style="stroke:var(--ok);stroke-width:2.5"/><text x="18" y="32" class="f14 b okc">It establishes</text><text x="18" y="64" class="f13">the measured first pass vs the warm</text><text x="18" y="84" class="f13">median, for this synthetic test</text><text x="18" y="122" class="f13">and that processes vary: a reason</text><text x="18" y="142" class="f13">to collect many replicates</text>`,{x:20,y:172,an:'up',d:1.6});
+  s+=G(`<rect width="370" height="190" rx="16" class="panel" style="stroke:var(--bad);stroke-width:2.5"/><text x="18" y="32" class="f14 b badc">It doesn’t establish</text>`,{x:410,y:172,an:'up',d:2.0});
+  ['a 480–680× production speedup','the precise cause of the startup cost','the total cold-start time'].forEach((t,i)=>{s+=icon('no',436,236+i*32,{r:9,d:2.2+i*.2})+T(454,241+i*32,t,{c:'f13',d:2.2+i*.2})});
+  s+=G(`<rect width="760" height="106" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="18" y="32" class="f14 b">Five warmups and 100 timed passes demonstrate the method</text><text x="18" y="58" class="f13">For stronger claims: many fresh-process runs, recorded GPU and software details, and the same shapes,</text><text x="18" y="78" class="f13">dtype, power state and system load. Production p95 also adds queueing, network and preprocessing.</text>`,{x:20,y:380,an:'up',d:2.8});
+  return svg(s,'What the ratio really says: the first pass divided by the warm median is 79.383 over 0.116, about 684 times, in run 1, and 53.176 over 0.111, about 479 times, in run 2. It establishes the measured gap for this synthetic test, and that processes vary, which is a reason to collect many replicates. It doesn’t establish a 480 to 680 times production speedup, the precise cause, or the total cold-start time. Five warmups and 100 passes demonstrate the method, not a guarantee.');
+}
+
+function V8(){
+  const S=[['app starts: ready = False','bad'],['construct model + input on CPU/GPU','vol'],['run 5 representative warmup passes','warn'],['synchronize CUDA completion','teal'],['set ready = True: accept traffic','ok'],['/predict → inference → scalar → JSON','ink-2']];
+  let s=G(`<rect width="350" height="454" rx="16" class="panel"/>`,{x:20,y:16,an:'fade',d:.1});
+  S.forEach(([t,k],i)=>{const y=34+i*70,d=.3+i*.35;s+=nbox(36,y,318,52,[t],k,d,{first:'f13 b',top:32});if(i<5)s+=arrow({x1:195,y1:y+54,x2:195,y2:y+68},{d:d+.15,dur:.1,c:'var(--ink-2)',w:2})});
+  s+=`<path d="M28 34V304" class="fade" style="stroke:var(--warn);stroke-width:4;--d:2.2s"/>`+`<text x="24" y="170" transform="rotate(-90 24 170)" text-anchor="middle" class="f11 b warnc fade" style="--d:2.2s">startup phase</text>`;
+  s+=term(390,16,390,300,[['@asynccontextmanager','',2.4],['async def lifespan(app: FastAPI):','',2.4],['    app.state.ready = False','badc b',2.4],['    model = nn.Sequential(…).to(device).eval()','',2.6],['    x = torch.randn(32, 1024, device=device)','',2.6],['    with torch.inference_mode():','',2.8],['        for _ in range(5): _ = model(x)','warnc b',2.8],['    if device.type == "cuda":','',3.0],['        torch.cuda.synchronize()','tealc b',3.0],['    app.state.ready = True','okc b',3.2],['    yield','',3.4],['    app.state.ready = False','',3.4]],{fs:11,lh:22,top:30,d:2.3});
+  s+=G(`<rect width="390" height="138" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="16" y="30" class="f13 b">Teaching design limits</text><text x="16" y="54" class="f12">/predict uses a fixed synthetic tensor, not request data</text><text x="16" y="74" class="f12">/ready is a Boolean set once: no ongoing GPU checks</text><text x="16" y="106" class="f12 b">production: real POST schema, honest readiness,</text><text x="16" y="124" class="f12 b">input validation, bounded queues</text>`,{x:390,y:332,an:'up',d:3.8});
+  return svg(s,'Warmup inside FastAPI: the app starts with ready set to False, constructs the model and input on the CPU or GPU, runs five representative warmup passes, synchronizes CUDA, sets ready to True to accept traffic, and only then does /predict run inference, reduce to a scalar and return JSON. The lifespan code shows each step before yield. Teaching limits: /predict uses a fixed synthetic tensor, and /ready is a Boolean set once with no ongoing GPU checks; production needs a real request schema, honest readiness, validation and bounded queues.');
+}
+// ---------- Day 43 visuals 9-17 ----------
+function V9(){
+  let s=G(`<rect width="370" height="200" rx="16" class="panel" style="stroke:var(--ok);stroke-width:2.5"/><text x="18" y="30" class="f13 b">Observed in the FastAPI lab</text>`,{x:20,y:16,an:'up',d:.2});
+  s+=T(36,74,'startup + warmup',{c:'f12 mut',d:.4})+T(36,104,'Model ready after 0.223 s',{c:'m f15 b okc',d:.5})+T(36,140,'/live and /ready',{c:'f12 mut',d:.7})+T(36,162,'successful JSON',{c:'f13 b',d:.8})+T(36,190,'/predict → HTTP 200 OK',{c:'m f12 b',d:1.0});
+  s+=G(`<rect width="370" height="200" rx="16" class="panel"/><text x="18" y="30" class="f13 b">Same model, two different clocks</text>`,{x:410,y:16,an:'fade',d:1.2});
+  const K=330/3.893;s+=T(426,76,'one HTTP request (client)',{c:'f12 b',d:1.4})+hbar(426,86,330,30,'warn',1.5,{label:'3.893 ms',dur:.6})+T(426,146,'warm forward p50 (benchmark)',{c:'f12 b',d:2.0})+hbar(426,156,Math.max(4,Math.round(.116*K)),30,'ok',2.1,{dur:.2})+T(440+Math.round(.116*K),176,'0.116 ms',{c:'m f12 b okc',d:2.2});
+  s+=T(426,204,'separate tests, linear scale',{c:'f11 mut',d:2.3});
+  s+=G(`<rect width="760" height="238" rx="16" class="panel"/><text x="18" y="30" class="f14 b">What the HTTP time also contains (conceptual, not a measured split)</text>`,{x:20,y:248,an:'fade',d:2.6});
+  [['local transport','ink-2'],['Uvicorn + FastAPI dispatch','web'],['the Python function','vol'],['forward pass','ok'],['.mean().item(): may force a GPU sync','teal'],['JSON serialization','warn']].forEach(([t,k],i)=>{const x=36+(i%3)*248,y=300+Math.floor(i/3)*60,d=2.8+i*.2;s+=G(`<rect width="232" height="46" rx="10" style="fill:var(--${k});fill-opacity:${t==='forward pass'?.9:.15};stroke:var(--${k});stroke-width:2"/>`+wrapL(t,30).map((l,j,a)=>`<text x="116" y="${(a.length>1?20:28)+j*15}" text-anchor="middle" class="f12 b${t==='forward pass'?' wht':''}">${l}</text>`).join(''),{x,y,an:'pop',d})});
+  s+=T(36,442,'One HTTP sample is one value, not a distribution: no trustworthy HTTP p50 or p95 yet.',{c:'f12 b badc',d:4.2})+T(36,462,'The response was {"prediction": -0.0010513…}: a fixed synthetic input, not real data.',{c:'f11 mut',d:4.4});
+  return svg(s,'Two clocks, two answers. Observed in the FastAPI lab: the model was ready after 0.223 seconds including warmup, /live and /ready returned successful JSON, and /predict returned HTTP 200. One HTTP request took 3.893 ms, while the separate benchmark’s warm forward p50 was 0.116 ms, a sliver by comparison. The HTTP time also contains local transport, Uvicorn and FastAPI dispatch, the Python function, the forward pass, a .item() call that may force a GPU sync, and JSON serialization. One HTTP sample can’t give a p50 or p95.');
+}
+
+function V10(){
+  let s=G(`<rect width="760" height="150" rx="16" class="panel"/>`,{x:20,y:16,an:'fade',d:.1});
+  s+=G(`<rect width="260" height="110" rx="14" class="nodebox"/><text x="16" y="28" class="f14 b">inference Pod</text>`,{x:40,y:36,an:'pop',d:.2})+spill(56,76,'Running ✓','ok',{d:.5})+spill(56,110,'Ready ✗','bad',{d:1.0});
+  s+=G(`<rect width="160" height="22" rx="6" style="fill:var(--line)"/>`,{x:330,y:70,an:'fade',d:.6})+hbar(330,70,110,22,'vol',.8,{label:'loading weights…',dur:2.0});
+  s+=T(330,124,'process up, can’t serve yet',{c:'f12 b',d:1.4})+T(580,80,'Running: a container',{c:'f12',d:1.6})+T(580,98,'process exists',{c:'f12',d:1.6})+T(580,124,'Ready: it can serve now',{c:'f12 b okc',d:1.8});
+  [['Startup','Has initial preparation finished?','repeated failures can restart the container; gates the other probes until it succeeds','vol'],['Readiness','Should Service traffic go here now?','marks the Pod unready, so normal Service routing skips it','warn'],['Liveness','Stuck enough to need a restart?','repeated failures restart the container','bad']].forEach(([t,q,f,k],i)=>{const x=20+i*257,d=2.0+i*.4;s+=G(`<rect width="245" height="290" rx="16" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><path d="M0 16Q0 0 16 0H229Q245 0 245 16V48H0Z" style="fill:var(--${k})"/><text x="16" y="32" class="f16 b wht">${t}</text><text x="16" y="80" class="f11 b mut">asks</text>`+wrapL(q,30).map((l,j)=>`<text x="16" y="${100+j*20}" class="f13 b">${l}</text>`).join('')+`<text x="16" y="170" class="f11 b mut">on failure</text>`+wrapL(f,32).map((l,j)=>`<text x="16" y="${190+j*18}" class="f12">${l}</text>`).join(''),{x,y:182,an:'up',d})});
+  return svg(s,'Running isn’t Ready: an inference Pod can be Running, meaning a container process exists, while it isn’t Ready because weights are still loading, so it can’t serve yet. Kubernetes uses three probes. Startup asks whether initial preparation has finished; repeated failures can restart the container, and it gates the other probes. Readiness asks whether Service traffic should go to the Pod now; failure marks it unready so routing skips it. Liveness asks whether it’s stuck enough to restart; repeated failures restart the container.');
+}
+
+function V11(){
+  let s=G(`<rect width="420" height="300" rx="16" class="panel"/>`,{x:20,y:16,an:'fade',d:.1});
+  s+=nbox(40,34,380,44,['container starts: not yet serving'],'ink-2',.2,{first:'f13 b',top:28})+arrow({x1:230,y1:80,x2:230,y2:94},{d:.4,dur:.1,c:'var(--ink-2)',w:2})+nbox(40,98,380,44,['startup probe polls /ready until success'],'vol',.6,{first:'f13 b',top:28})+arrow({x1:230,y1:144,x2:230,y2:158},{d:.8,dur:.1,c:'var(--ok)',w:2});
+  s+=nbox(40,162,380,44,['startup passes: readiness + liveness begin'],'ok',1.0,{first:'f13 b',top:28});
+  s+=nbox(40,222,180,76,['readiness fails','keep running,','no new traffic'],'warn',1.4,{first:'f12 b',rest:'f11',top:22,lh:18})+nbox(240,222,180,76,['liveness fails','past its threshold:','restart container'],'bad',1.6,{first:'f12 b',rest:'f11',top:22,lh:18});
+  s+=term(460,16,320,300,[['startupProbe:','vol b',2.0],['  httpGet: {path: /ready, port: 8000}','',2.0],['  periodSeconds: 5','',2.0],['  failureThreshold: 24','okc b',2.2],['readinessProbe:','warnc b',2.4],['  httpGet: {path: /ready, port: 8000}','',2.4],['  periodSeconds: 5 · failureThreshold: 2','',2.4],['livenessProbe:','badc b',2.6],['  httpGet: {path: /live, port: 8000}','',2.6],['  periodSeconds: 10 · failureThreshold: 3','',2.6],['# timeoutSeconds: 2 on all three','mut',2.8]],{fs:10,lh:24,top:32,d:1.9});
+  s+=G(`<rect width="370" height="154" rx="16" class="panel" style="stroke:var(--ok);stroke-width:2.5"/><text x="18" y="32" class="f14 b">About two minutes to start</text><text x="18" y="64" class="m f15 b okc">5 s × 24 ≈ 120 s</text><text x="18" y="96" class="f12">an estimate, not a stopwatch; image pulls</text><text x="18" y="114" class="f12">happen before this window even starts</text><text x="18" y="140" class="f11 b warnc">proposed config: not deployed in this lab</text>`,{x:20,y:332,an:'up',d:3.2});
+  s+=G(`<rect width="370" height="154" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="18" y="32" class="f14 b">Two practical gotchas</text><text x="18" y="62" class="f12">Lifespan finishes before Uvicorn accepts</text><text x="18" y="80" class="f12">requests, so early probes may just fail</text><text x="18" y="98" class="f12">to connect until warmup is done.</text><text x="18" y="130" class="f12 b">On a Pod, bind --host 0.0.0.0,</text><text x="18" y="148" class="f12 b">not 127.0.0.1.</text>`,{x:410,y:332,an:'up',d:3.6});
+  return svg(s,'Probes in a Deployment: the container starts without serving, the startup probe polls /ready until it succeeds, and then readiness and liveness begin. A readiness failure keeps the container running but sends no new traffic; a liveness failure past its threshold restarts it. The proposed YAML, not deployed in this lab, uses a 5-second startup period with 24 allowed failures, about 120 seconds, plus readiness on /ready and liveness on /live. Gotchas: early probes may fail to connect until lifespan warmup finishes, and on a Pod bind to 0.0.0.0.');
+}
+
+function V12(){
+  const X=t=>Math.round(80+t*5.1);
+  let s=G(`<rect width="760" height="300" rx="16" class="panel"/><text x="18" y="30" class="f13 b">A new GPU replica’s startup vs its probe allowance</text><text x="742" y="30" text-anchor="end" class="f11 b warnc">illustrative scenario</text>`,{x:20,y:16,an:'fade',d:.1});
+  s+=`<path d="M80 250H${X(130)}" class="axis fade" style="--d:.1s"/>`+[0,30,40,55,65,120].map(t=>T(X(t),270,t+' s',{c:'m f11 mut',a:'middle',d:.1})).join('');
+  s+=T(80,100,'app needs 65 s to become ready',{c:'f13 b',d:.2})+hbar(X(0),110,X(40)-X(0)-2,40,'vol',.4,{label:'weight load 40 s',dur:.8})+hbar(X(40),110,X(55)-X(40)-2,40,'teal',1.2,{label:'CUDA 15',dur:.3})+hbar(X(55),110,X(65)-X(55)-2,40,'warn',1.5,{label:'warm',dur:.2});
+  s+=`<rect x="${X(0)}" y="170" width="${X(30)-X(0)}" height="30" rx="6" class="fade" style="fill:var(--bad);fill-opacity:.15;stroke:var(--bad);stroke-dasharray:5 4;--d:2.0s"/>`+T(X(15),190,'5 s × 6 ≈ 30 s',{c:'m f11 b badc',a:'middle',d:2.0})+vline(X(30),96,250,'bad',2.2)+T(X(30)+8,190,'killed before ready!',{c:'f12 b badc',d:2.4});
+  s+=`<rect x="${X(0)}" y="208" width="${X(120)-X(0)}" height="26" rx="6" class="fade" style="fill:var(--ok);fill-opacity:.15;stroke:var(--ok);stroke-dasharray:5 4;--d:3.0s"/>`+T(X(92),226,'5 s × 24 ≈ 120 s: room to finish',{c:'m f11 b okc',a:'middle',d:3.0});
+  [0,1,2].forEach(i=>{s+=G(`<circle r="13" style="fill:var(--bad)"/><path d="M-5 -2A6 6 0 1 1 -3 4" style="fill:none;stroke:#fff;stroke-width:2"/>`,{x:X(75)+i*34,y:70,an:'pop',d:2.6+i*.25})});s+=T(X(75)+104,75,'restart, restart…',{c:'f12 b badc',d:3.0});
+  s+=G(`<rect width="760" height="154" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="18" y="34" class="f14 b">Backoff doesn’t buy more time</text><text x="18" y="62" class="f13">Restart backoff only delays the next attempt. It never extends one attempt’s</text><text x="18" y="82" class="f13">initialization allowance, so a 65-second startup can never beat a 30-second limit.</text><text x="18" y="116" class="f13 b okc">Fix: failureThreshold 24 at a 5 s period, then measure real readiness times and keep a margin.</text>`,{x:20,y:332,an:'up',d:3.4});
+  return svg(s,'When the probe is too impatient, in an illustrative scenario: a new GPU replica needs 65 seconds to become ready, 40 seconds of weight loading, 15 of CUDA setup and 10 of warmup. A startup probe with a 5-second period and 6 failures allows only about 30 seconds, so the container is killed before ready and restarts over and over. Restart backoff only delays the next attempt; it never extends an attempt’s allowance. The fix is failureThreshold 24, about 120 seconds, then measure real readiness times and keep a margin.');
+}
+
+function V13(){
+  let s=G(`<rect width="760" height="290" rx="16" class="panel"/><text x="18" y="30" class="f13 b">The HPA raises GPU replicas from 2 to 5 during a spike (illustrative)</text>`,{x:20,y:16,an:'fade',d:.1});
+  for(let i=0;i<18;i++)s+=`<circle cx="${50+(i%6)*22}" cy="${90+Math.floor(i/6)*26}" r="8" class="pop" style="fill:var(--vol);--d:${(.2+i*.05).toFixed(2)}s"/>`;
+  s+=T(105,192,'sudden demand',{c:'f12 b',a:'middle',d:.4})+arrow({x1:190,y1:116,x2:250,y2:106},{d:1.0,dur:.2})+arrow({x1:190,y1:140,x2:250,y2:200},{dash:true,d:1.0,c:'var(--line)'});
+  [0,1].forEach(i=>{const y=60+i*58;s+=gpuChip(256,y,140,46,'Ready replica',{d:1.2+i*.15})+G(`<rect width="${110+i*20}" height="16" rx="5" style="fill:var(--bad);fill-opacity:.7"/>`,{x:404,y:y+15,an:'slide',d:2.0+i*.2,dx:-40})});
+  s+=T(410,186,'queues build on the 2 Ready ones',{c:'f12 b badc',d:2.4});
+  [0,1,2].forEach(i=>{s+=G(`<rect width="96" height="46" rx="10" style="fill:var(--ink-2);fill-opacity:.25;stroke:var(--ink-2);stroke-dasharray:5 4;stroke-width:2"/><text x="48" y="20" text-anchor="middle" class="f11 b">new replica</text><text x="48" y="36" text-anchor="middle" class="f11 b warnc">not Ready…</text>`,{x:256+i*108,y:200,an:'pop',d:1.6+i*.2})});
+  s+=T(400,280,'they’d be fast once ready, but they aren’t ready yet',{c:'f12 mut',a:'middle',d:2.8});
+  s+=G(`<rect width="370" height="168" rx="16" class="panel" style="stroke:var(--bad);stroke-width:2.5"/><text x="18" y="32" class="f14 b">Arrivals vs capacity</text><text x="18" y="66" class="m f15 b">λ &gt; μ  →  the queue grows</text><text x="18" y="100" class="f12">latency rises while throughput plateaus;</text><text x="18" y="118" class="f12">timeouts, contention and retry storms</text><text x="18" y="136" class="f12">can later make success worse</text>`,{x:20,y:318,an:'up',d:3.2});
+  s+=G(`<rect width="370" height="168" rx="16" class="panel" style="stroke:var(--ok);stroke-width:2.5"/><text x="18" y="32" class="f14 b">Shorten the gap</text><text x="18" y="62" class="f12">give startup probes realistic allowances</text><text x="18" y="80" class="f12">(e.g. ~120 s for this case)</text><text x="18" y="108" class="f12">instrument actual readiness times</text><text x="18" y="136" class="f12 b">big models: measure the startup</text><text x="18" y="154" class="f12 b">distribution, then add a margin</text>`,{x:410,y:318,an:'up',d:3.6});
+  return svg(s,'Cold starts meet autoscaling, in an illustrative spike: the HPA raises GPU replicas from 2 to 5, but the 3 new replicas aren’t Ready yet, so the 2 Ready ones carry the sudden demand and queues build on them; the new ones would be fast once ready. When arrivals exceed capacity, the queue grows: latency rises while throughput plateaus, and timeouts, contention and retry storms can make things worse. Shorten the gap with realistic startup allowances, around 120 seconds here, measured readiness times and a margin.');
+}
+
+function V14(){
+  let s=zbox(300,10,200,40,'Pods not Ready?','',{k:'bad',d:.2})+arrow({x1:400,y1:52,x2:400,y2:66},{d:.3,dur:.1})+zbox(270,70,260,40,'scheduled and running?','',{k:'db',d:.4});
+  s+=arrow({x1:268,y1:90,x2:180,y2:128},{d:.6,dur:.2,c:'var(--warn)'})+T(214,104,'no',{c:'f11 b warnc',d:.6})+arrow({x1:532,y1:90,x2:600,y2:128},{d:.6,dur:.2,c:'var(--ok)'})+T(580,104,'yes',{c:'f11 b okc',d:.6});
+  s+=nbox(30,132,300,62,['inspect events:','GPU resources, node constraints, image pull'],'warn',.8,{first:'f13 b',rest:'f12',top:24,lh:20})+zbox(470,132,260,40,'repeated restarts?','',{k:'db',d:1.0});
+  s+=arrow({x1:540,y1:174,x2:470,y2:210},{d:1.2,dur:.2,c:'var(--bad)'})+T(490,192,'yes',{c:'f11 b badc',d:1.2})+arrow({x1:660,y1:174,x2:700,y2:210},{d:1.2,dur:.2,c:'var(--teal)'})+T(694,192,'no',{c:'f11 b tealc',d:1.2});
+  s+=nbox(330,214,250,62,['startup probe, logs,','initialization durations'],'bad',1.4,{first:'f13 b',rest:'f13 b',top:26,lh:20})+nbox(590,214,190,62,['readiness URL,','model / GPU health'],'teal',1.6,{first:'f13 b',rest:'f13 b',top:26,lh:20});
+  s+=term(20,300,470,186,[['kubectl get deployment &lt;name&gt;','',2.0],['kubectl get pods -o wide','',2.0],['kubectl describe pod &lt;pod&gt;','',2.2],['kubectl logs &lt;pod&gt;','',2.2],['kubectl logs &lt;pod&gt; --previous     # the crashed one','tealc b',2.4],['kubectl get endpointslices','',2.4],['kubectl rollout status deployment/&lt;name&gt;','',2.6]],{fs:11,lh:22,top:32,d:1.9});
+  s+=G(`<rect width="270" height="186" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="16" y="32" class="f14 b">Locate, don’t guess</text><text x="16" y="62" class="f12">An engineer’s job is finding the</text><text x="16" y="80" class="f12">delayed or failed layer, not</text><text x="16" y="98" class="f12">repeatedly nudging timeouts</text><text x="16" y="116" class="f12">without evidence.</text><text x="16" y="154" class="f12 b">compare state, events, logs,</text><text x="16" y="172" class="f12 b">probes and metrics first</text>`,{x:510,y:300,an:'up',d:3.0});
+  return svg(s,'Find the delayed layer: if Pods aren’t Ready, check whether they’re scheduled and running. If not, inspect events for GPU resources, node constraints and image pulls. If they are, check for repeated restarts: if so, inspect the startup probe, logs and initialization durations; if not, inspect the readiness URL and model or GPU health. Useful commands include kubectl get deployment and pods, describe pod, logs with --previous, get endpointslices and rollout status. Locate the failed layer rather than nudging timeouts without evidence.');
+}
+
+function V15(){
+  let s=G(`<rect width="760" height="230" rx="16" class="panel" style="stroke:var(--ok);stroke-width:2.5"/><text x="18" y="32" class="f14 b">Prove the incident is resolved, not just that YAML was edited</text>`,{x:20,y:16,an:'fade',d:.1});
+  [['5 / 5 replicas Ready','in this scenario'],['restart counts stable','no ongoing crash loop'],['intended Service endpoints','listed in EndpointSlices'],['startup logs succeed','initialization reported'],['predictions succeed','HTTP 200 with real output'],['latency + load recover','p95/p99, queue, RPS, GPU use']].forEach(([a,b],i)=>{const x=36+(i%3)*248,y=76+Math.floor(i/3)*74,d=.3+i*.2;s+=icon('yes',x+12,y-4,{r:11,d})+T(x+30,y,a,{c:'f13 b',d})+T(x+30,y+18,b,{c:'f11 mut',d})});
+  s+=G(`<rect width="370" height="226" rx="16" class="panel" style="stroke:var(--bad);stroke-width:2.5"/><text x="18" y="32" class="f14 b">Keep liveness cheap</text><text x="18" y="62" class="f12">Don’t run inference on every liveness</text><text x="18" y="80" class="f12">probe: a temporarily slow GPU then</text><text x="18" y="98" class="f12">causes avoidable restarts and can</text><text x="18" y="116" class="f12">amplify overload.</text><text x="18" y="152" class="f12 b">Readiness can say “can’t serve” while</text><text x="18" y="170" class="f12 b">the process stays up to recover.</text><text x="18" y="204" class="f11 mut">probes: cheap, bounded, role-appropriate</text>`,{x:20,y:260,an:'up',d:1.6});
+  s+=G(`<rect width="370" height="226" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="18" y="32" class="f14 b">Make readiness honest</text><text x="18" y="62" class="f12">In the lab, ready is a Boolean set once</text><text x="18" y="80" class="f12">after warmup. If the GPU fails later,</text><text x="18" y="98" class="f12 b badc">/ready still says 200.</text><text x="18" y="134" class="f12">Better: maintain a health state fed by</text><text x="18" y="152" class="f12">inference errors and runtime failure</text><text x="18" y="170" class="f12">signals, checked cheaply.</text>`,{x:410,y:260,an:'up',d:2.0});
+  return svg(s,'Prove it’s fixed, not just that YAML was edited: 5 of 5 replicas Ready in this scenario, stable restart counts, the intended Service endpoints in EndpointSlices, successful startup logs, successful predictions, and recovered p95 and p99 latency, queue length, request rate and GPU use. Keep liveness cheap: running inference on every liveness probe turns a slow GPU into restarts. Make readiness honest: the lab’s ready flag is set once, so if the GPU fails later /ready still returns 200; maintain a health state fed by real failure signals.');
+}
+
+const miniSvg=(inner,vb)=>`<svg viewBox="${vb}" aria-hidden="true">${inner}</svg>`;
+function V16(){
+  const LW=`<rect width="26" height="22" rx="4" style="fill:var(--vol)"/><rect x="30" width="26" height="22" rx="4" style="fill:var(--warn)"/><path d="M38 16Q41 8 38 4M46 16Q49 8 46 4" style="fill:none;stroke:#fff;stroke-width:2"/>`;
+  const CL=`<rect width="56" height="8" rx="2" style="fill:var(--ink-2)"/><rect x="34" y="12" width="12" height="8" rx="2" style="fill:var(--bad)"/><rect x="34" y="24" width="3" height="8" rx="1" style="fill:var(--ok)"/>`;
+  const SY=`<rect width="18" height="10" rx="2" style="fill:var(--vol)"/><rect x="12" y="16" width="34" height="10" rx="2" style="fill:var(--ok)"/><path d="M50 0V30" style="stroke:var(--ink);stroke-width:2.5;stroke-dasharray:3 2"/>`;
+  const RT=`<rect y="0" width="14" height="32" rx="2" style="fill:var(--bad)"/><rect x="20" y="29" width="14" height="3" rx="1" style="fill:var(--ok)"/>`;
+  const GT=`<rect width="8" height="30" rx="2" style="fill:var(--ok)"/><circle cx="26" cy="15" r="6" style="fill:var(--teal)"/><circle cx="44" cy="15" r="6" style="fill:var(--teal)"/>`;
+  const BU=`<rect width="56" height="10" rx="3" style="fill:var(--vol)"/><rect width="26" height="10" y="16" rx="3" style="fill:var(--bad);fill-opacity:.4;stroke:var(--bad)"/>`;
+  const items=[[miniSvg(LW,'-2 -2 60 26'),'<b>Loading isn’t warmup.</b> Loading places weights; warmup exercises execution paths before users arrive.'],
+    [miniSvg(CL,'-2 -2 60 36'),'<b>Separate the clocks.</b> Pod time-to-ready, first forward and warm forward are different numbers.'],
+    [miniSvg(SY,'-2 -2 56 34'),'<b>Synchronize to time GPUs.</b> Without a barrier, a Python timer may only measure the launch.'],
+    [miniSvg(RT,'-2 -2 66 36'),'<b>The first pass cost ~480–680× the warm median.</b> 53–79 ms first, ~0.11 ms warm, on this synthetic model.'],
+    [miniSvg(GT,'-2 -2 54 34'),'<b>Gate traffic on readiness.</b> Lifespan warmup plus startup and readiness probes keep cold Pods out.'],
+    [miniSvg(BU,'-2 -2 60 30'),'<b>Budget for slow startups.</b> A 30 s probe can’t survive a 65 s init; new replicas restart while old ones overload.']];
+  return `<ul class="take">${items.map(([ic,t],i)=>`<li class="up" style="--d:${.3+i*.3}s">${ic}<div>${t}</div></li>`).join('')}</ul>`;
+}
+function V17(){
+  const Q=[['teal','A Pod is Running, but model weights are still loading. Why isn’t Running the same as Ready?','Running means a process exists. Ready means it can serve traffic now, which should stay false until the model is prepared.'],
+    ['warn','79.383 / 0.116 ≈ 684. What does that ratio establish, and what doesn’t it?','First pass vs warm median for this synthetic test only. Not a 684× production speedup, not the cause, and not total cold-start time.'],
+    ['db','Startup takes 65 s, but the startup probe allows about 30 s. What happens, and what’s the fix?','The container restarts before it’s ever Ready. Raise failureThreshold to 24 (~120 s at a 5 s period), then confirm empirically.'],
+    ['vol','The GPU fails after warmup, but /ready still returns HTTP 200. Why?','Ready was a Boolean set once and never refreshed. Readiness should reflect real serving dependencies with cheap, bounded checks.']];
+  return `<div class="quiz"><div class="cards">${Q.map(([k,q,a],i)=>`<button class="card up" style="--k:var(--${k});--d:${.3+i*.15}s" aria-pressed="false"><span class="card-inner"><span class="face front"><small>Question ${i+1}</small><span class="q">${q}</span><em>Tap to flip</em></span><span class="face back" aria-hidden="true"><small>Answer</small><span class="q">${a}</span></span></span></button>`).join('')}</div><button class="again up" style="--d:1s" data-action="restart">Watch again from the start</button></div>`;
+}
+// ---------- Scenes ----------
+const CH=['Intro','Why the first call is slow','The benchmark','Warmup in FastAPI','Kubernetes and autoscaling','Troubleshooting','Wrap-up'];
+const P=(t,d)=>`<p class="up" style="--d:${d}s">${t}</p>`;
+const R=(t,d)=>`<p class="rule up" style="--d:${d}s"><span>${t}</span></p>`;
+const SC=[
+ {ch:0,dur:10,title:'Warmup & Cold Starts',vis:V0(),copy:`<p class="course up" style="--d:.05s">AI Infrastructure &amp; ML Systems, Day 43</p><h1 class="long up" style="--d:.15s">Warmup &amp; Cold Starts</h1><p class="lede up" style="--d:.3s">Why the first inference is slow, and how to keep users from paying for it.</p><button class="start up" style="--d:.45s" data-action="start"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15l12-7.5z"/></svg>Start the explainer</button><p class="hint up" style="--d:.6s">About 3½ minutes. Use ← → or swipe to go at your own pace.</p><p class="hint rotate-hint up" style="--d:.7s">Tip: turn your phone sideways for bigger diagrams.</p>`},
+ {ch:1,dur:11,title:'Switch on the ovens first',vis:V1(),body:P('A restaurant warms its ovens before the first order; a model server prepares its GPU paths before the first request.',.2)+R('Loading isn’t warmup.',.35)},
+ {ch:1,dur:12,title:'The full cold start',vis:V2(),body:P('Scheduling, image pull, process start, model preparation and warmup all happen before a Pod can serve.',.2)+R('A first forward pass is only one slice of it.',.35)},
+ {ch:1,dur:11.5,title:'The GPU’s hidden first-use work',vis:V3(),body:P('Device setup, memory, kernel loading and shape-specific choices happen on first use.',.2)+R('Warmup absorbs some of it, not all of it.',.35)},
+ {ch:1,dur:12,title:'Time the GPU honestly',vis:V4(),body:P('Python can stop its timer before the GPU finishes.',.2)+R('Synchronize before and after the timed region.',.35)},
+ {ch:2,dur:11,title:'The Day 43 benchmark',vis:V5(),body:P('A small synthetic MLP: one first pass, five warmup passes, then 100 timed steady-state passes.',.2)+P('Synchronized timing, with results saved to a CSV.',.35)},
+ {ch:2,dur:12.5,title:'First pass vs warm passes',vis:V6(),body:P('The first forward pass took 53–79 ms; warmed passes took about 0.11 ms.',.2)+R('A log scale shows both at once.',.35)},
+ {ch:2,dur:11.5,title:'What the ratio really says',vis:V7(),body:P('79.383 / 0.116 ≈ 684, and 53.176 / 0.111 ≈ 479.',.2)+R('True for this test, not a production promise.',.35)},
+ {ch:3,dur:12,title:'Warmup inside FastAPI',vis:V8(),body:P('The lifespan hook builds the model, warms it up five times, then flips ready to True.',.2)+R('No traffic until warmup finishes.',.35)},
+ {ch:3,dur:12,title:'Two clocks, two answers',vis:V9(),body:P('The service was ready in 223 ms; one HTTP request took 3.893 ms.',.2)+R('HTTP time includes far more than the forward pass.',.35)},
+ {ch:4,dur:11.5,title:'Running isn’t Ready',vis:V10(),body:P('Kubernetes uses three probes with different jobs.',.2)+R('Startup gates, readiness routes, liveness restarts.',.35)},
+ {ch:4,dur:12,title:'Probes in a Deployment',vis:V11(),body:P('A 5-second period and 24 allowed failures give about two minutes to start.',.2)+R('A proposed config, not deployed in this lab.',.35)},
+ {ch:4,dur:12,title:'When the probe is too impatient',vis:V12(),body:P('Three new replicas need 65 seconds, but the startup probe allows only 30.',.2)+R('They restart before they ever become Ready.',.35)},
+ {ch:4,dur:11.5,title:'Cold starts meet autoscaling',vis:V13(),body:P('While new replicas warm up, the existing ones carry the spike.',.2)+R('Arrivals above capacity build queues, not throughput.',.35)},
+ {ch:5,dur:11.5,title:'Find the delayed layer',vis:V14(),body:P('Scheduled? Restarting? Is the ready endpoint healthy? Follow the evidence.',.2)+R('Don’t just keep raising timeouts.',.35)},
+ {ch:5,dur:11.5,title:'Prove it’s fixed',vis:V15(),body:P('Check replicas, restarts, endpoints, logs, predictions and latency together.',.2)+R('Keep liveness cheap; make readiness honest.',.35)},
+ {ch:6,dur:12,title:'What to remember',vis:V16(),body:P('Six ideas carry the whole lesson.',.2)+P('Next, check yourself with four quick questions.',.35)},
+ {ch:6,dur:10,title:'Check yourself',vis:V17(),body:P('Answer in your head first, then tap a card to flip it.',.2)+P('Next: Day 44 covers model loading and caching.',.35)}
+];
+// ---------- Player ----------
+const stage=document.getElementById('stage'),track=document.getElementById('track'),chap=document.getElementById('chap'),count=document.getElementById('count'),live=document.getElementById('live');
+const btnPrev=document.getElementById('prev'),btnNext=document.getElementById('next'),btnPlay=document.getElementById('play'),btnReplay=document.getElementById('replay');
+const strip=s=>s.replace(/<[^>]+>/g,'').replace(/&amp;/g,'&');
+const els=[],fills=[],segs=[];
+SC.forEach((s,i)=>{
+  const sec=document.createElement('section');sec.className='scene';
+  sec.setAttribute('aria-label',`Scene ${i+1} of ${SC.length}: ${strip(s.title)}`);
+  sec.innerHTML=`<div class="copy">${s.copy||`<h2 class="up" style="--d:.05s">${s.title}</h2>${s.body}`}</div><div class="vis">${s.vis}</div>`;
+  stage.appendChild(sec);els.push(sec);
+  const b=document.createElement('button');b.className='seg'+(i>0&&SC[i-1].ch!==s.ch?' chstart':'');
+  b.setAttribute('aria-label',`Go to scene ${i+1}: ${strip(s.title)}`);b.innerHTML='<i><b></b></i>';
+  b.addEventListener('click',()=>go(i));track.appendChild(b);segs.push(b);fills.push(b.querySelector('b'));
+});
+const ICON_PLAY='<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',ICON_PAUSE='<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6.5" y="5" width="4" height="14" rx="1"/><rect x="13.5" y="5" width="4" height="14" rx="1"/></svg>';
+let cur=-1,auto=false,t0=performance.now(),onTimer=null;
+function setAuto(v){
+  auto=v;btnPlay.innerHTML=v?ICON_PAUSE:ICON_PLAY;btnPlay.setAttribute('aria-label',v?'Pause auto-play':'Start auto-play');btnPlay.setAttribute('aria-pressed',String(v));
+  if(v&&cur>=0){const dur=SC[cur].dur*1000,el=performance.now()-t0;if(el>dur-1200)t0=performance.now()-(dur-1200)}
+}
+function go(i,{replay=false}={}){
+  i=Math.max(0,Math.min(SC.length-1,i));
+  if(i===cur&&!replay)return;
+  const prev=cur;
+  els.forEach((el,j)=>{el.classList.toggle('active',j===i);el.classList.toggle('past',j<i);
+    if(j===i){el.inert=false;el.removeAttribute('aria-hidden')}else{el.inert=true;el.setAttribute('aria-hidden','true')}});
+  if(prev>=0&&prev!==i){const p=prev;setTimeout(()=>{if(cur!==p)els[p].classList.remove('on')},750)}
+  const el=els[i];el.classList.remove('on');void el.getBoundingClientRect();
+  clearTimeout(onTimer);const delay=(prev===i)?40:260;
+  onTimer=setTimeout(()=>{el.classList.add('on');t0=performance.now()},delay);
+  t0=performance.now()+delay;cur=i;el.scrollTop=0;
+  const s=SC[i];
+  chap.innerHTML=s.ch===0?'<b>Intro</b>':`Chapter ${s.ch} of ${CH.length-1}: <b>${CH[s.ch]}</b>`;
+  count.textContent=`${i+1} / ${SC.length}`;
+  live.textContent=`Scene ${i+1} of ${SC.length}: ${strip(s.title)}`;
+  btnPrev.disabled=i===0;btnNext.disabled=i===SC.length-1;
+  fills.forEach((f,j)=>{f.style.width=j<i?'100%':'0%'});
+  segs.forEach((b,j)=>{if(j===i)b.setAttribute('aria-current','step');else b.removeAttribute('aria-current')});
+}
+function tick(now){
+  if(cur>=0){const dur=SC[cur].dur*1000,el=Math.max(0,now-t0);fills[cur].style.width=(Math.min(1,el/dur)*100).toFixed(2)+'%';
+    if(auto&&el>=dur){if(cur<SC.length-1)go(cur+1);else setAuto(false)}}
+  requestAnimationFrame(tick);
+}
+btnPrev.addEventListener('click',()=>go(cur-1));
+btnNext.addEventListener('click',()=>go(cur+1));
+btnPlay.addEventListener('click',()=>{if(!auto&&cur===SC.length-1){go(0)}setAuto(!auto);if(auto&&cur===0)go(1)});
+btnReplay.addEventListener('click',()=>go(cur,{replay:true}));
+stage.addEventListener('click',e=>{
+  const a=e.target.closest('[data-action]');
+  if(a){if(a.dataset.action==='start'){setAuto(true);go(1)}else if(a.dataset.action==='restart'){setAuto(true);go(1)}return}
+  const c=e.target.closest('.card');
+  if(c){const f=c.classList.toggle('flipped');c.setAttribute('aria-pressed',String(f));c.querySelector('.front').setAttribute('aria-hidden',String(f));c.querySelector('.back').setAttribute('aria-hidden',String(!f))}
+});
+document.addEventListener('keydown',e=>{
+  if(e.altKey||e.ctrlKey||e.metaKey)return;
+  const onBtn=e.target.closest&&e.target.closest('button');
+  if(e.key==='ArrowRight'||e.key==='PageDown'){e.preventDefault();go(cur+1)}
+  else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();go(cur-1)}
+  else if(e.key===' '&&!onBtn){e.preventDefault();btnPlay.click()}
+  else if(e.key==='r'||e.key==='R'){go(cur,{replay:true})}
+  else if(e.key==='Home'){go(0)}else if(e.key==='End'){go(SC.length-1)}
+});
+let sx=null,sy=null;
+stage.addEventListener('touchstart',e=>{const t=e.touches[0];sx=t.clientX;sy=t.clientY},{passive:true});
+stage.addEventListener('touchend',e=>{if(sx==null)return;const t=e.changedTouches[0],dx=t.clientX-sx,dy=t.clientY-sy;if(Math.abs(dx)>55&&Math.abs(dx)>Math.abs(dy)*1.4)go(cur+(dx<0?1:-1));sx=null},{passive:true});
+setAuto(false);go(0);requestAnimationFrame(tick);
+</script>
+</body>
+</html>

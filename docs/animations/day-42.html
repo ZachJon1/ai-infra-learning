@@ -1,0 +1,916 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Latency vs throughput, explained</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=JetBrains+Mono:wght@400;600;700&display=swap">
+<style>
+:root{
+  --paper:#EEF2FA;--surface:#FFFFFF;--ink:#18203F;--ink-2:#525B82;--line:#CBD3EA;--code:#E2E7F5;
+  --web:#2F6BFF;--db:#7A4CF5;--client:#F5A524;--client-ink:#A35F00;--vol:#E94A89;--teal:#0E9FAE;
+  --ok:#0F9D65;--bad:#E0433F;--warn:#D98200;--net:rgba(47,107,255,.06);--on-client:#2A1C00;
+  --note:#FFE38A;--note-ink:#3B2E00;--hl:rgba(245,165,36,.42);
+  --sans:"Bricolage Grotesque",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  color-scheme:light;box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --paper:#151936;--surface:#1F2449;--ink:#ECEEFF;--ink-2:#A8AFD6;--line:#363E70;--code:#262C5A;
+  --web:#5C8DFF;--db:#9E80FF;--client:#FFBE3B;--client-ink:#FFCB5C;--vol:#FF6FA4;--teal:#29C3D2;
+  --ok:#33D08E;--bad:#FF6A6A;--warn:#FFB340;--net:rgba(92,141,255,.09);--note:#EBCF63;--note-ink:#2A2000;--hl:rgba(255,190,59,.30);color-scheme:dark}}
+:root[data-theme="dark"]{
+  --paper:#151936;--surface:#1F2449;--ink:#ECEEFF;--ink-2:#A8AFD6;--line:#363E70;--code:#262C5A;
+  --web:#5C8DFF;--db:#9E80FF;--client:#FFBE3B;--client-ink:#FFCB5C;--vol:#FF6FA4;--teal:#29C3D2;
+  --ok:#33D08E;--bad:#FF6A6A;--warn:#FFB340;--net:rgba(92,141,255,.09);--note:#EBCF63;--note-ink:#2A2000;--hl:rgba(255,190,59,.30);color-scheme:dark}
+*,*::before,*::after{box-sizing:inherit}
+html{height:100%;scroll-padding-top:env(safe-area-inset-top,0px);background:var(--paper)}
+body{height:100%;margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;overflow:hidden}
+.app{height:100%;display:grid;grid-template-rows:auto minmax(0,1fr) auto;padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
+.top{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px clamp(16px,3vw,44px) 4px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px;letter-spacing:-.01em}
+.brand svg{width:30px;height:22px}
+.where{font-size:15px;color:var(--ink-2);text-align:right}
+.where b{color:var(--ink);font-weight:650}
+.stage{position:relative;overflow:hidden}
+.scene{position:absolute;inset:0;display:grid;grid-template-columns:minmax(260px,.78fr) minmax(0,1.75fr);gap:clamp(16px,3.2vw,56px);align-items:center;padding:6px clamp(16px,3vw,44px) 10px;opacity:0;visibility:hidden;transform:translateX(48px);transition:opacity .45s ease,transform .6s cubic-bezier(.2,.8,.2,1),visibility 0s linear .6s}
+.scene.past{transform:translateX(-48px)}
+.scene.active{opacity:1;visibility:visible;transform:none;transition:opacity .55s ease .12s,transform .7s cubic-bezier(.2,.8,.2,1) .12s,visibility 0s}
+.copy{max-width:40ch;align-self:center;min-width:0}
+.copy h1{font-size:clamp(46px,6.6vw,98px);line-height:.95;letter-spacing:-.035em;margin:.08em 0 .25em;font-weight:800;font-variation-settings:"opsz" 96}
+.copy h2{font-size:clamp(26px,3.2vw,48px);line-height:1.04;letter-spacing:-.028em;margin:0 0 .45em;font-weight:760;font-variation-settings:"opsz" 96;text-wrap:balance}
+.copy p{font-size:clamp(15.5px,1.25vw,19px);line-height:1.45;color:var(--ink-2);margin:0 0 .75em;text-wrap:pretty}
+.copy p strong{color:var(--ink)}
+.copy code,.vis code{font-family:var(--mono);font-size:.84em;background:var(--code);color:var(--ink);padding:.06em .36em;border-radius:6px}
+.copy .rule{color:var(--ink);font-weight:680}
+.copy .rule span{background:linear-gradient(transparent 58%,var(--hl) 58%,var(--hl) 92%,transparent 92%);-webkit-box-decoration-break:clone;box-decoration-break:clone}
+.copy pre{font-family:var(--mono);font-size:13.5px;line-height:1.55;background:var(--code);color:var(--ink);padding:10px 12px;border-radius:10px;margin:0 0 .8em;overflow-x:auto;white-space:pre}
+.copy pre.yaml{font-size:12px;line-height:1.5;max-height:min(46vh,430px);overflow:auto}
+.copy .lede{font-size:clamp(18px,1.6vw,23px);color:var(--ink)}
+.copy .course{font-weight:650;color:var(--ink)}
+.copy .hint{font-size:14px}
+.rotate-hint{display:none}
+.start{font:inherit;font-weight:700;font-size:18px;padding:14px 24px 14px 20px;border-radius:999px;border:0;background:var(--ink);color:var(--paper);cursor:pointer;display:inline-flex;gap:10px;align-items:center;margin:.3em 0 1em;transition:background .2s,transform .15s}
+.start:hover{background:var(--web)}
+.start:active{transform:scale(.97)}
+.start svg{width:18px;height:18px}
+.vis{height:100%;min-height:0;min-width:0;display:flex;align-items:center;justify-content:center}
+.vis>svg{width:100%;height:100%;max-height:100%;overflow:visible;font-size:15px}
+.controls{display:flex;align-items:center;gap:10px;padding:8px clamp(16px,3vw,44px) 14px}
+.btn{width:44px;height:44px;border-radius:50%;border:1.5px solid var(--line);background:var(--surface);color:var(--ink);display:grid;place-items:center;cursor:pointer;flex:none;padding:0;transition:transform .15s,background .2s}
+.btn:hover{background:var(--code)}
+.btn:active{transform:scale(.94)}
+.btn:disabled{opacity:.35;cursor:default}
+.btn svg{width:20px;height:20px}
+.btn.play{width:52px;height:52px;background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.btn.play:hover{background:var(--web);border-color:var(--web)}
+:focus-visible{outline:3px solid var(--web);outline-offset:3px}
+.track{flex:1;display:flex;gap:4px;align-items:center;min-width:0}
+.seg{flex:1;height:28px;border:0;background:none;padding:0;cursor:pointer;display:flex;align-items:center;min-width:0}
+.seg.chstart{margin-left:7px}
+.seg i{display:block;width:100%;height:6px;border-radius:3px;background:var(--line);overflow:hidden;position:relative}
+.seg i b{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--ink);border-radius:3px}
+.seg:hover i{background:var(--ink-2)}
+.count{font-family:var(--mono);font-size:13px;color:var(--ink-2);min-width:4.6em;text-align:right}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+/* takeaways + quiz */
+.take{list-style:none;margin:0;padding:0;display:grid;gap:clamp(10px,1.8vh,20px);width:100%;max-width:660px}
+.take li{display:grid;grid-template-columns:64px 1fr;gap:16px;align-items:center;font-size:clamp(15px,1.25vw,19px);line-height:1.4;color:var(--ink-2)}
+.take li b{color:var(--ink)}
+.take svg{width:64px;height:auto;overflow:visible}
+.quiz{width:100%;max-width:740px;display:grid;gap:14px}
+.cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.card{perspective:1000px;border:0;background:none;padding:0;cursor:pointer;min-height:clamp(150px,23vh,210px);font:inherit;text-align:left;color:inherit;border-radius:18px}
+.card-inner{position:relative;display:block;width:100%;height:100%;min-height:inherit;transform-style:preserve-3d;transition:transform .65s cubic-bezier(.3,1.25,.5,1)}
+.card.flipped .card-inner{transform:rotateY(180deg)}
+.face{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;border-radius:18px;padding:16px 18px;display:flex;flex-direction:column;gap:8px}
+.front{background:var(--surface);border:2px solid var(--line);border-top:7px solid var(--k)}
+.back{background:var(--ink);color:var(--paper);transform:rotateY(180deg)}
+.face small{font-size:13px;font-weight:650;color:var(--ink-2)}
+.back small{color:var(--paper);opacity:.7}
+.face .q{font-size:clamp(15px,1.2vw,18px);line-height:1.35;font-weight:620}
+.face em{margin-top:auto;font-style:normal;font-size:13px;color:var(--ink-2)}
+.again{justify-self:start;font:inherit;font-weight:650;font-size:15px;padding:10px 16px;border-radius:999px;border:1.5px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+.again:hover{background:var(--code)}
+/* svg vocabulary */
+.vis text{fill:var(--ink);font-family:var(--sans);white-space:pre}
+.vis .m{font-family:var(--mono)}
+.vis .b{font-weight:700}
+.vis .mut{fill:var(--ink-2)}
+.vis .okc{fill:var(--ok)}.vis .badc{fill:var(--bad)}.vis .warnc{fill:var(--warn)}.vis .webc{fill:var(--web)}.vis .dbc{fill:var(--db)}.vis .clc{fill:var(--client-ink)}.vis .volc{fill:var(--vol)}.vis .tealc{fill:var(--teal)}.vis .wht{fill:#fff}.vis .inv{fill:var(--paper)}
+.f10{font-size:10px}.f11{font-size:11px}.f12{font-size:12px}.f13{font-size:13px}.f14{font-size:14px}.f15{font-size:15px}.f16{font-size:16px}.f17{font-size:17px}.f18{font-size:18px}.f20{font-size:20px}.f22{font-size:22px}.f30{font-size:30px}.f44{font-size:44px}
+.vis .cname{fill:var(--fg);font-size:15px;font-weight:750}
+.vis .csub{fill:var(--fg);font-family:var(--mono);font-size:10.5px;opacity:.85}
+.vis .ridge{stroke:rgba(255,255,255,.2);stroke-width:2;fill:none}
+.vis .capline{stroke:rgba(0,0,0,.14);stroke-width:2}
+.vis .eye{fill:#fff}.vis .pupil{fill:#18203F}
+.vis .mouth,.vis .lid{fill:none;stroke:var(--fg);stroke-width:3;stroke-linecap:round}
+.vis .ghost{fill-opacity:.12;stroke-width:2.5;stroke-dasharray:7 5}
+.vis .ghostf .eye{stroke:var(--fg);stroke-width:2}
+.vis .paper{fill:var(--surface);stroke:var(--ink);stroke-width:2}
+.vis .paperfold{fill:none;stroke:var(--ink);stroke-width:2}
+.vis .panel{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+.vis .codebg{fill:var(--code)}
+.vis .sep{stroke:var(--line);stroke-width:1.5}
+.vis .net{fill:var(--net);stroke:var(--ink-2);stroke-width:2;stroke-dasharray:9 7}
+.vis .hostbox{fill:none;stroke:var(--line);stroke-width:2.5}
+.vis .aline{fill:none;stroke-linecap:round}
+.vis .draw{stroke-dasharray:1 1;stroke-linecap:butt}
+.vis .dashy{stroke-dasharray:6 6}
+.vis .ahead{fill:none;stroke-linecap:round;stroke-linejoin:round}
+.vis .bub{fill:var(--surface);stroke-width:2;stroke-linejoin:round}
+.vis .note rect{fill:var(--note)}
+.vis .note text{fill:var(--note-ink);font-family:var(--mono);font-size:11.5px}
+.vis .hlbox{fill:var(--hl)}
+.vis .hlrow{fill:var(--hl)}
+.vis .badhl{fill:var(--bad);fill-opacity:.12}
+.vis .zz{fill:var(--ink-2);font-weight:800;font-size:15px}
+.vis .trackl{stroke:var(--line);stroke-width:6;stroke-linecap:round}
+.vis .post{fill:var(--ink-2)}
+.vis .okf{fill:var(--ok)}.vis .badf{fill:var(--bad)}.vis .warnf{fill:var(--warn)}.vis .mutf{fill:var(--ink-2)}.vis .inkf{fill:var(--ink)}
+.vis .ring{fill:none;stroke:var(--ink-2);stroke-width:2}
+.vis .axis{stroke:var(--ink-2);stroke-width:2;fill:none}
+.vis .playhead{stroke:var(--ink);stroke-width:2.5}
+.vis .pipe{fill:none;stroke:var(--vol);stroke-width:10;stroke-opacity:.6}
+.vis .spot{fill:none;stroke:var(--bad);stroke-width:2;stroke-dasharray:4 4}
+.vis .steth{fill:none;stroke:var(--ink);stroke-width:4;stroke-linecap:round}
+.vis .stampbox{fill:var(--surface);stroke:var(--bad);stroke-width:3}
+.vis .pill{fill:var(--surface);stroke-width:1.5}
+.vis .rowchip{fill:var(--note)}
+.vis .dim{fill:var(--paper);fill-opacity:.62}
+.vis .armstripe{stroke:var(--ink);stroke-width:12;stroke-dasharray:12 12}
+.vis .outline{fill:none;stroke:var(--ink);stroke-width:2.5}
+.vis .outline-bad{fill:none;stroke:var(--bad);stroke-width:2.5}
+.vis .glass{stroke-width:3;fill-opacity:.08}
+.vis .ic-ok-o{fill:var(--surface);stroke:var(--ok);stroke-width:2.5}
+.vis .ic-ok-s{fill:none;stroke:var(--ok);stroke-width:2.8;stroke-linecap:round;stroke-linejoin:round}
+.vis .ic-w{fill:none;stroke:#fff;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}
+.vis .ic-wf{fill:#fff}
+.vis .caret{fill:var(--ink)}
+.vis .folder{fill:var(--note);stroke:var(--note-ink);stroke-width:1.5}
+/* motion */
+.vis :is(.pop,.popout,.popoof,.drop,.poof,.shake,.wiggle,.pulse,.stamp,.fly,.slide,.bounce,.move,.travel,.press){transform-box:fill-box;transform-origin:center}
+.vis :is(.grow-x,.growshrink,.lift,.typing){transform-box:fill-box;transform-origin:left center}
+.vis .liftr{transform-box:fill-box;transform-origin:right center}
+@keyframes k-fade{from{opacity:0}to{opacity:1}}
+@keyframes k-out{from{opacity:1}to{opacity:0}}
+@keyframes k-up{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+@keyframes k-pop{0%{opacity:0;transform:scale(.45)}60%{opacity:1;transform:scale(1.07)}100%{opacity:1;transform:scale(1)}}
+@keyframes k-poof{0%{opacity:1;transform:scale(1)}35%{opacity:1;transform:scale(1.12)}100%{opacity:0;transform:scale(.15)}}
+@keyframes k-drop{0%{opacity:0;transform:translateY(-140px)}55%{opacity:1;transform:translateY(6px)}75%{transform:translateY(-6px)}100%{opacity:1;transform:none}}
+@keyframes k-draw{from{opacity:1;stroke-dashoffset:1}to{opacity:1;stroke-dashoffset:0}}
+@keyframes k-flow{to{stroke-dashoffset:-24}}
+@keyframes k-travel{0%{opacity:0;transform:translate(0,0)}12%{opacity:1}88%{opacity:1}100%{opacity:0;transform:translate(var(--tx),var(--ty))}}
+@keyframes k-move{from{transform:translate(0,0)}to{transform:translate(var(--tx,0px),var(--ty,0px))}}
+@keyframes k-fly{from{opacity:1;transform:translate(0,0) scale(1)}to{opacity:0;transform:translate(var(--tx),var(--ty)) scale(.35)}}
+@keyframes k-slide{from{opacity:0;transform:translate(var(--dx,0px),var(--dy,0px))}to{opacity:1;transform:none}}
+@keyframes k-shake{0%,100%{transform:translateX(0)}15%,55%{transform:translateX(-7px)}35%,75%{transform:translateX(7px)}}
+@keyframes k-wiggle{0%,100%{transform:rotate(0)}20%,60%{transform:rotate(-5deg)}40%,80%{transform:rotate(5deg)}}
+@keyframes k-float{0%{opacity:0;transform:translate(0,0)}25%{opacity:1}100%{opacity:0;transform:translate(8px,-22px)}}
+@keyframes k-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.2)}}
+@keyframes k-blink{0%,49%{opacity:1}50%,100%{opacity:0}}
+@keyframes k-blip{0%{opacity:0}18%{opacity:1}70%{opacity:1}100%{opacity:0}}
+@keyframes k-growx{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes k-shrinkx{from{transform:scaleX(1)}to{transform:scaleX(0)}}
+@keyframes k-stamp{0%{opacity:0;transform:scale(1.7) rotate(-3deg)}70%{opacity:1;transform:scale(.96) rotate(-3deg)}100%{opacity:1;transform:scale(1) rotate(-3deg)}}
+@keyframes k-lift{from{transform:rotate(0)}to{transform:rotate(-72deg)}}
+@keyframes k-liftr{from{transform:rotate(0)}to{transform:rotate(72deg)}}
+@keyframes k-press{0%{transform:translateY(0)}45%,60%{transform:translateY(var(--ty))}100%{transform:translateY(0)}}
+@keyframes k-bounce{0%{opacity:0;transform:translate(0,0)}10%{opacity:1}60%{opacity:1;transform:translate(var(--tx),var(--ty))}100%{opacity:0;transform:translate(calc(var(--tx) - 70px),calc(var(--ty) + 40px)) rotate(-25deg)}}
+@keyframes k-type{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+.on .fade{animation:k-fade .5s ease var(--d,0s) both}
+.on .out{animation:k-out .35s ease var(--o,0s) forwards}
+.on .inout{animation:k-fade .45s ease var(--d,0s) both,k-out .35s ease var(--o,9s) forwards}
+.on .up{animation:k-up .6s cubic-bezier(.2,.8,.2,1) var(--d,0s) both}
+.on .pop{animation:k-pop .55s cubic-bezier(.3,1.3,.5,1) var(--d,0s) both}
+.on .popout{animation:k-pop .5s cubic-bezier(.3,1.3,.5,1) var(--d,0s) both,k-out .35s ease var(--o,9s) forwards}
+.on .popoof{animation:k-pop .5s cubic-bezier(.3,1.3,.5,1) var(--d,0s) both,k-poof .55s ease-in var(--o,9s) forwards}
+.on .poof{animation:k-poof .55s ease-in var(--o,0s) forwards}
+.on .drop{animation:k-drop .85s ease-out var(--d,0s) both}
+.on .draw{animation:k-draw var(--dur,.7s) ease-in-out var(--d,0s) both}
+.on .drawout{animation:k-draw var(--dur,.7s) ease-in-out var(--d,0s) both,k-out .3s ease var(--o,9s) forwards}
+.on .dashy.fade{animation:k-fade .5s ease var(--d,0s) both,k-flow 1.1s linear var(--d,0s) infinite}
+.on .travel{animation:k-travel var(--dur,.9s) ease-in-out var(--d,0s) var(--n,1) both}
+.on .move{animation:k-move var(--dur,1s) var(--ease,cubic-bezier(.45,0,.25,1)) var(--d,0s) forwards}
+.on .fly{animation:k-fly var(--dur,.7s) cubic-bezier(.5,0,.3,1) var(--d,0s) forwards}
+.on .slide{animation:k-slide .7s cubic-bezier(.2,.8,.2,1) var(--d,0s) both}
+.on .shake{animation:k-shake .5s ease var(--d,0s) 1}
+.on .wiggle{animation:k-wiggle .8s ease var(--d,0s) 1}
+.on .zz{animation:k-float 2.4s ease-out var(--d,0s) infinite both}
+.on .pulse{animation:k-pulse 1.1s ease-in-out var(--d,0s) infinite}
+.on .blink{animation:k-blink 1s steps(1) var(--d,0s) infinite}
+.on .blip{animation:k-blip var(--dur,.9s) ease var(--d,0s) both}
+.on .grow-x{animation:k-growx var(--dur,.9s) var(--ease,cubic-bezier(.2,.8,.2,1)) var(--d,0s) both}
+.on .growshrink{animation:k-growx var(--dur,.9s) cubic-bezier(.2,.8,.2,1) var(--d,0s) both,k-shrinkx .45s ease-in var(--o,9s) forwards}
+.on .stamp{animation:k-stamp .45s cubic-bezier(.3,1.2,.5,1) var(--d,0s) both}
+.on .lift{animation:k-lift .7s cubic-bezier(.3,1.3,.5,1) var(--d,0s) forwards}
+.on .liftr{animation:k-liftr .7s cubic-bezier(.3,1.3,.5,1) var(--d,0s) forwards}
+.on .press{animation:k-press var(--dur,1.2s) ease-in-out var(--d,0s) 1}
+.on .bounce{animation:k-bounce var(--dur,1.4s) ease-in-out var(--d,0s) both}
+.on .typing{animation:k-type var(--dur,1s) var(--d,0s) both}
+.scene:not(.on) :is(.fade,.inout,.up,.pop,.popout,.popoof,.drop,.draw,.drawout,.travel,.slide,.zz,.blip,.stamp,.bounce,.grow-x,.growshrink){opacity:0}
+.scene:not(.on) .typing{transform:scaleX(0)}
+@media (max-width:820px),(max-aspect-ratio:1/1){
+  .scene{grid-template-columns:1fr;grid-template-rows:auto auto;align-items:start;align-content:start;overflow-y:auto;gap:10px;padding-top:4px}
+  .copy{max-width:62ch}
+  .copy h2{font-size:clamp(24px,6.2vw,36px);margin-bottom:.35em}
+  .copy p{font-size:15px;margin-bottom:.5em}
+  .copy pre.yaml{max-height:30vh}
+  .vis{height:auto}
+  .vis>svg{height:auto;max-height:64vh}
+}
+@media (max-width:600px) and (orientation:portrait){.rotate-hint{display:block}.cards{grid-template-columns:1fr}.card{min-height:130px}}
+@media (max-width:480px){.count{display:none}.btn{width:40px;height:40px}.btn.play{width:46px;height:46px}.brand span{font-size:14px}.where{font-size:13px}}
+@media (prefers-reduced-motion:reduce){
+  .scene,.scene.past,.scene.active{transform:none!important}
+  .scene{transition:opacity .25s ease,visibility 0s linear .25s}
+  .scene.active{transition:opacity .25s ease,visibility 0s}
+  .scene.on *{animation-duration:1ms!important;animation-iteration-count:1!important}
+  .card-inner{transition:none}
+}
+
+.vis .podseam{fill:none;stroke:rgba(255,255,255,.32);stroke-width:2.5;stroke-linecap:round}
+.vis .tagb{fill:var(--surface);stroke-width:2}
+.vis .deskbody{fill:var(--surface);stroke:var(--ink);stroke-width:2}
+.vis .clippaper{fill:var(--surface)}
+.vis .clipclip{fill:var(--ink-2)}
+.vis .lbl{fill:var(--note)}
+.vis .lbltxt{fill:var(--note-ink)}
+.vis .nodebox{fill:var(--net);stroke:var(--ink);stroke-width:2.5}
+.vis .door{fill:var(--client);stroke:var(--ink);stroke-width:2}
+.vis .road{fill:none;stroke:var(--line);stroke-width:22;stroke-linecap:round}
+.vis .roadmid{fill:none;stroke:var(--surface);stroke-width:2.5;stroke-dasharray:10 10}
+.vis .rope{fill:none;stroke:var(--bad);stroke-width:7;stroke-linecap:round}
+.vis .stanchion{fill:var(--ink-2)}
+.vis .pipe2{fill:none;stroke:var(--teal);stroke-width:14;stroke-linecap:round;stroke-linejoin:round;stroke-opacity:.28}
+.vis .flow{fill:none;stroke:var(--teal);stroke-width:4;stroke-dasharray:6 10;stroke-linecap:round}
+.vis .stop{fill:var(--surface);stroke:var(--ink-2);stroke-width:2.5}
+.vis .cniband{fill:var(--teal);fill-opacity:.1;stroke:var(--teal);stroke-width:2}
+.vis .valve{fill:var(--surface);stroke:var(--ink);stroke-width:2.5}
+.vis .brk{fill:none;stroke-width:2}
+@keyframes k-flow16{to{stroke-dashoffset:-32}}
+.on .flow.fade{animation:k-fade .5s ease var(--d,0s) both,k-flow16 .9s linear var(--d,0s) infinite}
+.on .flow.inout{animation:k-fade .5s ease var(--d,0s) both,k-out .35s ease var(--o,9s) forwards,k-flow16 .9s linear var(--d,0s) infinite}
+.take{gap:clamp(8px,1.5vh,18px)}
+.take svg{max-height:52px}
+.copy h1.long{font-size:clamp(36px,4.2vw,64px)}
+@keyframes k-unwind{from{stroke-dashoffset:0}to{stroke-dashoffset:1}}
+.on .unwind{animation:k-unwind var(--dur,3s) linear var(--d,0s) both}
+@keyframes k-spin{to{transform:rotate(360deg)}}
+.vis .spin{transform-box:fill-box;transform-origin:center}
+.on .spin{animation:k-spin 2.4s linear var(--d,0s) infinite}
+@keyframes k-ring{0%,100%{transform:rotate(0)}25%{transform:rotate(-12deg)}75%{transform:rotate(12deg)}}
+.vis .ringy{transform-box:fill-box;transform-origin:center}
+.on .ringy{animation:k-ring .22s linear var(--d,0s) 6}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand"><svg viewBox="0 0 30 22" aria-hidden="true"><path d="M3 19Q10 6 27 5" fill="none" stroke="var(--teal)" stroke-width="2.6" stroke-linecap="round"/><path d="M3 19Q20 18 27 3" fill="none" stroke="var(--warn)" stroke-width="2.2" stroke-linecap="round" stroke-dasharray="3 2"/></svg><span>Latency vs throughput, explained</span></div>
+    <div class="where" id="chap"></div>
+  </header>
+  <main class="stage" id="stage"></main>
+  <nav class="controls" aria-label="Explainer controls">
+    <button class="btn" id="prev" aria-label="Previous scene"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
+    <button class="btn play" id="play" aria-label="Start auto-play" aria-pressed="false"></button>
+    <button class="btn" id="next" aria-label="Next scene"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></button>
+    <div class="track" id="track"></div>
+    <span class="count" id="count"></span>
+    <button class="btn" id="replay" aria-label="Replay this scene"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4.5h4.5"/></svg></button>
+  </nav>
+  <div class="sr" aria-live="polite" id="live"></div>
+</div>
+<script>
+const I=n=>'\u00A0'.repeat(n);
+const S=o=>{const p=[];for(const k in o){const v=o[k];if(v==null)continue;const sec=['d','o','dur'].includes(k),px=['tx','ty','dx','dy'].includes(k);p.push(`--${k}:${v}${sec?'s':px?'px':''}`)}return p.length?`style="${p.join(';')}"`:''};
+const G=(inner,o={})=>{const{x,y,an,...v}=o;let g=an?`<g class="${an}" ${S(v)}>${inner}</g>`:inner;if(x!=null||y!=null)g=`<g transform="translate(${x||0} ${y||0})">${g}</g>`;return g};
+const T=(x,y,s,o={})=>{const{c='',a,an='fade',d=0,o:oo}=o;return `<text x="${x}" y="${y}"${a?` text-anchor="${a}"`:''} class="${c} ${an}" ${an?S({d,o:oo}):''}>${s}</text>`};
+const svg=(inner,label)=>`<svg viewBox="0 0 800 500" role="img" aria-label="${label}" xml:space="preserve">${inner}</svg>`;
+let UID=0;
+
+function face(m,w,h){
+  const a=w*.36,b=w*.64,ey=h*.56,mx=w/2,my=h*.75;
+  if(m==='sleepy')return `<path class="lid" d="M${a-7} ${ey}q7 5 14 0M${b-7} ${ey}q7 5 14 0"/><path class="mouth" d="M${mx-5} ${my}h10"/>`;
+  const eyes=`<circle cx="${a}" cy="${ey}" r="8" class="eye"/><circle cx="${a+1}" cy="${ey+1}" r="3.8" class="pupil"/><circle cx="${b}" cy="${ey}" r="8" class="eye"/><circle cx="${b+1}" cy="${ey+1}" r="3.8" class="pupil"/>`;
+  const M={happy:`<path class="mouth" d="M${mx-11} ${my-3}q11 10 22 0"/>`,sad:`<path class="mouth" d="M${mx-10} ${my+4}q10 -9 20 0"/>`,flat:`<path class="mouth" d="M${mx-8} ${my}h16"/>`,worried:`<path class="mouth" d="M${mx-11} ${my+2}q5.5 -5 11 0q5.5 5 11 0"/>`,wow:`<ellipse class="mouth" cx="${mx}" cy="${my}" rx="5" ry="6"/>`};
+  return eyes+(M[m]||M.happy);
+}
+const ZZ=w=>`<text x="${w-26}" y="14" class="zz" style="--d:0s">z</text><text x="${w-14}" y="4" class="zz" style="--d:.8s">z</text><text x="${w-2}" y="-6" class="zz" style="--d:1.6s">Z</text>`;
+
+function crate({x=0,y=0,w=140,h=96,k='web',name='',sub='',mood='happy',m2,t2,m3,t3,an='',v={},s=1,ghost=false,extra=''}={}){
+  const fg=ghost?(k==='client'?'var(--client-ink)':`var(--${k})`):(k==='client'?'var(--on-client)':'#fff');
+  let r='';for(let i=16;i<w-8;i+=16)r+=`M${i} 30V${h-8}`;
+  const seq=[[mood,0]];if(m2)seq.push([m2,t2]);if(m3)seq.push([m3,t3]);
+  let faces='';
+  seq.forEach(([m,t],i)=>{const nx=seq[i+1];let cls='',st={};
+    if(i>0){cls='fade';st.d=t}
+    if(nx){cls=cls?'inout':'out';st.o=nx[1]}
+    faces+=`<g${cls?` class="${cls}" ${S(st)}`:''}>${face(m,w,h)}${m==='sleepy'?ZZ(w):''}</g>`;});
+  const body=ghost?`<rect width="${w}" height="${h}" rx="14" class="ghost" style="stroke:var(--${k});fill:var(--${k})"/>`
+    :`<rect width="${w}" height="${h}" rx="14" style="fill:var(--${k})"/><path d="${r}" class="ridge"/><path d="M8 27H${w-8}" class="capline"/>`;
+  let g=`<g class="${ghost?'ghostf':''}" style="--fg:${fg}">${body}${name?`<text x="12" y="19" class="cname">${name}</text>`:''}${sub?`<text x="${w-10}" y="18" text-anchor="end" class="csub">${sub}</text>`:''}${faces}${extra}</g>`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})${s!==1?` scale(${s})`:''}">${g}</g>`;
+}
+
+function drum({x=0,y=0,w=130,h=110,label='postgres_data',an='',v={},fs=12,ring=.5,extra=''}={}){
+  const rx=w/2,ry=13,ry2=Math.round(h*ring);
+  let g=`<path d="M0 ${ry}V${h-ry}A${rx} ${ry} 0 0 0 ${w} ${h-ry}V${ry}" style="fill:var(--vol)"/><ellipse cx="${rx}" cy="${ry}" rx="${rx}" ry="${ry}" style="fill:var(--vol)"/><ellipse cx="${rx}" cy="${ry}" rx="${rx}" ry="${ry}" fill="#fff" fill-opacity=".28"/><path d="M0 ${ry2}A${rx} ${ry} 0 0 0 ${w} ${ry2}" fill="none" stroke="#fff" stroke-opacity=".35" stroke-width="2"/>${label?`<text x="${rx}" y="${h-12}" text-anchor="middle" class="m b wht" style="font-size:${fs}px">${label}</text>`:''}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+
+function bubPath(W,H,tail,tp){
+  const top=tail==='tl'?`H${tp}L${tp+4} -12L${tp+14} 0H${W-12}`:`H${W-12}`;
+  const bot=tail==='bl'?`H${tp+14}L${tp+4} ${H+12}L${tp} ${H}H12`:`H12`;
+  return `M12 0${top}Q${W} 0 ${W} 12V${H-12}Q${W} ${H} ${W-12} ${H}${bot}Q0 ${H} 0 ${H-12}V12Q0 0 12 0Z`;
+}
+function bubble(x,y,txt,{w,c='var(--ink)',fs=14,mono=true,tail='bl',tp=16,an='pop',d=0,o}={}){
+  const plain=txt.replace(/<[^>]+>/g,'').replace(/&[a-z#0-9]+;/g,'x');
+  const W=w||Math.round(plain.length*fs*(mono?.6:.56)+26),H=fs+18;
+  const inner=`<path d="${bubPath(W,H,tail,tp)}" class="bub" style="stroke:${c}"/><text x="13" y="${(H/2+fs*.36).toFixed(1)}" class="${mono?'m ':''}b" style="fill:${c};font-size:${fs}px">${txt}</text>`;
+  let a=an;if(o!=null)a=an==='pop'?'popout':an==='fade'?'inout':an;
+  return G(inner,{x,y,an:a,d,o});
+}
+
+function arrow(p,{c='var(--ink)',d=0,dur=.7,w=2.5,dash=false}={}){
+  let path,fx,fy;const{x1,y1,x2,y2,q,c1,c2,poly}=p;let ex=x2,ey=y2;
+  if(poly){path='M'+poly.map(pt=>pt.join(' ')).join('L');const n=poly.length;[ex,ey]=poly[n-1];[fx,fy]=poly[n-2]}
+  else if(c1){path=`M${x1} ${y1}C${c1[0]} ${c1[1]} ${c2[0]} ${c2[1]} ${x2} ${y2}`;[fx,fy]=c2}
+  else if(q){path=`M${x1} ${y1}Q${q[0]} ${q[1]} ${x2} ${y2}`;[fx,fy]=q}
+  else{path=`M${x1} ${y1}L${x2} ${y2}`;fx=x1;fy=y1}
+  const ang=Math.atan2(ey-fy,ex-fx),L=12;
+  const h1=[ex+L*Math.cos(ang+2.55),ey+L*Math.sin(ang+2.55)],h2=[ex+L*Math.cos(ang-2.55),ey+L*Math.sin(ang-2.55)];
+  const head=`<path d="M${h1[0].toFixed(1)} ${h1[1].toFixed(1)}L${ex} ${ey}L${h2[0].toFixed(1)} ${h2[1].toFixed(1)}" class="ahead fade" style="stroke:${c};stroke-width:${w};--d:${(d+dur*.8).toFixed(2)}s"/>`;
+  const line=dash?`<path d="${path}" class="aline dashy fade" style="stroke:${c};stroke-width:${w};--d:${d}s"/>`
+    :`<path d="${path}" pathLength="1" class="aline draw" style="stroke:${c};stroke-width:${w};--d:${d}s;--dur:${dur}s"/>`;
+  return `<g>${line}${head}</g>`;
+}
+const packet=(x1,y1,x2,y2,{d=0,dur=.8,c='var(--web)',r=7}={})=>`<circle cx="${x1}" cy="${y1}" r="${r}" class="travel" style="fill:${c};--d:${d}s;--dur:${dur}s;--tx:${x2-x1}px;--ty:${y2-y1}px"/>`;
+
+function icon(t,x,y,{d=0,o,r=14,an='pop'}={}){
+  const s=r/14;
+  const sym={
+    kept:`<circle r="14" class="ic-ok-o"/><path d="M-6 0l4 4 8-8" class="ic-ok-s"/>`,
+    yes:`<circle r="14" class="okf"/><path d="M-6 0l4 4 8-8" class="ic-w"/>`,
+    no:`<circle r="14" class="badf"/><path d="M-5 -5l10 10M5 -5l-10 10" class="ic-w"/>`,
+    stop:`<circle r="14" class="mutf"/><path d="M-3.5 -5v10M3.5 -5v10" class="ic-w"/>`,
+    play:`<circle r="14" class="okf"/><path d="M-3.5 -6L6 0L-3.5 6Z" class="ic-wf"/>`,
+    restart:`<circle r="14" style="fill:var(--web)"/><path d="M6 1.5A6.2 6.2 0 1 1 3.6 -5" class="ic-w"/><path d="M4.5 -9.5L4 -4.6L-0.8 -5.6" class="ic-w"/>`,
+    plus:`<circle r="14" class="okf"/><path d="M0 -6V6M-6 0H6" class="ic-w"/>`,
+    warn:`<circle r="14" class="warnf"/><path d="M0 -6.5V1.5" class="ic-w"/><circle cy="6" r="1.7" class="ic-wf"/>`
+  }[t];
+  const a=o!=null?(an==='pop'?'popout':an):an;
+  return `<g transform="translate(${x} ${y})${s!==1?` scale(${s})`:''}"><g class="${a}" ${S({d,o})}>${sym}</g></g>`;
+}
+function typed(x,y,str,{fs=15,d=0,dur=1,c=''}={}){
+  const id='clip'+(UID++),w=str.length*fs*.6+6;
+  return `<clipPath id="${id}"><rect x="${x-2}" y="${y-fs}" width="${w}" height="${fs*1.5}" class="typing" style="--d:${d}s;--dur:${dur}s;animation-timing-function:steps(${str.length},end)"/></clipPath><text x="${x}" y="${y}" class="m ${c}" clip-path="url(#${id})" style="font-size:${fs}px">${str}</text>`;
+}
+function browser(x,y,w,h,addr,o={}){
+  return G(`<rect width="${w}" height="${h}" rx="10" class="panel"/><path d="M0 22H${w}" class="sep"/><circle cx="12" cy="11" r="3.5" class="badf"/><circle cx="24" cy="11" r="3.5" class="warnf"/><circle cx="36" cy="11" r="3.5" class="okf"/><rect x="8" y="32" width="${w-16}" height="24" rx="6" class="codebg"/><text x="16" y="49" class="m f12">${addr}</text>`,{x,y,...o});
+}
+const glass=(x,y,w,h,k,label,o={})=>G(`<rect width="${w}" height="${h}" rx="16" class="glass" style="stroke:var(--${k});fill:var(--${k})"/><path d="M0 16Q0 0 16 0H${label.length*8.2+30}V28H0Z" style="fill:var(--${k})"/><text x="14" y="19" class="f14 b" style="fill:${k==='client'?'var(--on-client)':'#fff'}">${label}</text>`,{x,y,...o});
+const codeLine=(x,y,s,c='')=>`<text x="${x}" y="${y}" class="m ${c}">${s}</text>`;
+// ---------- Day 10 helpers ----------
+function faceSeq(seq,w,h){let f='';seq.forEach(([m,t],i)=>{const nx=seq[i+1];let cls='',st={};if(i>0){cls='fade';st.d=t}if(nx){cls=cls?'inout':'out';st.o=nx[1]}f+=`<g${cls?` class="${cls}" ${S(st)}`:''}>${face(m,w,h)}${m==='sleepy'?ZZ(w):''}</g>`});return f}
+function pod({x=0,y=0,w=104,h=74,k='web',ip='',mood='happy',m2,t2,m3,t3,an='',v={},s=1,ghost=false,extra='',under=''}={}){
+  const fg=ghost?(k==='client'?'var(--client-ink)':`var(--${k})`):(k==='client'?'var(--on-client)':'#fff');
+  const r=Math.min(h/2,34),seq=[[mood,0]];if(m2)seq.push([m2,t2]);if(m3)seq.push([m3,t3]);
+  const body=ghost?`<rect width="${w}" height="${h}" rx="${r}" class="ghost" style="stroke:var(--${k});fill:var(--${k})"/>`
+    :`<rect width="${w}" height="${h}" rx="${r}" style="fill:var(--${k})"/><path d="M${(r*.75).toFixed(1)} 12Q${w/2} 2 ${(w-r*.75).toFixed(1)} 12" class="podseam"/>`;
+  let g=`<g class="${ghost?'ghostf':''}" style="--fg:${fg}">${body}${faceSeq(seq,w,h)}${extra}</g>${ip?`<text x="${w/2}" y="${h+17}" text-anchor="middle" class="m f12 mut">${ip}</text>`:''}${under}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})${s!==1?` scale(${s})`:''}">${g}</g>`;
+}
+const tagW=t=>Math.round(t.length*7.2+26);
+const tagD=w=>`M0 12L9.5 1.5Q11 0 13 0H${w-5}Q${w} 0 ${w} 5V19Q${w} 24 ${w-5} 24H13Q11 24 9.5 22.5Z`;
+const tagRaw=(t,k='ink-2')=>`<path d="${tagD(tagW(t))}" class="tagb" style="stroke:var(--${k})"/><circle cx="11" cy="12" r="2.5" style="fill:var(--${k})"/><text x="19" y="16.5" class="m f12">${t}</text>`;
+const tag=(x,y,t,{k='ink-2',an='fade',d=0,o}={})=>G(tagRaw(t,k),{x,y,an:o!=null?'inout':an,d,o});
+const tagHL=(x,y,t,ok,{d=0,o}={})=>{const c=ok?'ok':'bad';return `<path transform="translate(${x} ${y})" d="${tagD(tagW(t))}" class="${o!=null?'inout':'fade'}" style="fill:var(--${c});fill-opacity:.18;stroke:var(--${c});stroke-width:3;--d:${d}s${o!=null?`;--o:${o}s`:''}"/>`};
+function desk({x=0,y=0,w=170,name='Service: web',ip='',sub='',an='',v={},s=1,extra=''}={}){
+  let g=`<path d="M30 28V46M${w-30} 28V46" style="stroke:var(--ink-2);stroke-width:3"/><rect x="6" width="${w-12}" height="30" rx="8" class="inkf"/><text x="${w/2}" y="20" text-anchor="middle" class="f14 b inv">${name}</text><path d="M${w-64} 46a11 11 0 0 1 22 0Z" style="fill:var(--client)"/><circle cx="${w-53}" cy="33" r="2.6" style="fill:var(--client)"/><rect y="45" width="${w}" height="11" rx="4" class="inkf"/><rect x="8" y="56" width="${w-16}" height="58" rx="6" class="deskbody"/>${ip?`<text x="${w/2}" y="${sub?81:90}" text-anchor="middle" class="m f14 b">${ip}</text>`:''}${sub?`<text x="${w/2}" y="${ip?101:90}" text-anchor="middle" class="f12 mut">${sub}</text>`:''}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})${s!==1?` scale(${s})`:''}">${g}</g>`;
+}
+function clip({x=0,y=0,w=210,h=160,title='EndpointSlice',an='',v={},extra=''}={}){
+  let g=`<rect width="${w}" height="${h}" rx="10" class="inkf"/><rect x="8" y="12" width="${w-16}" height="${h-20}" rx="4" class="clippaper"/><rect x="${w/2-28}" y="-7" width="56" height="18" rx="5" class="clipclip"/><text x="20" y="38" class="f13 b">${title}</text><path d="M20 48H${w-20}" class="sep"/>${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function book({x=0,y=0,w=160,h=96,title='CoreDNS',sub='10.96.0.10',an='',v={},extra=''}={}){
+  let g=`<rect x="7" y="7" width="${w}" height="${h}" rx="8" style="fill:var(--note)"/><rect width="${w}" height="${h}" rx="8" class="inkf"/><path d="M18 6V${h-6}" style="stroke:var(--paper);stroke-opacity:.3;stroke-width:3"/><text x="30" y="${h/2-3}" class="f17 b inv">${title}</text>${sub?`<text x="30" y="${h/2+19}" class="m f12 inv" opacity=".78">${sub}</text>`:''}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function letterG(label=''){const w=Math.round(label.length*7.2+16);
+  return `<rect x="-14" y="-10" width="28" height="20" rx="3" class="paper"/><path d="M-14 -9L0 2L14 -9" class="paperfold"/>${label?`<rect x="${-w/2}" y="-40" width="${w}" height="22" rx="6" class="lbl"/><text x="0" y="-25" text-anchor="middle" class="m f12 b lbltxt">${label}</text>`:''}`}
+const sendL=(x1,y1,x2,y2,{d=0,dur=.8,label=''}={})=>`<g transform="translate(${x1} ${y1})"><g class="travel" ${S({d,dur,tx:x2-x1,ty:y2-y1})}>${letterG(label)}</g></g>`;
+const svcChip=(x,y,name,{w=170,an='pop',d=0}={})=>G(`<rect width="${w}" height="44" rx="12" class="deskbody"/><path d="M13 30a10 10 0 0 1 20 0Z" style="fill:var(--client)"/><rect x="10" y="29" width="26" height="4" rx="2" class="inkf"/><text x="44" y="28" class="f14 b">${name}</text>`,{x,y,an,d});
+const shieldP=`<path d="M0 -17L14 -11V0C14 9 7 15 0 18C-7 15 -14 9 -14 0V-11Z" class="inkf"/><path d="M-6 0l4 4 8-8" style="fill:none;stroke:var(--paper);stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round"/>`;
+const shield=(x,y,{s=1,an='pop',d=0}={})=>`<g transform="translate(${x} ${y}) scale(${s})"><g class="${an}" ${S({d})}>${shieldP}</g></g>`;
+const pill=(x,y,txt,{c='ok',an='pop',d=0}={})=>{const w=Math.round(txt.length*7.6+30);return G(`<rect width="${w}" height="24" rx="12" class="pill" style="stroke:var(--${c})"/><circle cx="13" cy="12" r="4.5" style="fill:var(--${c})"/><text x="23" y="16.5" class="f13 b">${txt}</text>`,{x,y,an,d})};
+const chipT=(t,w)=>`<rect x="${-w/2}" y="-12" width="${w}" height="24" rx="12" class="lbl"/><text x="0" y="5" text-anchor="middle" class="m f12 b lbltxt">${t}</text>`;
+const flyChip=(x1,y1,x2,y2,t,{d=0,dur=.8}={})=>`<g transform="translate(${x1} ${y1})"><g class="travel" ${S({d,dur,tx:x2-x1,ty:y2-y1})}>${chipT(t,Math.round(t.length*7.2+22))}</g></g>`;
+// ---------- Day 11 helpers ----------
+function ticket({x=0,y=0,w=170,h=96,title='PVC',lines=[],an='',v={},extra='',k='client'}={}){
+  const n=9,m=h/2;
+  const d=`M10 0H${w-10}Q${w} 0 ${w} 10V${m-n}A${n} ${n} 0 0 0 ${w} ${m+n}V${h-10}Q${w} ${h} ${w-10} ${h}H10Q0 ${h} 0 ${h-10}V${m+n}A${n} ${n} 0 0 0 0 ${m-n}V10Q0 0 10 0Z`;
+  let g=`<path d="${d}" class="paper"/><path d="M10 1H${w-10}Q${w-1} 1 ${w-1} 10V12H1V10Q1 1 10 1Z" style="fill:var(--${k})"/><text x="14" y="${m-9}" class="m f13 b">${title}</text><path d="M${n+5} ${m}H${w-n-5}" class="sep" style="stroke-dasharray:4 4"/>${lines.map((l,i)=>`<text x="14" y="${m+22+i*18}" class="m f12">${l}</text>`).join('')}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function pad({x=0,y=0,w=120,h=86,title='emptyDir',lines=[],an='',v={},extra=''}={}){
+  let rings='';for(let i=14;i<=w-20;i+=22)rings+=`<rect x="${i}" y="-6" width="6" height="14" rx="3" class="inkf"/>`;
+  let g=`<rect width="${w}" height="${h}" rx="8" style="fill:var(--note)"/>${rings}<text x="12" y="28" class="m f12 b lbltxt">${title}</text>${lines.map((l,i)=>`<text x="12" y="${50+i*18}" class="m f12 lbltxt">${l}</text>`).join('')}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function rack({x=0,y=0,w=110,h=90,label='backing storage',an='',v={}}={}){
+  const sh=(h-20)/3;let g=`<rect width="${w}" height="${h}" rx="10" style="fill:var(--ink-2)"/>`;
+  for(let i=0;i<3;i++){const yy=10+i*sh;g+=`<rect x="10" y="${yy}" width="${w-20}" height="${sh-6}" rx="4" fill="#fff" fill-opacity=".16"/><circle cx="${w-22}" cy="${yy+(sh-6)/2}" r="3.5" class="okf"/>`}
+  if(label)g+=`<text x="${w/2}" y="${h+18}" text-anchor="middle" class="f12 mut">${label}</text>`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function menuCard({x=0,y=0,w=200,h=150,title='StorageClass',rows='',an='',v={}}={}){
+  let g=`<rect width="${w}" height="${h}" rx="12" class="panel"/><path d="M12 0H${w-12}Q${w} 0 ${w} 12V32H0V12Q0 0 12 0Z" class="inkf"/><text x="14" y="21" class="f14 b inv">${title}</text>${rows}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+const HAT=w=>`<path d="M${w/2-36} -2Q${w/2-46} -20 ${w/2-28} -24Q${w/2-20} -40 ${w/2} -32Q${w/2+18} -42 ${w/2+28} -24Q${w/2+46} -20 ${w/2+36} -2Z" style="fill:#fff;stroke:var(--ink);stroke-width:2;stroke-linejoin:round"/>`;
+const nodeBox=(x,y,w,h,label,o={})=>G(`<rect width="${w}" height="${h}" rx="14" class="nodebox"/><text x="12" y="22" class="f13 b">${label}</text>`,{x,y,...o});
+const jersey=n=>`<circle cx="16" cy="16" r="12" class="stop"/><text x="16" y="21" text-anchor="middle" class="f13 b">${n}</text>`;
+const fileI=`<path d="M0 3Q0 0 3 0H12L18 6V21Q18 24 15 24H3Q0 24 0 21Z" class="paper"/><path d="M12 0.5V6H17.5" class="paperfold"/>`;
+const fileChip=(x,y,name,{an='fade',d=0,o,c=''}={})=>G(`${fileI}<text x="26" y="17" class="m f13 ${c}">${name}</text>`,{x,y,an:o!=null?'inout':an,d,o});
+const flyFile=(x1,y1,x2,y2,name='',{d=0,dur=.9}={})=>`<g transform="translate(${x1} ${y1})"><g class="travel" ${S({d,dur,tx:x2-x1,ty:y2-y1})}>${fileI}${name?`<text x="24" y="16" class="m f12 b">${name}</text>`:''}</g></g>`;
+const PENCIL=`<path d="M-7 7L-6 2L4 -8L8 -4L-2 6Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.8;stroke-linejoin:round"/>`;
+const EYE=`<path d="M-10 0Q0 -8 10 0Q0 8 -10 0Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.8"/><circle r="3" class="inkf"/>`;
+const LOCK=`<path d="M-6 -2V-7A6 6 0 0 1 6 -7V-2" style="fill:none;stroke:var(--ink);stroke-width:2.5"/><rect x="-9" y="-3" width="18" height="15" rx="3" class="inkf"/>`;
+const TRASH=`<rect x="-6" y="0" width="72" height="10" rx="3" class="inkf"/><rect x="22" y="-6" width="16" height="8" rx="2" class="inkf"/><path d="M2 14H58L54 76H6Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:2.5;stroke-linejoin:round"/><path d="M20 26V64M30 26V64M40 26V64" style="stroke:var(--ink-2);stroke-width:2.5"/>`;
+const sym=(g,x,y,{d=0,an='pop',s=1}={})=>`<g transform="translate(${x} ${y}) scale(${s})"><g class="${an}" ${S({d})}>${g}</g></g>`;
+const STAIRS=`<rect x="0" y="34" width="15" height="14" rx="3" style="fill:var(--web)"/><rect x="16" y="23" width="15" height="25" rx="3" style="fill:var(--teal)"/><rect x="32" y="12" width="15" height="36" rx="3" style="fill:var(--db)"/><rect x="48" y="1" width="15" height="47" rx="3" style="fill:var(--vol)"/>`;
+const term=(x,y,w,h,L,{fs=12,lh=24,top=26,d=0}={})=>G(`<rect width="${w}" height="${h}" rx="12" class="codebg"/>`+L.map(([t,c,dd],i)=>T(16,top+i*lh,t.replace(/ /g,'\u00A0'),{c:`m f${fs} ${c}`,d:dd})).join(''),{x,y,an:'fade',d});
+const chipsRow=(x,y,arr,{maxX=380,d=0,k='line'}={})=>{let s='',cx=x,cy=y;arr.forEach((t,i)=>{const w=Math.round(t.length*6.9+22);if(cx+w>maxX){cx=x;cy+=36}s+=G(`<rect width="${w}" height="28" rx="14" class="pill" style="stroke:var(--${k})"/><text x="${w/2}" y="19" text-anchor="middle" class="f13">${t}</text>`,{x:cx,y:cy,an:'pop',d:d+i*.15});cx+=w+8});return s};
+// ---------- Day 12 helpers ----------
+const LOCKW=`<path d="M-6 -2V-7A6 6 0 0 1 6 -7V-2" style="fill:none;stroke:#fff;stroke-width:2.5"/><rect x="-9" y="-3" width="18" height="15" rx="3" fill="#fff"/>`;
+function cfgCard({x=0,y=0,w=240,kind='cm',name='inference-config',rows=[],rh=24,an='',v={},extra=''}={}){
+  const k=kind==='cm'?'teal':'db',h=46+rows.length*rh;
+  let g=`<rect width="${w}" height="${h}" rx="12" class="panel"/><path d="M12 0H${w-12}Q${w} 0 ${w} 12V34H0V12Q0 0 12 0Z" style="fill:var(--${k})"/>${kind==='sec'?`<g transform="translate(${w-20} 18) scale(.75)">${LOCKW}</g>`:''}<text x="14" y="22" class="f13 b wht">${kind==='cm'?'ConfigMap':'Secret'}: ${name}</text>`;
+  rows.forEach(([kk,vv],i)=>{g+=`<text x="14" y="${58+i*rh}" class="m f12"><tspan class="b">${kk}</tspan><tspan class="mut">: </tspan>${vv}</text>`});
+  g+=extra;if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+const polaroid=(x,y,lines,{w=170,an='pop',d=0,o,label='photo at start'}={})=>{const h=40+lines.length*22+28;return G(`<rect width="${w}" height="${h}" rx="4" style="fill:#fff;stroke:var(--ink);stroke-width:2"/><rect x="10" y="10" width="${w-20}" height="${h-44}" rx="2" style="fill:#1F2449"/>${lines.map((l,i)=>`<text x="20" y="${36+i*22}" class="m f13 b" style="fill:#FFE38A">${l}</text>`).join('')}<text x="${w/2}" y="${h-12}" text-anchor="middle" class="f12" style="fill:#18203F">${label}</text>`,{x,y,an:an?(o!=null?'popout':an):'',d,o})};
+const liveWin=(x,y,w,h,title,o={})=>G(`<rect width="${w}" height="${h}" rx="10" class="panel"/><path d="M10 0H${w-10}Q${w} 0 ${w} 10V26H0V10Q0 0 10 0Z" class="codebg"/><circle cx="14" cy="13" r="4" class="badf"/><circle cx="28" cy="13" r="4" class="warnf"/><circle cx="42" cy="13" r="4" class="okf"/><text x="56" y="18" class="m f11 mut">${title}</text>`,{x,y,...o});
+const DISGUISE=`<circle cx="-15" cy="0" r="11" style="fill:var(--surface);fill-opacity:.2;stroke:var(--ink);stroke-width:3"/><circle cx="15" cy="0" r="11" style="fill:var(--surface);fill-opacity:.2;stroke:var(--ink);stroke-width:3"/><path d="M-4 0Q0 -4 4 0M-26 -2L-34 -6M26 -2L34 -6" style="fill:none;stroke:var(--ink);stroke-width:3;stroke-linecap:round"/><path d="M-22 20Q-11 12 0 18Q11 12 22 20Q11 26 0 22Q-11 26 -22 20Z" class="inkf"/>`;
+const room=(x,y,w,h,name,o={})=>{const tw=Math.round((11+name.length)*8.1+30);return G(`<rect width="${w}" height="${h}" rx="16" class="nodebox"/><path d="M16 0H${tw}V30H0V16Q0 0 16 0Z" class="inkf"/><text x="14" y="20" class="f13 b inv">namespace: ${name}</text>`,{x,y,...o})};
+const BOLT=`<path d="M8 0L0 18H8L4 34L20 12H11L16 0Z" style="fill:var(--warn);stroke:var(--ink);stroke-width:1.5;stroke-linejoin:round"/>`;
+const pillT=(x,y,t,{k='line',an='pop',d=0,o,c='f13'}={})=>{const w=Math.round(t.length*6.9+28);return G(`<rect width="${w}" height="32" rx="16" class="pill" style="stroke:var(--${k})"/><text x="14" y="21" class="${c}">${t}</text>`,{x,y,an:o!=null?'popout':an,d,o})};
+const valX=k=>14+(k.length+2)*7.2;
+// ---------- Day 13 helpers ----------
+function nodeCard({x=0,y=0,w=200,h=150,name='node',k='ink',an='',v={},extra=''}={}){
+  const head=k==='ink'?'class="inkf"':`style="fill:var(--${k})"`,tc=k==='ink'?'class="f13 b inv"':(k==='client'?'class="f13 b" style="fill:var(--on-client)"':'class="f13 b wht"');
+  let g=`<rect width="${w}" height="${h}" rx="14" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><path d="M14 0H${w-14}Q${w} 0 ${w} 14V30H0V14Q0 0 14 0Z" ${head}/><text x="14" y="21" ${tc}>${name}</text>${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function signRaw(t){const w=Math.round(t.length*7.2+24);let st='';for(let i=4;i<w-12;i+=12)st+=`M${i} 12L${i+8} 0`;return `<rect width="${w}" height="44" rx="6" style="fill:var(--surface);stroke:var(--ink);stroke-width:2"/><path d="M6 1H${w-6}Q${w-1} 1 ${w-1} 6V12H1V6Q1 1 6 1Z" style="fill:var(--warn)"/><path d="${st}" style="stroke:var(--ink);stroke-width:2.5"/><text x="12" y="33" class="m f12 b">${t}</text>`}
+const sign=(x,y,t,{an='pop',d=0,o}={})=>G(signRaw(t),{x,y,an:o!=null?'popout':an,d,o});
+function badgeRaw(t,k='ok'){const w=Math.round(t.length*6.6+44);return `<rect width="${w}" height="34" rx="8" style="fill:var(--surface);stroke:var(--${k});stroke-width:2.5"/><rect width="14" height="34" rx="6" style="fill:var(--${k})"/><circle cx="7" cy="9" r="2.5" style="fill:var(--surface)"/><text x="24" y="22" class="m f11 b">${t}</text>`}
+const badge=(x,y,t,{k='ok',an='pop',d=0,o}={})=>G(badgeRaw(t,k),{x,y,an:o!=null?'popout':an,d,o});
+function pizza(cx,cy,r,frac,{d=0}={}){let wedge;
+  if(frac>=1)wedge=`<circle cx="${cx}" cy="${cy}" r="${r-4}" style="fill:var(--warn)"/><circle cx="${cx-12}" cy="${cy-10}" r="5" class="badf"/><circle cx="${cx+14}" cy="${cy-4}" r="5" class="badf"/><circle cx="${cx-2}" cy="${cy+14}" r="5" class="badf"/>`;
+  else{const a=-Math.PI/2+frac*2*Math.PI,x2=cx+(r-4)*Math.cos(a),y2=cy+(r-4)*Math.sin(a),lg=frac>.5?1:0;wedge=`<path d="M${cx} ${cy}L${cx} ${cy-r+4}A${r-4} ${r-4} 0 ${lg} 1 ${x2.toFixed(1)} ${y2.toFixed(1)}Z" style="fill:var(--warn);stroke:var(--client-ink);stroke-width:2;stroke-linejoin:round"/>`}
+  return G(`<circle cx="${cx}" cy="${cy}" r="${r}" style="fill:none;stroke:var(--line);stroke-width:2;stroke-dasharray:5 5"/>${wedge}${frac>=1?`<circle cx="${cx}" cy="${cy}" r="${r-2}" style="fill:none;stroke:var(--client-ink);stroke-width:4"/>`:''}`,{an:'pop',d});}
+const BALLOON=`<ellipse cx="0" cy="0" rx="24" ry="30" style="fill:var(--vol)"/><ellipse cx="-8" cy="-10" rx="6" ry="9" fill="#fff" fill-opacity=".35"/><path d="M-4 29L4 29L0 35Z" style="fill:var(--vol)"/><path d="M0 35Q8 48 0 60" style="fill:none;stroke:var(--ink-2);stroke-width:2"/>`;
+const FUNNEL=`<path d="M0 0H60L38 26V46L22 54V26Z" style="fill:var(--teal)"/>`;
+const MAG=`<circle cx="20" cy="20" r="15" style="fill:var(--surface);stroke:var(--ink);stroke-width:5"/><path d="M31 31L46 46" style="stroke:var(--ink);stroke-width:7;stroke-linecap:round"/>`;
+const TARGET=`<circle r="16" style="fill:none;stroke:var(--web);stroke-width:4"/><circle r="8" style="fill:none;stroke:var(--web);stroke-width:4"/><circle r="3" style="fill:var(--web)"/>`;
+const miniPod=(x,y,k='web')=>`<g transform="translate(${x} ${y})"><rect width="32" height="24" rx="8" style="fill:var(--${k})"/><circle cx="11" cy="12" r="3" fill="#fff"/><circle cx="21" cy="12" r="3" fill="#fff"/></g>`;
+// ---------- Day 14 helpers ----------
+const ptick=(x,y,ok,{d=0,r=8}={})=>`<circle cx="${x}" cy="${y}" r="${r}" class="pop" style="fill:var(--${ok?'ok':'bad'});--d:${d}s"/>`;
+const CLOCK=`<circle r="10" class="warnf"/><path d="M0 -6V0L4 3" style="fill:none;stroke:#fff;stroke-width:2;stroke-linecap:round"/>`;
+const ptag=(x,y,name,k,{d=0,an='pop'}={})=>G(`<rect width="${Math.round(name.length*8.2+24)}" height="26" rx="13" style="fill:var(--${k})"/><text x="12" y="18" class="f13 b wht">${name}</text>`,{x,y,an,d});
+const spill=(x,y,txt,k='ok',{d=0,o,an}={})=>{const w=Math.round(txt.length*7.6+30);return G(`<rect width="${w}" height="24" rx="12" class="pill" style="stroke:var(--${k})"/><circle cx="13" cy="12" r="4.5" style="fill:var(--${k})"/><text x="23" y="16.5" class="f13 b">${txt}</text>`,{x,y,an:an||(o!=null?'inout':'pop'),d,o})};
+const pbox=(x,y,w,h,k,t,q,d)=>G(`<rect width="${w}" height="${h}" rx="14" class="panel" style="stroke:var(--${k});stroke-width:3"/><rect x="14" y="14" width="${Math.round(t.length*8.6+24)}" height="26" rx="13" style="fill:var(--${k})"/><text x="26" y="32" class="f14 b wht">${t}</text><text x="16" y="66" class="f14">${q}</text>`,{x,y,an:'pop',d});
+// ---------- Day 15 helpers ----------
+const crowd=(x,y,n,cols,{first=0,d0=.6,d1=1.8,gap=16,k='ink-2'}={})=>{let s='';for(let i=0;i<n;i++){const cx=x+(i%cols)*gap,cy=y+Math.floor(i/cols)*gap,d=i<first?d0:d1+(i-first)*.012;s+=`<circle cx="${cx}" cy="${cy}" r="5.5" class="pop" style="fill:var(--${k});--d:${d.toFixed(2)}s"/>`}return s};
+const meterCard=(x,y,w,h,title,val,frac,k,cap,{d=0,extra=''}={})=>G(`<rect width="${w}" height="${h}" rx="14" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><text x="16" y="30" class="f13 b mut">${title}</text>${val?`<text x="16" y="84" class="f30 b" style="fill:var(--${k})">${val}</text>`:''}<rect x="16" y="108" width="${w-32}" height="14" rx="7" style="fill:var(--line)"/><rect x="16" y="108" width="${Math.round((w-32)*frac)}" height="14" rx="7" class="grow-x" style="fill:var(--${k});--d:${d+.3}s"/><text x="16" y="150" class="f12">${cap}</text>${extra}`,{x,y,an:'pop',d});
+// ---------- Day 16 helpers ----------
+function house({x=0,y=0,w=150,h=140,name='inference-dev',k='teal',an='',v={},extra='',solar=false}={}){
+  const rh=Math.round(h*.38),bh=h-rh;
+  let g=`<path d="M${w/2} 0L${w} ${rh}H0Z" style="fill:var(--${k})"/>${solar?`<path d="M${w*.56} ${rh*.32}L${w*.86} ${rh*.82}L${w*.74} ${rh*.82}L${w*.48} ${rh*.42}Z" class="inkf" opacity=".75"/>`:''}<rect x="${w*.08}" y="${rh}" width="${w*.84}" height="${bh-24}" style="fill:var(--surface);stroke:var(--ink);stroke-width:2.5"/><rect x="${w/2-12}" y="${h-24-34}" width="24" height="34" rx="3" style="fill:var(--${k});fill-opacity:.6"/><rect x="${w*.18}" y="${rh+14}" width="22" height="18" rx="3" style="fill:var(--note)"/><rect x="${w*.82-22}" y="${rh+14}" width="22" height="18" rx="3" style="fill:var(--note)"/><rect y="${h-22}" width="${w}" height="22" rx="6" class="inkf"/><text x="${w/2}" y="${h-7}" text-anchor="middle" class="m f11 b inv">${name}</text>${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function blueprint({x=0,y=0,w=160,h=110,title='inference-chart',lines=[],an='',v={}}={}){
+  let grid='';for(let i=12;i<w;i+=16)grid+=`M${i} 0V${h}`;for(let j=12;j<h;j+=16)grid+=`M0 ${j}H${w}`;
+  let g=`<rect width="${w}" height="${h}" rx="8" style="fill:var(--web)"/><path d="${grid}" style="stroke:#fff;stroke-opacity:.14;stroke-width:1"/><path d="M${w-50} ${h-12}V${h-34}L${w-32} ${h-50}L${w-14} ${h-34}V${h-12}Z" style="fill:none;stroke:#fff;stroke-width:2;stroke-opacity:.75"/><text x="12" y="22" class="m f12 b wht">${title}</text>${lines.map((l,i)=>`<text x="12" y="${42+i*17}" class="m f11 wht">${l}</text>`).join('')}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function gears({x=0,y=0,w=150,h=120,label='helm render',an='',v={},d=0}={}){
+  const gear=(cx,cy,r,dd)=>{let t='';for(let i=0;i<8;i++)t+=`<rect x="${(cx-3.5).toFixed(1)}" y="${(cy-r-6).toFixed(1)}" width="7" height="10" rx="2" transform="rotate(${i*45} ${cx} ${cy})"/>`;return `<g class="spin" style="--d:${dd}s"><g style="fill:var(--ink-2)">${t}<circle cx="${cx}" cy="${cy}" r="${r}"/></g><circle cx="${cx}" cy="${cy}" r="${(r*.4).toFixed(1)}" style="fill:var(--surface)"/></g>`};
+  let g=`<rect width="${w}" height="${h}" rx="14" class="panel" style="stroke:var(--db);stroke-width:3"/>${gear(w*.36,h*.42,18,d)}${gear(w*.66,h*.58,13,d)}<text x="${w/2}" y="${h-12}" text-anchor="middle" class="m f12 b dbc">${label}</text>`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function docPaper({x=0,y=0,w=130,h=150,title='',lines=[],an='',v={},extra=''}={}){
+  let g=`<path d="M0 8Q0 0 8 0H${w-22}L${w} 22V${h-8}Q${w} ${h} ${w-8} ${h}H8Q0 ${h} 0 ${h-8}Z" class="paper"/><path d="M${w-22} 1V22H${w-1}" class="paperfold"/>${title?`<text x="12" y="22" class="m f11 b">${title}</text>`:''}${lines.map((l,i)=>`<text x="12" y="${46+i*18}" class="m f11">${l}</text>`).join('')}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+const PARCEL=w=>`<rect width="${w}" height="80" rx="6" style="fill:var(--warn);fill-opacity:.35;stroke:var(--ink);stroke-width:2.5"/><rect x="${w/2-9}" width="18" height="80" style="fill:var(--warn)"/><path d="M0 22H${w}" style="stroke:var(--ink);stroke-width:2"/>`;
+const bx2=(x,y,w,h,a,b,k,d)=>G(`<rect width="${w}" height="${h}" rx="12" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><text x="${w/2}" y="${b?h/2-3:h/2+5}" text-anchor="middle" class="f14 b">${a}</text>${b?`<text x="${w/2}" y="${h/2+15}" text-anchor="middle" class="f11 mut">${b}</text>`:''}`,{x,y,an:'pop',d});
+// ---------- Day 17 helpers ----------
+function idCard({x=0,y=0,w=150,h=80,name='model-sa',sub='ServiceAccount',k='teal',an='',v={}}={}){
+  const m=h/2+10;
+  let g=`<rect x="${w/2-14}" y="-10" width="28" height="16" rx="5" class="inkf"/><rect width="${w}" height="${h}" rx="10" style="fill:var(--surface);stroke:var(--${k});stroke-width:3"/><path d="M0 10Q0 0 10 0H${w-10}Q${w} 0 ${w} 10V18H0Z" style="fill:var(--${k})"/><circle cx="26" cy="${m}" r="14" style="fill:var(--${k});fill-opacity:.22"/><circle cx="26" cy="${m-4}" r="5" style="fill:var(--${k})"/><path d="M17 ${m+11}Q26 ${m+1} 35 ${m+11}Z" style="fill:var(--${k})"/><text x="48" y="${m-1}" class="m f12 b">${name}</text><text x="48" y="${m+15}" class="f11 mut">${sub}</text>`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function rdoor(x,y,label,{k='web',d=0,open=null,deny=null,w=64,h=96}={}){
+  let s=G(`<rect width="${w}" height="${h}" rx="4" style="fill:var(--line);stroke:var(--ink);stroke-width:2.5"/><rect x="6" y="6" width="${w-12}" height="${h-6}" rx="3" style="fill:var(--${k});fill-opacity:.55"/><circle cx="${w-14}" cy="${h/2+6}" r="3.5" class="inkf"/>${label?`<text x="${w/2}" y="${h+18}" text-anchor="middle" class="f12 b">${label}</text>`:''}`,{x,y,an:'pop',d});
+  s+=`<circle cx="${x+w/2}" cy="${y-10}" r="6" class="${open!=null?'inout':'pop'}" style="fill:var(--bad);--d:${d}s${open!=null?`;--o:${open}s`:''}"/>`;
+  if(open!=null)s+=G(`<rect x="6" y="6" width="${w-12}" height="${h-6}" rx="3" class="inkf" opacity=".85"/><path d="M6 6L${Math.round(w*.32)} 14V${h-4}L6 ${h}Z" style="fill:var(--${k})"/><circle cx="${w/2}" cy="-10" r="6" style="fill:var(--ok)"/>`,{x,y,an:'fade',d:open});
+  if(deny!=null)s+=icon('no',x+w/2,y+h/2,{r:13,d:deny});
+  return s;
+}
+const keyI=(x,y,{s=1,d=0,o,an='pop',k='warn'}={})=>G(`<g transform="scale(${s})"><circle cx="12" cy="15" r="10" style="fill:none;stroke:var(--${k});stroke-width:6"/><rect x="21" y="12" width="40" height="7" rx="3" style="fill:var(--${k})"/><rect x="47" y="18" width="6" height="9" rx="2" style="fill:var(--${k})"/><rect x="55" y="18" width="6" height="12" rx="2" style="fill:var(--${k})"/></g>`,{x,y,an:o!=null?'inout':an,d,o});
+const bindBand=(x,y,w,h,a,b,{d=0,k='vol'}={})=>G(`<rect width="${w}" height="${h}" rx="${h/2}" style="fill:var(--${k});fill-opacity:.18;stroke:var(--${k});stroke-width:3"/><g transform="translate(14 ${h/2-8})" style="fill:none;stroke:var(--${k});stroke-width:3"><rect width="16" height="10" rx="5"/><rect x="10" y="6" width="16" height="10" rx="5"/></g><text x="${w/2+14}" y="${b?h/2-2:h/2+5}" text-anchor="middle" class="f13 b">${a}</text>${b?`<text x="${w/2+14}" y="${h/2+14}" text-anchor="middle" class="f11 mut">${b}</text>`:''}`,{x,y,an:'pop',d});
+const mchip=(x,y,t,k,{d=0,o}={})=>{const w=Math.round(t.length*7.2+20);return G(`<rect width="${w}" height="24" rx="12" style="fill:var(--${k});fill-opacity:.18;stroke:var(--${k});stroke-width:2"/><text x="${w/2}" y="17" text-anchor="middle" class="m f12 b">${t}</text>`,{x,y,an:o!=null?'inout':'pop',d,o})};
+const hlr=(x,y,w,h,k,d)=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="4" class="fade" style="fill:var(--${k});fill-opacity:.22;stroke:var(--${k});stroke-width:1.5;--d:${d}s"/>`;
+// ---------- Day 18 helpers ----------
+function alarmClock(x,y,{s=1,an='pop',d=0,ring=null,k='warn'}={}){
+  const face=`<circle cx="9" cy="10" r="8" style="fill:var(--${k})"/><circle cx="51" cy="10" r="8" style="fill:var(--${k})"/><path d="M14 58L8 66M46 58L52 66" style="stroke:var(--ink);stroke-width:4;stroke-linecap:round"/><circle cx="30" cy="36" r="26" style="fill:var(--surface);stroke:var(--ink);stroke-width:4"/><path d="M30 20V36L41 42" style="fill:none;stroke:var(--ink);stroke-width:3.5;stroke-linecap:round"/><circle cx="30" cy="36" r="3" class="inkf"/>`;
+  const inner=ring!=null?`<g class="ringy" style="--d:${ring}s">${face}</g>`:face;
+  return G(`<g transform="scale(${s})">${inner}</g>`,{x,y,an,d});
+}
+function clipb({x=0,y=0,w=90,h=100,title='Job',k='db',an='pop',v={},extra=''}={}){
+  let g=`<rect width="${w}" height="${h}" rx="8" style="fill:var(--surface);stroke:var(--${k});stroke-width:3"/><rect x="${w/2-18}" y="-8" width="36" height="16" rx="5" style="fill:var(--${k})"/><text x="${w/2}" y="30" text-anchor="middle" class="f13 b">${title}</text><path d="M14 46H${w-14}M14 62H${w-14}M14 78H${w-30}" style="stroke:var(--line);stroke-width:4;stroke-linecap:round"/>${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+const gbar=(x,y,w,h,k,d,label='',{dur=.8,lc='wht',op=1}={})=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="5" class="grow-x" style="fill:var(--${k});fill-opacity:${op};--d:${d}s;--dur:${dur}s"/>`+(label?T(x+8,y+h/2+4.5,label,{c:`f12 b ${lc}`,d:d+dur*.6}):'');
+const vline=(x,y1,y2,k,d,dash=true)=>`<path d="M${x} ${y1}V${y2}" class="fade" style="stroke:var(--${k});stroke-width:2.5;${dash?'stroke-dasharray:6 5;':''}--d:${d}s"/>`;
+// ---------- Day 19 helpers ----------
+const evCard=(x,y,w,h,lines,{d=0,k='warn',an='pop',rot=0}={})=>G(`<g transform="rotate(${rot} ${w/2} ${h/2})"><rect width="${w}" height="${h}" rx="6" style="fill:var(--note);stroke:var(--ink);stroke-width:1.5"/><circle cx="${w/2}" cy="8" r="6" style="fill:var(--${k});stroke:var(--ink);stroke-width:1.5"/>${lines.map(([t,c],i)=>`<text x="14" y="${34+i*20}" class="${c||'f12'} lbltxt">${t}</text>`).join('')}</g>`,{x,y,an,d});
+const chip=(x,y,w,t,k,{d=0,o,mono=false,h=30}={})=>G(`<rect width="${w}" height="${h}" rx="${h/2}" style="fill:var(--${k});fill-opacity:.16;stroke:var(--${k});stroke-width:2"/><text x="${w/2}" y="${h/2+4.5}" text-anchor="middle" class="${mono?'m ':''}f12 b">${t}</text>`,{x,y,an:o!=null?'inout':'pop',d,o});
+const stepsChain=(items,y,{x0=20,gap=14,d0=0,step=.4,h=34}={})=>{let s='',x=x0;items.forEach(([t,w,k],i)=>{s+=chip(x,y,w,t,k,{d:d0+i*step,h});if(i<items.length-1)s+=arrow({x1:x+w+2,y1:y+h/2,x2:x+w+gap-2,y2:y+h/2},{d:d0+i*step+.2,dur:.15,c:'var(--ink-2)',w:2});x+=w+gap});return s};
+// ---------- Day 21 helpers ----------
+const cgrid=(x,y,cols,rows,cell,gap,k,{d0=0,step=.01,op=1,an='pop',rnd=false}={})=>{let s='';for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){const i=r*cols+c,d=d0+(rnd?((i*37)%97)/97*step*cols*rows:i*step);s+=`<rect x="${x+c*(cell+gap)}" y="${y+r*(cell+gap)}" width="${cell}" height="${cell}" rx="${Math.max(2,cell/5)}" class="${an}" style="fill:var(--${k});fill-opacity:${op};--d:${d.toFixed(2)}s"/>`}return s};
+const progRing=(cx,cy,r,frac,k,d,{w=12}={})=>{const a=-Math.PI/2+frac*2*Math.PI,x=cx+r*Math.cos(a),y=cy+r*Math.sin(a),big=frac>.5?1:0;return `<circle cx="${cx}" cy="${cy}" r="${r}" class="fade" style="fill:none;stroke:var(--line);stroke-width:${w};--d:${d}s"/><path d="M${cx} ${cy-r}A${r} ${r} 0 ${big} 1 ${x.toFixed(1)} ${y.toFixed(1)}" pathLength="1" class="aline draw" style="stroke:var(--${k});stroke-width:${w};stroke-linecap:round;--d:${d}s;--dur:1.2s"/>`};
+const hbar=(x,y,w,h,k,d,{dur=.8,op=1,label='',lc='wht'}={})=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="4" class="grow-x" style="fill:var(--${k});fill-opacity:${op};--d:${d}s;--dur:${dur}s"/>`+(label?T(x+8,y+h/2+4.5,label,{c:`f12 b ${lc}`,d:d+dur*.6}):'');
+const vbar=(x,base,w,h,k,d,{op=1}={})=>`<rect x="${x}" y="${base-h}" width="${w}" height="${h}" rx="3" class="up" style="fill:var(--${k});fill-opacity:${op};--d:${d}s"/>`;
+const zbox=(x,y,w,h,a,b,{k='ink',d=0,inv=false,an='pop',o}={})=>G(inv?`<rect width="${w}" height="${h}" rx="10" class="inkf"/><text x="${w/2}" y="${b?h/2-2:h/2+5}" text-anchor="middle" class="f13 b inv">${a}</text>${b?`<text x="${w/2}" y="${h/2+15}" text-anchor="middle" class="m f11 inv" opacity=".8">${b}</text>`:''}`:`<rect width="${w}" height="${h}" rx="10" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><text x="${w/2}" y="${b?h/2-2:h/2+5}" text-anchor="middle" class="f13 b">${a}</text>${b?`<text x="${w/2}" y="${h/2+15}" text-anchor="middle" class="m f11 mut">${b}</text>`:''}`,{x,y,an:o!=null?'inout':an,d,o});
+// ---------- Day 22 helpers ----------
+const STK=[['Application','Python / C++ / model serving','ink'],['Framework','PyTorch / TensorFlow','vol'],['CUDA runtime + libraries','libcudart.so · cuBLAS · cuDNN · NCCL','teal'],['CUDA Driver API','libcuda.so','db'],['NVIDIA host driver','user-space + kernel modules','web'],['Physical GPU','','ok']];
+const stackL=(x,y,w,L,{h=44,gap=10,d0=0,step=.2,rev=false,an='pop'}={})=>L.map(([n,sub,k],i)=>{const yy=y+i*(h+gap),d=d0+(rev?(L.length-1-i):i)*step;return G(`<rect width="${w}" height="${h}" rx="10" style="fill:var(--${k})"/><text x="16" y="${sub?h/2-2:h/2+5}" class="f14 b wht">${n}</text>${sub?`<text x="16" y="${h/2+15}" class="m f11 wht" opacity=".88">${sub}</text>`:''}`,{x,y:yy,an,d})}).join('');
+const vtag=(x,y,w,h,k,d,inner)=>G(`<path d="M24 0H${w-8}Q${w} 0 ${w} 8V${h-8}Q${w} ${h} ${w-8} ${h}H24L0 ${h/2}Z" style="fill:var(--surface);stroke:var(--${k});stroke-width:3;stroke-linejoin:round"/><circle cx="22" cy="${h/2}" r="6" style="fill:var(--paper);stroke:var(--${k});stroke-width:2.5"/>${inner}`,{x,y,an:'pop',d});
+// ---------- Day 23 helpers ----------
+const halfGauge=(cx,cy,r,frac,k,d,{w=12}={})=>{const a=Math.PI+Math.max(.001,Math.min(1,frac))*Math.PI,x=cx+r*Math.cos(a),y=cy+r*Math.sin(a);return `<path d="M${cx-r} ${cy}A${r} ${r} 0 0 1 ${cx+r} ${cy}" class="fade" style="fill:none;stroke:var(--line);stroke-width:${w};stroke-linecap:round;--d:${d}s"/><path d="M${cx-r} ${cy}A${r} ${r} 0 0 1 ${x.toFixed(1)} ${y.toFixed(1)}" pathLength="1" class="aline draw" style="stroke:var(--${k});stroke-width:${w};stroke-linecap:round;--d:${d}s;--dur:1.2s"/>`};
+const thermo=(x,y,frac,k,d)=>G(`<rect x="8" y="0" width="16" height="80" rx="8" style="fill:var(--surface);stroke:var(--ink);stroke-width:2.5"/><circle cx="16" cy="92" r="14" style="fill:var(--${k});stroke:var(--ink);stroke-width:2.5"/>`,{x,y,an:'pop',d})+`<rect x="${x+12}" y="${y+80-70*frac}" width="8" height="${70*frac+12}" rx="4" class="up" style="fill:var(--${k});--d:${d+.3}s"/>`;
+const lineP=(pts,k,d,{w=3.5,dash=false,dur=2}={})=>`<path d="M${pts.map(p=>p.join(' ')).join('L')}" pathLength="1" class="aline draw" style="stroke:var(--${k});stroke-width:${w};${dash?'stroke-dasharray:1 1;':''}--d:${d}s;--dur:${dur}s"/>`;
+// ---------- Day 24 helpers ----------
+const vramBar=(x,y,w,h,segs,{d0=0,step=.3,total=null,lab=true}={})=>{const tot=total||segs.reduce((a,s)=>a+s[0],0);let cx=x,s='';segs.forEach(([v,k,l,hat],i)=>{const sw=Math.round(v/tot*w),d=d0+i*step;s+=`<rect x="${cx}" y="${y}" width="${Math.max(sw,1)}" height="${h}" rx="3" class="grow-x" style="fill:var(--${k});fill-opacity:${hat?.25:1};${hat?`stroke:var(--${k});stroke-width:2;stroke-dasharray:5 4;`:''}--d:${d}s;--dur:.5s"/>`;if(lab&&l&&sw>l.length*6.6+12)s+=T(cx+sw/2,y+h/2+4,l,{c:`f11 b ${hat||k==='line'?'':'wht'}`,a:'middle',d:d+.3});cx+=sw});return s};
+const brk=(x1,x2,y,label,k,d,{up=false,c='f12 b'}={})=>{const t=up?-8:8;return `<path d="M${x1} ${y}V${y+t}H${x2}V${y}" class="fade" style="fill:none;stroke:var(--${k});stroke-width:2.5;--d:${d}s"/>`+T((x1+x2)/2,y+(up?-14:24),label,{c:`${c}`,a:'middle',d})};
+const lot=(x,y,slots,{w=40,h=56,gap=6,d0=0,step=.08}={})=>slots.split('').map((ch,i)=>{const sx=x+i*(w+gap),d=d0+i*step;let g=`<rect x="${sx}" y="${y}" width="${w}" height="${h}" rx="5" class="fade" style="fill:none;stroke:var(--line);stroke-width:2;stroke-dasharray:4 3;--d:${d0}s"/>`;if(ch==='L')g+=G(`<rect x="4" y="8" width="${w-8}" height="${h-16}" rx="8" style="fill:var(--teal)"/><rect x="9" y="14" width="${w-18}" height="10" rx="3" style="fill:#fff;opacity:.55"/>`,{x:sx,y,an:'drop',d});if(ch==='C')g+=G(`<path d="M${w/2} 12L${w/2+10} ${h-12}H${w/2-10}Z" style="fill:var(--db)"/><rect x="${w/2-13}" y="${h-14}" width="26" height="5" rx="2" style="fill:var(--db)"/>`,{x:sx,y,an:'pop',d});if(ch==='X')g+=G(`<rect x="4" y="8" width="${w-8}" height="${h-16}" rx="6" style="fill:var(--ink-2)"/>`,{x:sx,y,an:'pop',d});return g}).join('');
+// ---------- Day 25 helpers ----------
+const laneL=(x,y,t,d,{w=680,c='f12 b'}={})=>T(x,y+18,t,{c,d})+`<path d="M${x+60} ${y+28}H${x+60+w}" class="fade" style="stroke:var(--line);stroke-width:1.5;--d:${d}s"/>`;
+const blk=(x,y,w,k,d,label='',{h=28,op=1,dash=false,lc='wht',dur=.4}={})=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="5" class="grow-x" style="fill:var(--${k});fill-opacity:${op};${dash?`stroke:var(--${k});stroke-width:2;stroke-dasharray:5 4;`:''}--d:${d}s;--dur:${dur}s"/>`+(label?T(x+w/2,y+h/2+4.5,label,{c:`f11 b ${lc}`,a:'middle',d:d+dur*.7}):'');
+const tkt=(x,y,t,k,d,{an='drop'}={})=>G(`<path d="M0 0H44V46L38 52L32 46L26 52L20 46L14 52L8 46L2 52L0 50Z" style="fill:var(--surface);stroke:var(--${k});stroke-width:2.5"/><text x="22" y="30" text-anchor="middle" class="m f15 b" style="fill:var(--${k})">${t}</text>`,{x,y,an,d});
+// ---------- Day 26 helpers ----------
+const lockI=(x,y,{d=0,k='bad',s=1,an='pop',o}={})=>G(`<g transform="scale(${s})"><path d="M6 14V9A8 8 0 0 1 22 9V14" style="fill:none;stroke:var(--${k});stroke-width:3.5"/><rect x="1" y="14" width="26" height="20" rx="4" style="fill:var(--${k})"/><circle cx="14" cy="23" r="3" style="fill:#fff"/></g>`,{x,y,an:o!=null?'inout':an,d,o});
+const gpuChip=(x,y,w,h,label,{d=0,k='ok',an='pop'}={})=>G(`<rect width="${w}" height="${h}" rx="8" style="fill:var(--${k})"/><rect x="8" y="8" width="${w-16}" height="${h-16}" rx="4" style="fill:none;stroke:#fff;stroke-width:1.5;opacity:.6"/>`+[0,1,2,3].map(i=>`<path d="M${10+i*(w-20)/3} ${h}V${h+5}M${10+i*(w-20)/3} -5V0" style="stroke:var(--${k});stroke-width:2"/>`).join('')+`<text x="${w/2}" y="${h/2+5}" text-anchor="middle" class="f12 b wht">${label}</text>`,{x,y,an,d});
+const nbox=(x,y,w,h,lines,k,d,{an='pop',fill=.12,first='f13 b',rest='f12',lh=19,top=26}={})=>G(`<rect width="${w}" height="${h}" rx="12" style="fill:var(--${k});fill-opacity:${fill};stroke:var(--${k});stroke-width:2"/>`+lines.map((l,i)=>`<text x="14" y="${top+i*lh}" class="${i===0?first:rest}">${l}</text>`).join(''),{x,y,an,d});
+// ---------- Day 42 visuals 0-8 ----------
+const wrapL=(t,n)=>{const w=t.split(' ');let L=[''];w.forEach(x=>{if((L[L.length-1]+' '+x).trim().length>n)L.push(x);else L[L.length-1]=(L[L.length-1]+' '+x).trim()});return L};
+const CC=[1,4,8,16,32];
+const chartXY=(x0,y0,w,h,ymax,d,{yt=[],yl='',xl='client concurrency'}={})=>{const X=i=>Math.round(x0+30+i*(w-60)/4),Y=v=>Math.round(y0-v/ymax*h);let o=`<path d="M${x0} ${y0-h-10}V${y0}H${x0+w}" class="axis fade" style="--d:${d}s"/>`+CC.map((c,i)=>T(X(i),y0+18,String(c),{c:'m f11 b',a:'middle',d})).join('')+yt.map(v=>T(x0-6,Y(v)+4,String(v),{c:'m f11 mut',a:'end',d})+`<path d="M${x0} ${Y(v)}H${x0+w}" class="fade" style="stroke:var(--line);stroke-width:1;--d:${d}s"/>`).join('')+T(x0+w/2,y0+36,xl,{c:'f11 mut',a:'middle',d});return {o,X,Y}};
+const series=(X,Y,vals,k,d,{w=3,dots=true}={})=>lineP(vals.map((v,i)=>[X(i),Y(v)]),k,d,{w,dur:1.0})+(dots?vals.map((v,i)=>`<circle cx="${X(i)}" cy="${Y(v)}" r="4.5" class="pop" style="fill:var(--${k});--d:${(d+.2+i*.15).toFixed(2)}s"/>`).join(''):'');
+function V0(){
+  let s=G(`<rect width="760" height="300" rx="16" class="panel"/><text x="18" y="30" class="f13 b">The central tradeoff</text><text x="742" y="30" text-anchor="end" class="f11 b warnc">conceptual curves, not measured</text>`,{x:20,y:16,an:'fade',d:.1});
+  s+=`<path d="M80 60V280H720" class="axis fade" style="--d:.2s"/>`+T(400,300,'concurrency →',{c:'f12 mut',a:'middle',d:.2});
+  s+=`<path d="M80 270C200 150 300 110 420 100S650 96 720 96" pathLength="1" class="draw" style="fill:none;stroke:var(--ok);stroke-width:4;--d:.5s;--dur:1.2s"/>`+T(560,86,'throughput plateaus',{c:'f13 b okc',d:1.6});
+  s+=`<path d="M80 262C300 258 420 240 520 200S660 110 720 64" pathLength="1" class="draw" style="fill:none;stroke:var(--bad);stroke-width:4;--d:1.4s;--dur:1.2s"/>`+T(612,150,'tail latency rises',{c:'f13 b badc',d:2.6});
+  s+=`<circle cx="420" cy="100" r="9" class="pop" style="fill:var(--warn);--d:2.4s"/>`+T(420,126,'the knee',{c:'f12 b warnc',a:'middle',d:2.4});
+  s+=G(`<rect width="760" height="138" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="380" y="40" text-anchor="middle" class="f13 b mut">the question we’ll learn to answer</text><text x="380" y="76" text-anchor="middle" class="f17 b">How much concurrency can an inference service sustain</text><text x="380" y="102" text-anchor="middle" class="f17 b">without violating its latency objective?</text>`,{x:20,y:332,an:'up',d:3.2});
+  return svg(s,'The central tradeoff, shown with conceptual curves: as concurrency rises, throughput climbs and then plateaus at a knee, while tail latency stays low and then rises steeply. A system may finish more requests while making individual users wait longer. The question to answer: how much concurrency can an inference service sustain without violating its latency objective?');
+}
+
+function V1(){
+  let s=G(`<rect width="760" height="250" rx="16" class="panel"/><text x="18" y="30" class="f13 b mut">the grocery store</text>`,{x:20,y:16,an:'fade',d:.1});
+  s+=`<rect x="40" y="60" width="14" height="170" rx="4" class="fade" style="fill:var(--ink-2);--d:.2s"/>`;
+  [0,1,2].forEach(i=>{s+=pod({x:62,y:70+i*52,s:.34,k:'vol',mood:'happy',an:'slide',v:{d:.3+i*.4,dx:-30}})});
+  s+=G(`<rect width="300" height="170" rx="14" style="fill:var(--warn);fill-opacity:.06;stroke:var(--warn);stroke-width:2;stroke-dasharray:6 4"/>`,{x:140,y:60,an:'fade',d:.6});
+  [[170,84],[230,120],[290,84],[350,140],[200,170],[300,186]].forEach(([x,y],i)=>{s+=pod({x,y,s:.36,k:i===0?'teal':'warn',mood:i===0?'flat':'happy',an:'pop',v:{d:.8+i*.15}})});
+  s+=G(`<circle r="16" style="fill:var(--surface);stroke:var(--teal);stroke-width:3"/><path d="M0 -9V0L6 4" style="fill:none;stroke:var(--teal);stroke-width:2.5;stroke-linecap:round"/>`,{x:206,y:72,an:'pop',d:1.8});
+  [0,1].forEach(i=>{s+=G(`<rect width="90" height="56" rx="8" style="fill:var(--ok)"/><text x="45" y="34" text-anchor="middle" class="f12 b wht">register ${i+1}</text>`,{x:480,y:78+i*80,an:'pop',d:1.2+i*.2})});
+  s+=arrow({x1:574,y1:146,x2:640,y2:146},{d:2.0,dur:.2,c:'var(--ok)'});for(let q=0;q<3;q++)s+=packet(574,146,640,146,{d:2.2+q*.6,dur:.4,c:'var(--ok)',r:6});
+  s+=T(700,140,'done!',{c:'f13 b okc',a:'middle',d:2.2});
+  const C=[['latency','one shopper’s time from joining a line to leaving','teal'],['throughput','shoppers served per minute','ok'],['concurrency','shoppers currently inside','warn'],['offered load','shoppers walking in per minute','vol']];
+  C.forEach(([a,b,k],i)=>{const x=20+(i%2)*390,y=282+Math.floor(i/2)*96,d=2.6+i*.25;s+=G(`<rect width="370" height="84" rx="14" style="fill:var(--${k});fill-opacity:.1;stroke:var(--${k});stroke-width:2.5"/><text x="18" y="32" class="f15 b" style="fill:var(--${k})">${a}</text>`+wrapL(b,44).map((l,j)=>`<text x="18" y="${56+j*18}" class="f13">${l}</text>`).join(''),{x,y,an:'up',d})});
+  return svg(s,'Four different questions, in a grocery store. Latency is one shopper’s time from joining a line to leaving. Throughput is shoppers served per minute at the registers. Concurrency is how many shoppers are currently inside. Offered load is how many shoppers walk in per minute. Opening a faster register raises throughput, but crowding can still increase an individual shopper’s wait.');
+}
+
+function V2(){
+  let s=G(`<rect width="760" height="230" rx="16" class="panel"/><text x="18" y="30" class="f13 b">One request’s server-side path (illustrative)</text>`,{x:20,y:16,an:'fade',d:.1});
+  const K=640/70;let x=40;[['queue',10,'warn'],['pre',5,'vol'],['model inference',45,'ok'],['post',10,'vol']].forEach(([t,v,k],i)=>{const w=Math.round(v*K);s+=hbar(x,60,w-3,50,k,.3+i*.4,{label:t+' '+v+' ms',dur:.4});x+=w});
+  s+=brk(40,680,124,'70 ms for these four stages','ink',2.0,{c:'f14 b'});
+  s+=G(`<rect width="420" height="40" rx="10" style="fill:var(--bad);fill-opacity:.1;stroke:var(--bad);stroke-width:2;stroke-dasharray:6 4"/><text x="210" y="26" text-anchor="middle" class="f13 b">reporting only the 45 ms GPU slice as latency ✗</text>`,{x:190,y:186,an:'pop',d:2.6});
+  s+=G(`<rect width="760" height="104" rx="16" class="panel"/><text x="18" y="38" class="m f14 b">L = L<tspan font-size="10">network</tspan> + L<tspan font-size="10">queue</tspan> + L<tspan font-size="10">pre</tspan> + L<tspan font-size="10">model</tspan> + L<tspan font-size="10">post</tspan> + L<tspan font-size="10">other</tspan></text><text x="18" y="66" class="f12">always say where the clock starts and stops: client-observed latency adds network + HTTP</text><text x="18" y="86" class="f12 mut">one total value doesn’t locate the bottleneck</text>`,{x:20,y:262,an:'fade',d:3.0});
+  s+=G(`<rect width="760" height="104" rx="16" class="panel" style="stroke:var(--ok);stroke-width:2.5"/><text x="18" y="34" class="m f14 b">T = successful completed requests / wall-clock time</text><text x="18" y="62" class="m f13 okc b">2,400 requests in 20 s → 120 RPS</text>`,{x:20,y:382,an:'up',d:3.4})+chipsRow(400,420,['requests/s','samples/s','images/s','tokens/s'],{maxX:772,d:3.6});
+  return svg(s,'Latency is the whole path: in an illustrative request, 10 ms of queueing, 5 ms of preprocessing, 45 ms of model inference and 10 ms of postprocessing add up to 70 ms, so reporting only the 45 ms GPU slice is wrong. Total latency adds network, queue, preprocessing, model, postprocessing and other time, and you must say where the clock starts and stops. Throughput is successful completed requests over wall-clock time: 2,400 requests in 20 seconds is 120 RPS, with units such as requests, samples, images or tokens per second.');
+}
+
+function V3(){
+  let s=G(`<rect width="760" height="230" rx="16" class="panel"/><text x="18" y="30" class="f13 b">100 illustrative requests, sorted by latency</text>`,{x:20,y:16,an:'fade',d:.1});
+  for(let i=0;i<100;i++){const slow=i>=90,h=slow?120:10,x=40+i*7;s+=`<rect x="${x}" y="${220-h}" width="5" height="${h}" rx="1" class="pop" style="fill:var(--${slow?'bad':'ok'});--d:${(.2+i*.012).toFixed(3)}s"/>`}
+  s+=T(330,170,'90 requests: 50 ms',{c:'f12 b okc',a:'middle',d:1.4})+T(705,72,'10 requests:',{c:'f12 b badc',a:'middle',d:1.6})+T(705,88,'1,000 ms',{c:'f12 b badc',a:'middle',d:1.6});
+  s+=`<path d="M40 ${220-145*.12}H740" class="fade" style="stroke:var(--warn);stroke-width:2.5;stroke-dasharray:7 5;--d:2.0s"/>`+T(44,220-145*.12-8,'mean = (90·50 + 10·1000) / 100 = 145 ms',{c:'m f12 b warnc',d:2.0});
+  s+=`<path d="M${40+49*7+2} 226V238" class="fade" style="stroke:var(--ink);stroke-width:2.5;--d:2.4s"/>`+T(40+49*7+2,252,'p50 = 50',{c:'m f11 b',a:'middle',d:2.4})+`<path d="M${40+94*7+2} 226V238" class="fade" style="stroke:var(--bad);stroke-width:2.5;--d:2.6s"/>`+T(40+94*7+2,252,'p95 = p99 = 1,000',{c:'m f11 b badc',a:'end',d:2.6});
+  s+=G(`<rect width="470" height="200" rx="16" class="panel"/><text x="18" y="30" class="f13 b">What each number tells you</text>`,{x:20,y:270,an:'fade',d:2.8});
+  [['p50','typical behavior','ok'],['p95','slower requests: an early tail signal','warn'],['p99','extreme tail; latency SLOs','bad'],['mean','overall trend, may hide the tail','ink-2']].forEach(([a,b,k],i)=>{const y=330+i*34,d=3.0+i*.15;s+=chip(36,y-18,64,a,k,{d,mono:true,h:26})+T(112,y,b,{c:'f13',d})});
+  s+=G(`<rect width="270" height="200" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="16" y="32" class="f14 b">Read p99 carefully</text><text x="16" y="62" class="f12">p99 = 900 ms means about 99%</text><text x="16" y="80" class="f12">of measured requests finished</text><text x="16" y="98" class="f12 b">at or below 900 ms</text><text x="16" y="132" class="f12">not “99% of users wait 900 ms”</text><text x="16" y="166" class="f11 mut">with 300 samples, only a few</text><text x="16" y="182" class="f11 mut">requests decide the p99</text>`,{x:510,y:270,an:'up',d:3.6});
+  return svg(s,'The mean hides the tail: in 100 illustrative requests sorted by latency, 90 take 50 ms and 10 take 1,000 ms. The mean is 145 ms, which looks reassuring, yet 10% of requests take a full second. With nearest-rank percentiles, p50 is 50 ms while p95 and p99 are 1,000 ms. p50 shows typical behavior, p95 an early tail signal, p99 the extreme tail used in SLOs, and the mean can hide the tail. p99 of 900 ms means about 99% finished at or below 900 ms, not that 99% of users wait 900 ms.');
+}
+
+function V4(){
+  const X=t=>Math.round(140+t*7.2);
+  let s=G(`<rect width="760" height="270" rx="16" class="panel"/><text x="18" y="30" class="f13 b">Four requests arrive together (illustrative timeline)</text>`,{x:20,y:16,an:'fade',d:.1});
+  s+=`<path d="M140 240H720" class="axis fade" style="--d:.1s"/>`+[0,20,40,60,80].map(t=>T(X(t),258,t+' ms',{c:'m f11 mut',a:'middle',d:.1})).join('');
+  s+=T(40,90,'sequential',{c:'f13 b',d:.2});['R1','R2','R3','R4'].forEach((r,i)=>{s+=blk(X(i*20),72,Math.round(20*7.2)-4,['vol','teal','warn','web'][i],.4+i*.4,r,{h:30})});
+  s+=T(40,166,'one batch',{c:'f13 b',d:2.2});s+=blk(X(0),130,Math.round(50*7.2)-4,'ok',2.4,'R1 + R2 + R3 + R4 together',{h:56,dur:.8});
+  s+=vline(X(50),120,244,'ok',3.2)+T(X(50)+6,212,'all done at 50',{c:'f12 b okc',d:3.2})+vline(X(80),62,244,'bad',3.4)+T(X(80)-6,56,'last at 80',{c:'f12 b badc',a:'end',d:3.4});
+  s+=G(`<rect width="760" height="184" rx="16" class="panel"/><text x="180" y="30" class="f12 b mut">sequential</text><text x="420" y="30" class="f12 b mut">one batch of 4</text>`,{x:20,y:302,an:'fade',d:3.6});
+  [['finish times','20, 40, 60, 80 ms','50, 50, 50, 50 ms'],['mean latency','50 ms','50 ms'],['last request','80 ms','50 ms'],['throughput','4 / 0.08 = 50 samples/s','4 / 0.05 = 80 samples/s']].forEach(([a,b,c],i)=>{const y=364+i*30,d=3.8+i*.2;s+=T(40,y,a,{c:'f13 b',d})+T(200,y,b,{c:'m f12',d})+T(440,y,c,{c:'m f12 b okc',d})});
+  return svg(s,'Batching, illustrated: four requests arrive together. Run sequentially at 20 ms each, they finish at 20, 40, 60 and 80 ms, a mean of 50 ms with the last at 80 ms and 50 samples per second. Run as one batch in 50 ms, all four finish at 50 ms: the same 50 ms mean, but the last request finishes sooner and throughput rises to 80 samples per second. Throughput improvement alone doesn’t determine per-request latency.');
+}
+
+function V5(){
+  let s=G(`<rect width="470" height="300" rx="16" class="panel"/><text x="18" y="30" class="f13 b">The rule of thumb</text><text x="452" y="30" text-anchor="end" class="f11 b warnc">conceptual</text>`,{x:20,y:16,an:'fade',d:.1});
+  s+=`<path d="M70 60V270H460" class="axis fade" style="--d:.2s"/>`+T(265,290,'concurrency →',{c:'f11 mut',a:'middle',d:.2});
+  s+=`<path d="M70 262C140 160 190 120 260 110S400 106 460 106" pathLength="1" class="draw" style="fill:none;stroke:var(--ok);stroke-width:4;--d:.4s;--dur:1s"/>`+`<path d="M70 256C200 252 250 236 310 200S420 110 460 70" pathLength="1" class="draw" style="fill:none;stroke:var(--bad);stroke-width:4;--d:1.2s;--dur:1s"/>`;
+  s+=`<rect x="230" y="60" width="70" height="210" rx="8" class="fade" style="fill:var(--warn);fill-opacity:.12;--d:2.0s"/>`+T(265,80,'knee',{c:'f12 b warnc',a:'middle',d:2.0})+T(130,140,'throughput',{c:'f12 b okc',d:1.0})+T(330,236,'tail latency',{c:'f12 b badc',d:2.0});
+  s+=T(36,312,'its location depends on model, hardware, software, request mix, traffic',{c:'f11 mut',d:2.4}).replace('y="312"','y="304"');
+  s+=G(`<rect width="270" height="300" rx="16" class="panel"/><text x="16" y="30" class="f13 b">Dynamic batching</text>`,{x:510,y:16,an:'fade',d:1.4});
+  s+=T(526,70,'low load',{c:'f12 b',d:1.6})+[0,1].map(i=>`<circle cx="${560+i*60}" cy="98" r="8" class="pop" style="fill:var(--vol);--d:${1.8+i*.3}s"/>`).join('')+T(526,130,'requests wait for companions',{c:'f11',d:2.0});
+  s+=T(526,174,'high load',{c:'f12 b',d:2.2})+Array.from({length:12},(_,i)=>`<circle cx="${540+(i%6)*30}" cy="${198+Math.floor(i/6)*22}" r="8" class="pop" style="fill:var(--bad);--d:${(2.4+i*.04).toFixed(2)}s"/>`).join('')+T(526,256,'batches fill fast, but a backlog',{c:'f11',d:2.8})+T(526,272,'can swamp the benefit',{c:'f11',d:2.8});
+  s+=G(`<rect width="760" height="138" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="18" y="32" class="f14 b">What makes the tail long?</text>`,{x:20,y:332,an:'up',d:3.2})+chipsRow(36,374,['queue buildup','unusually large inputs','CPU / model contention','memory allocation','synchronization','batching waits','network variability'],{maxX:772,d:3.4})+T(36,460,'A rising p99 alone doesn’t say which stage is at fault.',{c:'f12 b',d:3.8});
+  return svg(s,'Find the knee: as concurrency rises, throughput usually rises at first and then plateaus at a knee, while tail latency stays low and then climbs; past the knee, more in-flight work mostly means more waiting and contention. Its location depends on model, hardware, software, request mix and traffic. With dynamic batching, requests at low load wait for companions, while at high load batches fill fast but a backlog can swamp the benefit. Long tails come from queues, large inputs, contention, allocation, synchronization, batching waits or network variability.');
+}
+
+function V6(){
+  let s=G(`<rect width="760" height="140" rx="16" class="panel"/>`,{x:20,y:16,an:'fade',d:.1});
+  s+=G(`<text x="60" y="88" class="m b" style="font-size:44px">N = λ W</text>`,{an:'fade',d:.2})+T(300,62,'N: mean requests in flight',{c:'f13',d:.4})+T(300,86,'λ: average arrival / completion rate',{c:'f13',d:.5})+T(300,110,'W: average time in the system',{c:'f13',d:.6});
+  s+=G(`<rect width="760" height="200" rx="16" class="panel"/><text x="18" y="30" class="f13 b">Worked example: 300 requests/s at an average 200 ms</text>`,{x:20,y:172,an:'fade',d:.8});
+  s+=G(`<rect width="190" height="40" rx="10" style="fill:var(--warn);fill-opacity:.15;stroke:var(--warn);stroke-width:2"/><text x="95" y="26" text-anchor="middle" class="m f14 b">200 ms = 0.2 s</text>`,{x:40,y:220,an:'pop',d:1.0})+T(250,246,'convert units first!',{c:'f12 b warnc',d:1.2});
+  s+=T(40,300,'N = 300 requests/s × 0.2 s =',{c:'m f15 b',d:1.6})+G(`<rect width="150" height="44" rx="12" style="fill:var(--ok)"/><text x="75" y="29" text-anchor="middle" class="f17 b wht">60 requests</text>`,{x:350,y:274,an:'pop',d:2.0});
+  for(let i=0;i<60;i++){const k=i<36?'warn':i<50?'ok':'teal';s+=`<circle cx="${530+(i%12)*19}" cy="${236+Math.floor(i/12)*22}" r="6.5" class="pop" style="fill:var(--${k});--d:${(2.2+i*.02).toFixed(2)}s"/>`}
+  s+=T(530,358,'waiting · executing · finishing',{c:'f11 b',d:3.4});
+  s+=G(`<rect width="760" height="98" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="18" y="32" class="f13 b">60 in flight ≠ 60 GPU kernels running at once.</text><text x="18" y="56" class="f12">Only valid for a stable system on one consistent boundary. If arrivals keep exceeding capacity,</text><text x="18" y="74" class="f12">queues grow: answer with admission control, bounded queues, backpressure or more capacity.</text>`,{x:20,y:388,an:'up',d:3.6});
+  return svg(s,'Little’s Law, units first: N = λW, where N is mean requests in flight, λ the average arrival or completion rate and W the average time in the system. For 300 requests per second at an average 200 ms, convert 200 ms to 0.2 s first, so N = 300 × 0.2 = 60 requests in flight, some waiting, some executing, some finishing. That’s not 60 GPU kernels running at once, and it only holds for a stable system on one consistent boundary; sustained overload needs admission control, bounded queues, backpressure or capacity.');
+}
+
+function V7(){
+  let s=G(`<rect width="370" height="300" rx="16" style="fill:var(--surface);stroke:var(--ink);stroke-width:2.5"/><path d="M0 16Q0 0 16 0H354Q370 0 370 16V48H0Z" style="fill:var(--ink)"/><text x="185" y="31" text-anchor="middle" class="f14 b inv">LATENCY OBJECTIVE</text><text x="20" y="84" class="f13">“For a defined time window and</text><text x="20" y="104" class="f13">request population, at least</text><text x="20" y="130" class="f17 b okc">99% of successful requests</text><text x="20" y="156" class="f17 b okc">finish within 10 ms.”</text><text x="20" y="196" class="f12 mut">spell out: window, failures,</text><text x="20" y="214" class="f12 mut">percentile method, traffic</text><text x="20" y="270" class="f11 b warnc">a teaching assumption, not a production SLA</text>`,{x:20,y:16,an:'pop',d:.2});
+  s+=G(`<rect width="370" height="300" rx="16" class="panel"/><text x="18" y="30" class="f13 b">A deployable choice must pass both</text>`,{x:410,y:16,an:'fade',d:1.0});
+  const Q=[['fast, but misses SLO','high RPS · slow tail','bad'],['deployable','enough RPS · tail OK','ok'],['too little capacity','tail OK · can’t keep up','warn'],['neither','','ink-2']];
+  Q.forEach(([a,b,k],i)=>{const x=440+(i%2)*160,y=56+Math.floor(i/2)*110,d=1.2+i*.25;s+=G(`<rect width="150" height="100" rx="12" style="fill:var(--${k});fill-opacity:${k==='ok'?.25:.1};stroke:var(--${k});stroke-width:2"/><text x="75" y="44" text-anchor="middle" class="f12 b">${a}</text><text x="75" y="64" text-anchor="middle" class="f11">${b}</text>`,{x,y,an:'pop',d})});
+  s+=T(595,292,'+ acceptable errors and headroom',{c:'f11 b',a:'middle',d:2.4});
+  s+=G(`<rect width="760" height="138" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="18" y="34" class="f14 b">Optimize for the SLO, not for GPU utilization</text><text x="18" y="64" class="f13">The real target: deliver the required workload within latency, reliability and cost limits.</text><text x="18" y="86" class="f13">A great p99 at low traffic can still fail anticipated demand, and vice versa.</text>`,{x:20,y:332,an:'up',d:2.8});
+  return svg(s,'An SLO is a contract, for example: for a defined window and request population, at least 99% of successful requests finish within 10 ms, with the window, failures, percentile method and traffic spelled out. Here it’s a teaching assumption, not a production SLA. A deployable choice must pass both the throughput demand and the latency limit, plus acceptable errors and headroom: high RPS with a slow tail fails, and so does a good tail without enough capacity. Optimize for the SLO, not GPU utilization.');
+}
+
+function V8(){
+  let s=G(`<rect width="760" height="150" rx="16" class="panel"/>`,{x:20,y:16,an:'fade',d:.1});
+  s+=pod({x:40,y:56,s:.55,k:'vol',mood:'happy',an:'pop',v:{d:.2}})+T(76,140,'benchmark.py',{c:'m f11 b',a:'middle',d:.2})+T(76,154,'1–32 workers',{c:'f11',a:'middle',d:.2}).replace('y="154"','y="156"');
+  s+=arrow({x1:120,y1:70,x2:300,y2:58},{d:.5,dur:.2,c:'var(--ok)'})+arrow({x1:120,y1:100,x2:300,y2:116},{d:.5,dur:.2,c:'var(--teal)'});
+  s+=nbox(304,32,230,52,['inference-gpu','127.0.0.1:8002'],'ok',.7,{first:'m f13 b',rest:'m f11',top:22,lh:18})+nbox(304,92,230,52,['inference-cpu','127.0.0.1:8003'],'teal',.9,{first:'m f13 b',rest:'m f11',top:22,lh:18});
+  s+=T(556,58,'same tiny model:',{c:'f12 b',d:1.1})+T(556,78,'demo-linear-v1',{c:'m f12',d:1.1})+T(556,104,'[1, 2, 3] → 2.4',{c:'m f12 b okc',d:1.2})+T(556,128,'client + servers share one host',{c:'f11 b warnc',d:1.3});
+  s+=G(`<rect width="470" height="300" rx="16" class="panel"/><text x="18" y="30" class="f13 b">The benchmark method</text>`,{x:20,y:182,an:'fade',d:1.4});
+  [['load','closed-loop: fixed concurrency 1, 4, 8, 16, 32'],['warmup','20 sequential requests per setting'],['baseline','300 measured requests per setting'],['repeats','3 GPU runs × 3,000 requests per setting'],['latency','client-observed HTTP round trip'],['throughput','successful completions / wall clock'],['percentiles','nearest rank, successes only']].forEach(([a,b],i)=>{const y=236+i*34,d=1.6+i*.15;s+=T(36,y,a,{c:'f12 b',d})+T(130,y,b,{c:'f12',d})});
+  s+=G(`<rect width="270" height="140" rx="16" class="panel" style="stroke:var(--ok);stroke-width:2.5"/><text x="16" y="30" class="f13 b">Counting requests</text><text x="16" y="58" class="m f12">5 × 300 = 1,500 per endpoint</text><text x="16" y="82" class="m f12">3 × 5 × 3,000 = 45,000</text><text x="16" y="104" class="f12">repeat runs, all succeeded</text><text x="16" y="126" class="f11 mut">warmups not counted</text>`,{x:510,y:182,an:'up',d:2.6});
+  s+=G(`<rect width="270" height="148" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="16" y="30" class="f13 b">HTTP timing can’t show…</text><text x="16" y="56" class="f12">that CUDA kernels ran, or how long</text><text x="16" y="76" class="f12">queue vs model vs pre/post took</text><text x="16" y="104" class="f12">and the same-host client, or the</text><text x="16" y="124" class="f12">ascending test order, can skew it</text>`,{x:510,y:334,an:'up',d:3.0});
+  return svg(s,'The lab setup: a benchmark.py client with 1 to 32 workers hits two containers serving the same tiny model, demo-linear-v1: inference-gpu on port 8002 and inference-cpu on 8003, both returning 2.4 for [1, 2, 3], all on one host. The method: closed-loop fixed concurrency of 1, 4, 8, 16 and 32, 20 warmup requests per setting, 300 measured requests per setting for the baseline, and three GPU runs of 3,000 per setting, 45,000 requests that all succeeded. HTTP timing can’t show that CUDA kernels ran or split the stages.');
+}
+// ---------- Day 42 visuals 9-18 ----------
+const legend=(x,y,items,d)=>items.map(([t,k],i)=>`<rect x="${x+i*120}" y="${y-9}" width="16" height="5" rx="2" class="fade" style="fill:var(--${k});--d:${d}s"/>`+T(x+22+i*120,y-3,t,{c:'f11 b',d})).join('');
+function V9(){
+  let s=G(`<rect width="370" height="330" rx="16" class="panel"/><text x="18" y="30" class="f13 b">Throughput, RPS (measured)</text>`,{x:20,y:16,an:'fade',d:.1});
+  let A=chartXY(76,300,290,230,2000,.2,{yt:[0,500,1000,1500,2000]});s+=A.o;
+  s+=series(A.X,A.Y,[824.31,1541.25,1420.30,1411.80,1467.18],'ok',.4)+series(A.X,A.Y,[957.68,1755.14,1677.60,1723.57,1599.44],'teal',1.0);
+  s+=legend(60,62,[['GPU-configured','ok'],['CPU-configured','teal']],.3);
+  s+=G(`<rect width="370" height="330" rx="16" class="panel"/><text x="18" y="30" class="f13 b">p99 HTTP latency, ms (measured)</text>`,{x:410,y:16,an:'fade',d:1.4});
+  let B=chartXY(466,300,290,230,25,1.5,{yt:[0,5,10,15,20,25]});s+=B.o;
+  s+=series(B.X,B.Y,[1.91,3.91,13.25,16.31,24.26],'ok',1.7)+series(B.X,B.Y,[1.95,3.04,5.87,10.72,20.52],'teal',2.3);
+  s+=legend(450,62,[['GPU-configured','ok'],['CPU-configured','teal']],1.6);
+  s+=G(`<rect width="760" height="124" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="18" y="34" class="f14 b">300 requests per setting, one short run each</text><text x="18" y="62" class="f13">Concurrency 4 gave the highest observed throughput for both endpoints. Beyond it, throughput</text><text x="18" y="82" class="f13">stayed flat or dipped while p99 kept climbing: up to 24.26 ms (GPU) and 20.52 ms (CPU) at 32.</text>`,{x:20,y:362,an:'up',d:3.2});
+  return svg(s,'First measured results, 300 requests per setting. Throughput for the GPU-configured endpoint was 824, 1,541, 1,420, 1,412 and 1,467 requests per second at concurrency 1, 4, 8, 16 and 32; the CPU-configured endpoint gave 958, 1,755, 1,678, 1,724 and 1,599. p99 latency rose from 1.91 to 24.26 ms for GPU and from 1.95 to 20.52 ms for CPU. Concurrency 4 had the highest observed throughput for both; beyond it, throughput stayed flat while p99 kept climbing.');
+}
+
+function V10(){
+  const K=290/1800;
+  let s=G(`<rect width="470" height="300" rx="16" class="panel"/><text x="18" y="30" class="f13 b">At concurrency 4 (measured, one short run)</text>`,{x:20,y:16,an:'fade',d:.1})+`<path d="M60 270H470" class="axis fade" style="--d:.1s"/>`;
+  [['CPU-configured',1755.14,'teal'],['GPU-configured',1541.25,'ok']].forEach(([l,v,k],i)=>{const y=86+i*96,d=.3+i*.4;s+=T(60,y-10,l,{c:'f13 b',d})+hbar(60,y,Math.round(v*K),46,k,d,{dur:.6})+T(68+Math.round(v*K),y+30,v.toLocaleString('en-US',{minimumFractionDigits:2})+' RPS',{c:'m f13 b',d:d+.5})});
+  s+=G(`<rect width="200" height="36" rx="18" style="fill:var(--teal)"/><text x="100" y="24" text-anchor="middle" class="f13 b wht">CPU ≈ 14% ahead here</text>`,{x:250,y:244,an:'pop',d:1.6});
+  s+=G(`<rect width="270" height="300" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="16" y="32" class="f14 b">A plausible story…</text><text x="16" y="60" class="f12">a tiny linear computation can’t</text><text x="16" y="78" class="f12">amortize GPU-related overhead</text><text x="16" y="118" class="f14 b badc">…but not proven</text><text x="16" y="146" class="f12">the benchmark didn’t isolate</text><text x="16" y="164" class="f12">why the difference occurred</text>`,{x:510,y:16,an:'up',d:2.0});
+  s+=G(`<rect width="760" height="154" rx="16" class="panel" style="stroke:var(--bad);stroke-width:2.5"/><text x="18" y="34" class="f14 b">So we can’t say “CPUs are better for inference”</text>`,{x:20,y:332,an:'up',d:2.6});
+  ['a tiny model, not a real workload','HTTP overhead included in every number','one CPU baseline run','the cause wasn’t isolated'].forEach((t,i)=>{const x=36+(i%2)*372,y=388+Math.floor(i/2)*36,d=2.8+i*.15;s+=icon('no',x+10,y-5,{r:9,d})+T(x+28,y,t,{c:'f13',d})});
+  return svg(s,'Don’t rank the hardware: at concurrency 4 in one short run, the CPU-configured endpoint delivered 1,755.14 requests per second versus 1,541.25 for the GPU-configured one, about 14% ahead. A plausible story is that a tiny linear computation can’t amortize GPU overhead, but the benchmark didn’t isolate why. So we can’t claim CPUs are better for inference: the model is tiny, HTTP overhead is in every number, there was one CPU baseline run, and the cause wasn’t isolated.');
+}
+
+function V11(){
+  let s=G(`<rect width="500" height="330" rx="16" class="panel"/><text x="18" y="30" class="f13 b">GPU-configured throughput, RPS: 3 runs × 3,000 requests</text>`,{x:20,y:16,an:'fade',d:.1});
+  let A=chartXY(76,300,420,230,1800,.2,{yt:[0,500,1000,1500]});s+=A.o;
+  s+=series(A.X,A.Y,[1115.84,1605.27,1592.93,1530.53,1518.80],'ok',.4)+series(A.X,A.Y,[1089.12,1544.11,1528.32,1280.78,1163.23],'teal',1.0)+series(A.X,A.Y,[306.58,741.58,985.37,892.43,898.94],'bad',1.6);
+  s+=legend(80,64,[['run 1','ok'],['run 2','teal'],['run 3','bad']],.3);
+  s+=G(`<circle r="16" style="fill:none;stroke:var(--bad);stroke-width:3"/>`,{x:A.X(0),y:A.Y(306.58),an:'pop',d:2.6});
+  s+=G(`<rect width="240" height="330" rx="16" class="panel" style="stroke:var(--bad);stroke-width:2.5"/><text x="16" y="32" class="f14 b">At concurrency 1</text><text x="16" y="66" class="f12 mut">run 1</text><text x="16" y="90" class="m f17 b okc">1,115.84 RPS</text><text x="16" y="124" class="f12 mut">run 3</text><text x="16" y="148" class="m f17 b badc">306.58 RPS</text><text x="16" y="186" class="f15 b">≈ 73% lower</text><text x="16" y="216" class="f12">same configured concurrency,</text><text x="16" y="234" class="f12">and no errors recorded</text>`,{x:540,y:16,an:'up',d:2.8});
+  s+=G(`<rect width="760" height="124" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="18" y="34" class="f14 b">Changing concurrency alone can’t explain this.</text><text x="18" y="62" class="f13">Run 3 was slower even with one worker: evidence of an unexplained change in conditions,</text><text x="18" y="82" class="f13">not proof of GPU saturation. One run would have hidden it completely.</text>`,{x:20,y:362,an:'up',d:3.4});
+  return svg(s,'Repeat, and be surprised: three GPU-configured runs of 3,000 requests per setting. Runs 1 and 2 peaked around 1,605 and 1,544 requests per second at concurrency 4, but run 3 was far slower everywhere. At concurrency 1, run 1 completed 1,115.84 requests per second and run 3 only 306.58, about 73% lower with the same configured concurrency and no errors. Changing concurrency can’t explain that: it’s an unexplained change in conditions, not proof of GPU saturation, and one run would have hidden it.');
+}
+
+function V12(){
+  let s=G(`<rect width="470" height="330" rx="16" class="panel"/><text x="18" y="30" class="f13 b">p99 latency, ms: 3 GPU-configured runs (measured)</text>`,{x:20,y:16,an:'fade',d:.1});
+  let A=chartXY(76,300,390,230,60,.2,{yt:[0,10,20,40,60]});s+=A.o;
+  s+=`<path d="M76 ${A.Y(10)}H466" class="fade" style="stroke:var(--bad);stroke-width:2.5;--d:.3s;stroke-dasharray:7 5"/>`+T(84,A.Y(10)-6,'illustrative SLO: p99 ≤ 10 ms',{c:'f11 b badc',d:.3});
+  s+=series(A.X,A.Y,[1.57,3.46,6.52,16.04,59.28],'ok',.6)+series(A.X,A.Y,[1.29,3.56,6.69,19.68,43.46],'teal',1.1)+series(A.X,A.Y,[7.05,8.51,12.57,28.78,49.66],'warn',1.6);
+  s+=legend(80,64,[['run 1','ok'],['run 2','teal'],['run 3','warn']],.4);
+  s+=G(`<rect width="270" height="330" rx="16" class="panel"/><text x="16" y="30" class="f13 b">p99 ≤ 10 ms?</text>`,{x:510,y:16,an:'fade',d:2.2});
+  [['1','all three pass','ok'],['4','all three pass','ok'],['8','one run fails','warn'],['16','all three fail','bad'],['32','all three fail','bad']].forEach(([c,t,k],i)=>{const y=78+i*44,d=2.4+i*.2;s+=G(`<circle r="15" style="fill:var(--${k})"/><text y="5" text-anchor="middle" class="m f12 b wht">${c}</text>`,{x:540,y:y-5,an:'pop',d})+T(566,y,t,{c:'f13 b',d})});
+  s+=T(526,316,'concurrency setting',{c:'f11 mut',d:2.4});
+  s+=G(`<rect width="760" height="124" rx="16" class="panel" style="stroke:var(--ok);stroke-width:2.5"/><text x="18" y="34" class="f14 b okc">Provisional engineering choice: concurrency 4</text><text x="18" y="62" class="f13">It passed in every run and gave far more throughput than concurrency 1 (up to 1,605.27 RPS).</text><text x="18" y="84" class="f13 b">A starting candidate under a teaching SLO, not a validated production capacity limit.</text>`,{x:20,y:362,an:'up',d:3.6});
+  return svg(s,'Tail latency against an illustrative 10 ms p99 objective, across three measured runs. p99 grew from about 1.3 to 7 ms at concurrency 1 to between 43 and 59 ms at concurrency 32. Concurrency 1 and 4 passed in all three runs; concurrency 8 failed once, when run 3 hit 12.57 ms; 16 and 32 failed every time. The provisional choice is concurrency 4: it passed every run and gave far more throughput, up to 1,605.27 requests per second. It’s a starting candidate, not a validated production capacity limit.');
+}
+
+function V13(){
+  let s=G(`<rect width="470" height="330" rx="16" class="panel"/><text x="18" y="30" class="f13 b">Run 1, GPU-configured: three percentiles, ms</text>`,{x:20,y:16,an:'fade',d:.1});
+  let A=chartXY(76,300,390,230,60,.2,{yt:[0,20,40,60]});s+=A.o;
+  s+=series(A.X,A.Y,[0.82,2.42,4.92,10.07,20.05],'teal',.4)+series(A.X,A.Y,[1.20,3.09,5.76,12.99,24.12],'warn',1.0)+series(A.X,A.Y,[1.57,3.46,6.52,16.04,59.28],'bad',1.6);
+  s+=legend(80,64,[['p50','teal'],['p95','warn'],['p99','bad']],.3);
+  s+=T(A.X(4)-10,A.Y(59.28)+4,'59.28',{c:'m f12 b badc',a:'end',d:2.6})+T(A.X(4)-10,A.Y(24.12)-8,'24.12',{c:'m f11 b warnc',a:'end',d:2.6})+T(A.X(4)-10,A.Y(20.05)+16,'20.05',{c:'m f11 b tealc',a:'end',d:2.6});
+  s+=G(`<rect width="270" height="330" rx="16" class="panel"/><text x="16" y="32" class="f14 b">How to read them</text>`,{x:510,y:16,an:'fade',d:2.0});
+  s+=G(`<rect width="238" height="118" rx="12" style="fill:var(--warn);fill-opacity:.1;stroke:var(--warn);stroke-width:2"/><text x="12" y="26" class="f13 b">p50 and p99 both rise</text><text x="12" y="50" class="f12">slower completion is broadly</text><text x="12" y="68" class="f12">affecting most requests</text><text x="12" y="98" class="f11 mut">up to concurrency 16 here</text>`,{x:526,y:52,an:'pop',d:2.2});
+  s+=G(`<rect width="238" height="118" rx="12" style="fill:var(--bad);fill-opacity:.1;stroke:var(--bad);stroke-width:2"/><text x="12" y="26" class="f13 b">p50 steady, p99 jumps</text><text x="12" y="50" class="f12">the slowest tail is degrading,</text><text x="12" y="68" class="f12">typical requests less so</text><text x="12" y="98" class="f11 mut">at 32: p95 24 → p99 59</text>`,{x:526,y:184,an:'pop',d:2.6});
+  s+=G(`<rect width="760" height="124" rx="16" class="panel" style="stroke:var(--teal);stroke-width:2.5"/><text x="18" y="34" class="f14 b">Keep every percentile, not just p99</text><text x="18" y="62" class="f13">Each pattern points the investigation somewhere, but neither proves a root cause</text><text x="18" y="82" class="f13">without internal timing of queue, preprocessing, model and postprocessing.</text>`,{x:20,y:362,an:'up',d:3.2});
+  return svg(s,'Reading p50 with p99, using measured run 1: p50 rose from 0.82 to 20.05 ms, p95 from 1.20 to 24.12 ms and p99 from 1.57 to 59.28 ms across concurrency 1 to 32. When p50 and p99 both rise, slower completion affects most requests, as here up to concurrency 16. When p50 stays steady but p99 jumps, the slowest tail is degrading, as at 32 where p95 is 24 but p99 is 59 ms. Keep every percentile: each pattern guides investigation, but neither proves a root cause without internal timing.');
+}
+
+function V14(){
+  let s=zbox(220,12,360,42,'slowdown with the same benchmark settings','',{k:'bad',d:.2})+arrow({x1:400,y1:56,x2:400,y2:70},{d:.3,dur:.1});
+  s+=zbox(180,74,440,42,'check time-aligned client, CPU, GPU, server and queue metrics','',{k:'db',d:.5});
+  s+=arrow({x1:300,y1:118,x2:200,y2:146},{d:.8,dur:.2,c:'var(--warn)'})+arrow({x1:500,y1:118,x2:600,y2:146},{d:.8,dur:.2,c:'var(--vol)'});
+  s+=nbox(30,150,340,58,['client-side bottleneck?','worker threads · CPU · network'],'warn',1.0,{first:'f14 b',rest:'f12',top:24,lh:20})+nbox(430,150,340,58,['server-side bottleneck?','queue · preprocess · model · postprocess'],'vol',1.2,{first:'f14 b',rest:'f12',top:24,lh:20});
+  s+=arrow({x1:200,y1:210,x2:200,y2:226},{d:1.4,dur:.1,c:'var(--warn)',w:2})+arrow({x1:600,y1:210,x2:600,y2:226},{d:1.6,dur:.1,c:'var(--vol)',w:2});
+  s+=nbox(30,230,340,58,['repeat with a separate client host,','a controlled rate and longer tests'],'warn',1.6,{first:'f12 b',rest:'f12 b',top:24,lh:20})+nbox(430,230,340,58,['add tracing / timers and correlate','with utilization and model work'],'vol',1.8,{first:'f12 b',rest:'f12 b',top:24,lh:20});
+  s+=T(400,312,'competing hypotheses: neither branch is confirmed by the Day 42 data',{c:'f12 mut',a:'middle',d:2.0});
+  s+=term(20,330,500,156,[['docker stats --no-stream inference-gpu inference-cpu','',2.2],['nvidia-smi                   # GPU use, memory, processes','',2.4],['uptime','',2.6],['ps -eo pid,comm,%cpu,%mem --sort=-%cpu | head -15','',2.8]],{fs:11,lh:26,top:34,d:2.1});
+  s+=G(`<rect width="240" height="156" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="16" y="30" class="f13 b">Sample during the test</text><text x="16" y="56" class="f12">with timestamps, not one</text><text x="16" y="74" class="f12">snapshot afterwards</text><text x="16" y="104" class="f12 b">client CPU maxed + GPU idle?</text><text x="16" y="122" class="f12">the load generator may be</text><text x="16" y="140" class="f12">the bottleneck</text>`,{x:540,y:330,an:'up',d:3.0});
+  return svg(s,'Diagnosing the run 3 slowdown: with the same benchmark settings, check time-aligned client, CPU, GPU, server and queue metrics. If the bottleneck is client-side (worker threads, CPU, network), repeat with a separate client host, a controlled rate and longer tests. If it’s server-side (queue, preprocessing, model, postprocessing), add tracing and correlate with utilization. Neither branch is confirmed yet. Useful commands include docker stats, nvidia-smi, uptime and ps; sample them with timestamps during the test.');
+}
+
+function V15(){
+  let s=G(`<rect width="760" height="210" rx="16" class="panel"/><text x="18" y="30" class="f13 b">Measurement layers that locate a bottleneck</text><text x="742" y="30" text-anchor="end" class="f11 b warnc">not collected in Day 42</text>`,{x:20,y:16,an:'fade',d:.1});
+  [['client clock','HTTP round trip','teal',40,700],['server queue clock','wait-to-dispatch','warn',140,280],['model clock','CPU/GPU execution','ok',300,380],['telemetry','CPU / GPU / memory','vol',40,700]].forEach(([a,b,k,x1,w],i)=>{const y=60+i*36,d=.3+i*.3;s+=T(36,y+18,a,{c:'f12 b',d})+hbar(Math.max(x1,190),y,Math.min(w,710-Math.max(x1,190)),26,k,d,{label:b,dur:.5,op:i===3?.5:1})});
+  s+=`<path d="M190 54V210M710 54V210" class="fade" style="stroke:var(--ink);stroke-width:1.5;stroke-dasharray:3 4;--d:1.6s"/>`+T(450,218,'shared timestamps, consistent boundaries',{c:'f11 b',a:'middle',d:1.6});
+  s+=term(20,242,470,244,[['start = time.perf_counter()','',2.0],['x = preprocess(request);   t_pre = time.perf_counter()','',2.0],['# CUDA is async: use events or synchronize here','warnc b',2.2],['y = run_model(x);          t_model = time.perf_counter()','',2.0],['out = postprocess(y);      t_post = time.perf_counter()','',2.0],['record_metric("preprocess_ms", (t_pre - start) * 1000)','okc',2.4],['record_metric("model_boundary_ms", (t_model - t_pre) * 1000)','okc',2.4],['record_metric("postprocess_ms", (t_post - t_model) * 1000)','okc',2.4]],{fs:10,lh:24,top:34,d:1.9});
+  s+=G(`<rect width="270" height="244" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="16" y="32" class="f14 b">CUDA timing nuance</text><text x="16" y="62" class="f12">A host Python clock may only</text><text x="16" y="80" class="f12">measure kernel launch overhead,</text><text x="16" y="98" class="f12">because GPU work is asynchronous.</text><text x="16" y="134" class="f12 b">Use CUDA events or explicit</text><text x="16" y="152" class="f12 b">synchronization, knowing that</text><text x="16" y="170" class="f12 b">syncing can itself slow things.</text><text x="16" y="210" class="f11 mut">teaching pseudocode only</text>`,{x:510,y:242,an:'up',d:3.0});
+  return svg(s,'Measure in layers: a client clock for the HTTP round trip, a server queue clock for wait-to-dispatch, a model clock for CPU or GPU execution, and telemetry for CPU, GPU and memory, all with shared timestamps and consistent boundaries; these weren’t collected in Day 42. Teaching pseudocode records preprocess, model and postprocess durations with perf_counter. Because CUDA is asynchronous, a host clock may only measure launch overhead, so use CUDA events or explicit synchronization, knowing syncing can itself slow things.');
+}
+
+function V16(){
+  let s=G(`<rect width="370" height="200" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="18" y="32" class="f14 b">Closed loop (Day 42)</text><text x="18" y="52" class="f12 mut">next request only after a completion</text>`,{x:20,y:16,an:'up',d:.2});
+  s+=pod({x:46,y:80,s:.5,k:'vol',mood:'flat',an:'pop',v:{d:.4}})+arrow({x1:100,y1:100,x2:250,y2:100},{d:.6,dur:.3,c:'var(--warn)'})+gpuChip(256,80,110,44,'server',{d:.6,k:'ink-2'})+arrow({x1:256,y1:122,c1:[180,150],c2:[140,150],x2:100,y2:122},{dash:true,d:.9,c:'var(--ok)',w:1.8});
+  s+=T(38,184,'server slows → fewer new requests',{c:'f12 b',d:1.2});
+  s+=G(`<rect width="370" height="200" rx="16" class="panel" style="stroke:var(--teal);stroke-width:2.5"/><text x="18" y="32" class="f14 b">Open loop</text><text x="18" y="52" class="f12 mut">arrivals follow a chosen schedule</text>`,{x:410,y:16,an:'up',d:.8});
+  for(let i=0;i<7;i++)s+=`<circle cx="${450+i*26}" cy="102" r="8" class="pop" style="fill:var(--vol);--d:${(1.0+i*.15).toFixed(2)}s"/>`;
+  s+=arrow({x1:640,y1:102,x2:676,y2:102},{d:1.6,dur:.15,c:'var(--teal)'})+gpuChip(680,80,86,44,'server',{d:1.6,k:'ink-2'})+T(428,184,'arrivals keep coming even if it slows',{c:'f12 b',d:1.8});
+  s+=G(`<rect width="760" height="254" rx="16" class="panel" style="stroke:var(--ok);stroke-width:2.5"/><text x="18" y="32" class="f14 b">A more rigorous next experiment</text>`,{x:20,y:232,an:'up',d:2.2});
+  [['longer tests','warmup vs steady state vs sustained'],['repeat','keep every run; report medians + spread'],['randomize order','not always 1 → 32 ascending'],['isolate the client','a separate host for the load generator'],['instrument stages','HTTP, queue, model, CPU/GPU, errors'],['realistic inputs','real shapes, sizes and arrival patterns'],['define the SLO','window, failures, estimator, traffic']].forEach(([a,b],i)=>{const x=36+(i%2)*372,y=296+Math.floor(i/2)*48,d=2.4+i*.18;s+=`<circle cx="${x+12}" cy="${y-5}" r="12" class="pop" style="fill:var(--ok);--d:${d}s"/>`+T(x+12,y,String(i+1),{c:'f11 b wht',a:'middle',d})+T(x+32,y-4,a,{c:'f13 b',d})+T(x+32,y+13,b,{c:'f11 mut',d})});
+  return svg(s,'Closed-loop versus open-loop load: Day 42’s ThreadPoolExecutor was closed-loop, sending the next request only after a completion, so a slowing server unintentionally generates less load. An open-loop driver schedules arrivals that keep coming even if the server slows. A more rigorous next experiment: run longer tests, repeat and report medians and spread, randomize the test order, isolate the client on a separate host, instrument every stage, use realistic inputs, and define the SLO precisely.');
+}
+
+const miniSvg=(inner,vb)=>`<svg viewBox="${vb}" aria-hidden="true">${inner}</svg>`;
+function V17(){
+  const FQ=`<circle cx="7" cy="7" r="6" style="fill:var(--teal)"/><circle cx="21" cy="7" r="6" style="fill:var(--ok)"/><circle cx="35" cy="7" r="6" style="fill:var(--warn)"/><circle cx="49" cy="7" r="6" style="fill:var(--vol)"/>`;
+  const TL=`<rect y="24" width="6" height="8" style="fill:var(--ok)"/><rect x="8" y="24" width="6" height="8" style="fill:var(--ok)"/><rect x="16" y="24" width="6" height="8" style="fill:var(--ok)"/><rect x="24" y="24" width="6" height="8" style="fill:var(--ok)"/><rect x="34" width="6" height="32" style="fill:var(--bad)"/><rect x="42" width="6" height="32" style="fill:var(--bad)"/>`;
+  const KN=`<path d="M0 30Q16 4 56 4" style="fill:none;stroke:var(--ok);stroke-width:3"/><path d="M0 30Q40 30 56 2" style="fill:none;stroke:var(--bad);stroke-width:3"/>`;
+  const LL=`<text x="0" y="22" class="m f13 b">N=λW</text>`;
+  const RP=`<path d="M0 6H56" style="stroke:var(--ok);stroke-width:3"/><path d="M0 14H56" style="stroke:var(--teal);stroke-width:3"/><path d="M0 28H56" style="stroke:var(--bad);stroke-width:3"/>`;
+  const SL=`<path d="M0 12H56" style="stroke:var(--bad);stroke-width:2;stroke-dasharray:4 3"/><circle cx="12" cy="24" r="5" style="fill:var(--ok)"/><circle cx="28" cy="20" r="5" style="fill:var(--ok)"/><circle cx="44" cy="4" r="5" style="fill:var(--bad)"/>`;
+  const items=[[miniSvg(FQ,'0 0 56 14'),'<b>Four different questions.</b> Latency, throughput, concurrency and offered load measure different things.'],
+    [miniSvg(TL,'-2 -2 52 36'),'<b>Percentiles reveal the tail.</b> A 145 ms mean can hide 10% of requests taking a full second.'],
+    [miniSvg(KN,'-2 -2 60 36'),'<b>Throughput plateaus; latency keeps climbing.</b> Past the knee, more work in flight mostly means more waiting.'],
+    [miniSvg(LL,'0 0 56 30'),'<b>Little’s Law: N = λW.</b> Convert units first: 300 req/s × 0.2 s = 60 requests in flight.'],
+    [miniSvg(RP,'-2 -2 60 34'),'<b>Repeat every benchmark.</b> With identical settings, Run 3 was 73% slower at concurrency 1.'],
+    [miniSvg(SL,'-2 -4 60 34'),'<b>Choose against the SLO.</b> Concurrency 4 passed p99 ≤ 10 ms in all three runs: a provisional pick.']];
+  return `<ul class="take">${items.map(([ic,t],i)=>`<li class="up" style="--d:${.3+i*.3}s">${ic}<div>${t}</div></li>`).join('')}</ul>`;
+}
+function V18(){
+  const Q=[['teal','Queue 12 ms, preprocess 8 ms, model 25 ms, postprocess 5 ms. The sum, and what might client latency add?','50 ms, plus request routing, network transfer, serialization and other overhead.'],
+    ['warn','A server completes 240 requests/s at an average 125 ms. How many requests are in flight?','125 ms = 0.125 s, so N = 240 × 0.125 = 30 requests (for a stable system).'],
+    ['db','Concurrency 8 → 32 moves throughput 1,500 → 1,510 RPS, but p99 7 → 35 ms. What do you conclude?','Extra concurrency barely helps throughput and hurts the tail: operate nearer the knee. You can’t blame the GPU without queue, CPU, GPU and client metrics.'],
+    ['vol','CPU 1,755 vs GPU 1,541 RPS on a tiny linear model. Are CPUs better for all inference?','No: a tiny model, HTTP overhead included, one baseline, and the cause wasn’t isolated.']];
+  return `<div class="quiz"><div class="cards">${Q.map(([k,q,a],i)=>`<button class="card up" style="--k:var(--${k});--d:${.3+i*.15}s" aria-pressed="false"><span class="card-inner"><span class="face front"><small>Question ${i+1}</small><span class="q">${q}</span><em>Tap to flip</em></span><span class="face back" aria-hidden="true"><small>Answer</small><span class="q">${a}</span></span></span></button>`).join('')}</div><button class="again up" style="--d:1s" data-action="restart">Watch again from the start</button></div>`;
+}
+// ---------- Scenes ----------
+const CH=['Intro','Vocabulary','The tradeoff','The lab','Diagnosis','Wrap-up'];
+const P=(t,d)=>`<p class="up" style="--d:${d}s">${t}</p>`;
+const R=(t,d)=>`<p class="rule up" style="--d:${d}s"><span>${t}</span></p>`;
+const SC=[
+ {ch:0,dur:10,title:'Latency vs Throughput',vis:V0(),copy:`<p class="course up" style="--d:.05s">AI Infrastructure &amp; ML Systems, Day 42</p><h1 class="long up" style="--d:.15s">Latency vs Throughput</h1><p class="lede up" style="--d:.3s">How much concurrency can an inference service sustain without breaking its latency objective?</p><button class="start up" style="--d:.45s" data-action="start"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15l12-7.5z"/></svg>Start the explainer</button><p class="hint up" style="--d:.6s">About 4 minutes. Use ← → or swipe to go at your own pace.</p><p class="hint rotate-hint up" style="--d:.7s">Tip: turn your phone sideways for bigger diagrams.</p>`},
+ {ch:1,dur:11,title:'Four different questions',vis:V1(),body:P('One shopper’s wait, shoppers served per minute, shoppers inside, and shoppers arriving.',.2)+R('A faster register can still mean a longer wait.',.35)},
+ {ch:1,dur:11.5,title:'Latency is the whole path',vis:V2(),body:P('The user waits for queueing, preprocessing, the model and postprocessing, not just the GPU.',.2)+P('Throughput is finished work per second, in clear units.',.35)},
+ {ch:1,dur:12,title:'The mean hides the tail',vis:V3(),body:P('90 fast requests and 10 one-second requests average 145 ms.',.2)+R('p95 and p99 show what the slowest users feel.',.35)},
+ {ch:2,dur:11.5,title:'Batching: same mean, more throughput',vis:V4(),body:P('Four requests in one batch all finish at 50 ms; sequentially, the last waits 80 ms.',.2)+R('Throughput alone doesn’t determine latency.',.35)},
+ {ch:2,dur:11.5,title:'Find the knee',vis:V5(),body:P('Throughput rises with concurrency, then plateaus while tail latency keeps rising.',.2)+R('Past the knee, more work in flight means more waiting.',.35)},
+ {ch:2,dur:11.5,title:'Little’s Law, units first',vis:V6(),body:P('Requests in flight = throughput × time in the system.',.2)+R('300 req/s × 0.2 s = 60 requests in flight.',.35)},
+ {ch:2,dur:11,title:'An SLO is a contract',vis:V7(),body:P('“At least 99% of successful requests finish within 10 ms”, over a defined window.',.2)+R('Pass both: the throughput demand and the latency limit.',.35)},
+ {ch:3,dur:12,title:'The lab setup',vis:V8(),body:P('Two containers, one tiny model, and a closed-loop benchmark at 1 to 32 concurrent workers.',.2)+R('HTTP timing proves the endpoint works, not that the GPU did the work.',.35)},
+ {ch:3,dur:12,title:'First results: CPU vs GPU-configured',vis:V9(),body:P('Both endpoints peaked at concurrency 4, then p99 climbed fast.',.2)+R('Latency rises far more sharply than throughput.',.35)},
+ {ch:3,dur:11.5,title:'Don’t rank the hardware',vis:V10(),body:P('On this tiny model, the CPU endpoint was about 14% faster at concurrency 4.',.2)+R('One small test can’t say CPUs are better for inference.',.35)},
+ {ch:3,dur:12,title:'Repeat, and be surprised',vis:V11(),body:P('Same settings, three runs: Run 3 was 73% slower even at concurrency 1.',.2)+R('Concurrency alone can’t explain that.',.35)},
+ {ch:3,dur:12.5,title:'Tail latency vs a 10 ms SLO',vis:V12(),body:P('Concurrency 4 met p99 ≤ 10 ms in all three runs; 8 failed once; 16 and 32 always failed.',.2)+R('Concurrency 4: a provisional choice, not a capacity limit.',.35)},
+ {ch:3,dur:11.5,title:'Reading p50 with p99',vis:V13(),body:P('If p50 stays flat while p99 jumps, the slowest tail is degrading.',.2)+P('Neither pattern proves a root cause.',.35)},
+ {ch:4,dur:12,title:'Diagnose the slowdown',vis:V14(),body:P('Is the bottleneck in the client or the server? The current data can’t say.',.2)+R('Collect time-aligned evidence during the test.',.35)},
+ {ch:4,dur:11.5,title:'Measure in layers',vis:V15(),body:P('Client, queue, model and telemetry clocks, with shared timestamps.',.2)+R('Asynchronous CUDA needs events or synchronization.',.35)},
+ {ch:4,dur:12,title:'A more rigorous experiment',vis:V16(),body:P('Closed-loop drivers slow down with the server; open-loop arrivals don’t.',.2)+R('Longer, repeated, randomized, isolated, instrumented.',.35)},
+ {ch:5,dur:12,title:'What to remember',vis:V17(),body:P('Six ideas carry the whole lesson.',.2)+P('Next, check yourself with four quick questions.',.35)},
+ {ch:5,dur:10,title:'Check yourself',vis:V18(),body:P('Answer in your head first, then tap a card to flip it.',.2)+P('Next: Day 43 tackles warmup and cold starts.',.35)}
+];
+// ---------- Player ----------
+const stage=document.getElementById('stage'),track=document.getElementById('track'),chap=document.getElementById('chap'),count=document.getElementById('count'),live=document.getElementById('live');
+const btnPrev=document.getElementById('prev'),btnNext=document.getElementById('next'),btnPlay=document.getElementById('play'),btnReplay=document.getElementById('replay');
+const strip=s=>s.replace(/<[^>]+>/g,'').replace(/&amp;/g,'&');
+const els=[],fills=[],segs=[];
+SC.forEach((s,i)=>{
+  const sec=document.createElement('section');sec.className='scene';
+  sec.setAttribute('aria-label',`Scene ${i+1} of ${SC.length}: ${strip(s.title)}`);
+  sec.innerHTML=`<div class="copy">${s.copy||`<h2 class="up" style="--d:.05s">${s.title}</h2>${s.body}`}</div><div class="vis">${s.vis}</div>`;
+  stage.appendChild(sec);els.push(sec);
+  const b=document.createElement('button');b.className='seg'+(i>0&&SC[i-1].ch!==s.ch?' chstart':'');
+  b.setAttribute('aria-label',`Go to scene ${i+1}: ${strip(s.title)}`);b.innerHTML='<i><b></b></i>';
+  b.addEventListener('click',()=>go(i));track.appendChild(b);segs.push(b);fills.push(b.querySelector('b'));
+});
+const ICON_PLAY='<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',ICON_PAUSE='<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6.5" y="5" width="4" height="14" rx="1"/><rect x="13.5" y="5" width="4" height="14" rx="1"/></svg>';
+let cur=-1,auto=false,t0=performance.now(),onTimer=null;
+function setAuto(v){
+  auto=v;btnPlay.innerHTML=v?ICON_PAUSE:ICON_PLAY;btnPlay.setAttribute('aria-label',v?'Pause auto-play':'Start auto-play');btnPlay.setAttribute('aria-pressed',String(v));
+  if(v&&cur>=0){const dur=SC[cur].dur*1000,el=performance.now()-t0;if(el>dur-1200)t0=performance.now()-(dur-1200)}
+}
+function go(i,{replay=false}={}){
+  i=Math.max(0,Math.min(SC.length-1,i));
+  if(i===cur&&!replay)return;
+  const prev=cur;
+  els.forEach((el,j)=>{el.classList.toggle('active',j===i);el.classList.toggle('past',j<i);
+    if(j===i){el.inert=false;el.removeAttribute('aria-hidden')}else{el.inert=true;el.setAttribute('aria-hidden','true')}});
+  if(prev>=0&&prev!==i){const p=prev;setTimeout(()=>{if(cur!==p)els[p].classList.remove('on')},750)}
+  const el=els[i];el.classList.remove('on');void el.getBoundingClientRect();
+  clearTimeout(onTimer);const delay=(prev===i)?40:260;
+  onTimer=setTimeout(()=>{el.classList.add('on');t0=performance.now()},delay);
+  t0=performance.now()+delay;cur=i;el.scrollTop=0;
+  const s=SC[i];
+  chap.innerHTML=s.ch===0?'<b>Intro</b>':`Chapter ${s.ch} of ${CH.length-1}: <b>${CH[s.ch]}</b>`;
+  count.textContent=`${i+1} / ${SC.length}`;
+  live.textContent=`Scene ${i+1} of ${SC.length}: ${strip(s.title)}`;
+  btnPrev.disabled=i===0;btnNext.disabled=i===SC.length-1;
+  fills.forEach((f,j)=>{f.style.width=j<i?'100%':'0%'});
+  segs.forEach((b,j)=>{if(j===i)b.setAttribute('aria-current','step');else b.removeAttribute('aria-current')});
+}
+function tick(now){
+  if(cur>=0){const dur=SC[cur].dur*1000,el=Math.max(0,now-t0);fills[cur].style.width=(Math.min(1,el/dur)*100).toFixed(2)+'%';
+    if(auto&&el>=dur){if(cur<SC.length-1)go(cur+1);else setAuto(false)}}
+  requestAnimationFrame(tick);
+}
+btnPrev.addEventListener('click',()=>go(cur-1));
+btnNext.addEventListener('click',()=>go(cur+1));
+btnPlay.addEventListener('click',()=>{if(!auto&&cur===SC.length-1){go(0)}setAuto(!auto);if(auto&&cur===0)go(1)});
+btnReplay.addEventListener('click',()=>go(cur,{replay:true}));
+stage.addEventListener('click',e=>{
+  const a=e.target.closest('[data-action]');
+  if(a){if(a.dataset.action==='start'){setAuto(true);go(1)}else if(a.dataset.action==='restart'){setAuto(true);go(1)}return}
+  const c=e.target.closest('.card');
+  if(c){const f=c.classList.toggle('flipped');c.setAttribute('aria-pressed',String(f));c.querySelector('.front').setAttribute('aria-hidden',String(f));c.querySelector('.back').setAttribute('aria-hidden',String(!f))}
+});
+document.addEventListener('keydown',e=>{
+  if(e.altKey||e.ctrlKey||e.metaKey)return;
+  const onBtn=e.target.closest&&e.target.closest('button');
+  if(e.key==='ArrowRight'||e.key==='PageDown'){e.preventDefault();go(cur+1)}
+  else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();go(cur-1)}
+  else if(e.key===' '&&!onBtn){e.preventDefault();btnPlay.click()}
+  else if(e.key==='r'||e.key==='R'){go(cur,{replay:true})}
+  else if(e.key==='Home'){go(0)}else if(e.key==='End'){go(SC.length-1)}
+});
+let sx=null,sy=null;
+stage.addEventListener('touchstart',e=>{const t=e.touches[0];sx=t.clientX;sy=t.clientY},{passive:true});
+stage.addEventListener('touchend',e=>{if(sx==null)return;const t=e.changedTouches[0],dx=t.clientX-sx,dy=t.clientY-sy;if(Math.abs(dx)>55&&Math.abs(dx)>Math.abs(dy)*1.4)go(cur+(dx<0?1:-1));sx=null},{passive:true});
+setAuto(false);go(0);requestAnimationFrame(tick);
+</script>
+</body>
+</html>
