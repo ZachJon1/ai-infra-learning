@@ -1,0 +1,18 @@
+
+=== Dynamic Batching Results ===
+Successful requests: 1600
+Inference count:     1600
+Execution count:     210
+Average batch size:  7.62
+Throughput:          2338.40 req/s
+Mean client latency: 4.50 ms
+p95 client latency:  6.88 ms
+Mean Triton queue:   0.60 ms
+
+Observed batch sizes:
+  Batch size 1: 8 executions
+  Batch size 2: 1 executions
+  Batch size 4: 2 executions
+  Batch size 6: 1 executions
+  Batch size 7: 8 executions
+  Batch size 8: 190 executions
