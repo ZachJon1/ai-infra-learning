@@ -1,0 +1,20 @@
+[
+  {
+    "request": 1,
+    "ttft_seconds": 0.0602,
+    "total_latency_seconds": 0.9368,
+    "content_chunks": 240
+  },
+  {
+    "request": 2,
+    "ttft_seconds": 0.0123,
+    "total_latency_seconds": 0.8553,
+    "content_chunks": 240
+  },
+  {
+    "request": 3,
+    "ttft_seconds": 0.0145,
+    "total_latency_seconds": 0.8091,
+    "content_chunks": 240
+  }
+]

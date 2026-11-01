@@ -1,0 +1,42 @@
+[
+  {
+    "run": 1,
+    "latency_seconds": 0.2773,
+    "prompt_tokens": 39,
+    "output_tokens": 79,
+    "effective_output_tokens_per_second": 284.85,
+    "finish_reason": "stop"
+  },
+  {
+    "run": 2,
+    "latency_seconds": 0.273,
+    "prompt_tokens": 39,
+    "output_tokens": 79,
+    "effective_output_tokens_per_second": 289.37,
+    "finish_reason": "stop"
+  },
+  {
+    "run": 3,
+    "latency_seconds": 0.2709,
+    "prompt_tokens": 39,
+    "output_tokens": 79,
+    "effective_output_tokens_per_second": 291.58,
+    "finish_reason": "stop"
+  },
+  {
+    "run": 4,
+    "latency_seconds": 0.2722,
+    "prompt_tokens": 39,
+    "output_tokens": 79,
+    "effective_output_tokens_per_second": 290.22,
+    "finish_reason": "stop"
+  },
+  {
+    "run": 5,
+    "latency_seconds": 0.27,
+    "prompt_tokens": 39,
+    "output_tokens": 79,
+    "effective_output_tokens_per_second": 292.61,
+    "finish_reason": "stop"
+  }
+]
