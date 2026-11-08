@@ -1,0 +1,36 @@
+# Day 54 reference configuration — adapt to your actual cluster before use.
+# Requires a KEDA installation, Prometheus, and vLLM inference Deployment.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: vllm-autoscaler
+  namespace: inference
+spec:
+  scaleTargetRef:
+    name: vllm-inference
+  minReplicaCount: 1
+  # Set maxReplicaCount: 1 when only one exclusive GPU is allocatable.
+  maxReplicaCount: 4
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 300
+        scaleUp:
+          stabilizationWindowSeconds: 0
+          policies:
+            - type: Pods
+              value: 2
+              periodSeconds: 60
+  triggers:
+    - type: prometheus
+      metricType: AverageValue
+      metadata:
+        # Change to the actual Prometheus Service/URL in your cluster.
+        serverAddress: http://prometheus.monitoring.svc.cluster.local:9090
+        # Filter to the *specific* deployment's vLLM series.
+        # Adapt labels to those present in your Prometheus scrape configuration.
+        query: sum(vllm:num_requests_waiting{job="vllm"})
+        threshold: "8"
+        # Treat empty Prometheus query results as errors instead of zero demand.
+        ignoreNullValues: "false"
