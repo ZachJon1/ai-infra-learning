@@ -1,0 +1,12 @@
+[
+  {
+    "op": "add",
+    "path": "/spec/tolerations/-",
+    "value": {
+      "key": "dedicated",
+      "operator": "Equal",
+      "value": "gpu",
+      "effect": "NoSchedule"
+    }
+  }
+]

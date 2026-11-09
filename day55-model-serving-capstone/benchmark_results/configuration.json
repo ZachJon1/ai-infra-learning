@@ -1,0 +1,16 @@
+{
+  "base_url": "http://127.0.0.1:8000",
+  "model": "Qwen/Qwen2.5-0.5B-Instruct",
+  "prompt": "Explain Kubernetes GPU scheduling in two sentences.",
+  "max_tokens": 64,
+  "concurrency": [
+    1,
+    2
+  ],
+  "requests_per_level": 40,
+  "warmup": 3,
+  "timeout": 120,
+  "timestamp_utc": "2026-11-09T01:11:06.099204+00:00",
+  "latency_metric": "client-side end-to-end (non-streaming)",
+  "percentile_method": "linear interpolation of sorted samples at (n-1)*p/100"
+}
