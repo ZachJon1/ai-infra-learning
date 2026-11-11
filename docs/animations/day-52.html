@@ -1,0 +1,909 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Quantization for LLM inference, explained</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=JetBrains+Mono:wght@400;600;700&display=swap">
+<style>
+:root{
+  --paper:#EEF2FA;--surface:#FFFFFF;--ink:#18203F;--ink-2:#525B82;--line:#CBD3EA;--code:#E2E7F5;
+  --web:#2F6BFF;--db:#7A4CF5;--client:#F5A524;--client-ink:#A35F00;--vol:#E94A89;--teal:#0E9FAE;
+  --ok:#0F9D65;--bad:#E0433F;--warn:#D98200;--net:rgba(47,107,255,.06);--on-client:#2A1C00;
+  --note:#FFE38A;--note-ink:#3B2E00;--hl:rgba(245,165,36,.42);
+  --sans:"Bricolage Grotesque",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  color-scheme:light;box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --paper:#151936;--surface:#1F2449;--ink:#ECEEFF;--ink-2:#A8AFD6;--line:#363E70;--code:#262C5A;
+  --web:#5C8DFF;--db:#9E80FF;--client:#FFBE3B;--client-ink:#FFCB5C;--vol:#FF6FA4;--teal:#29C3D2;
+  --ok:#33D08E;--bad:#FF6A6A;--warn:#FFB340;--net:rgba(92,141,255,.09);--note:#EBCF63;--note-ink:#2A2000;--hl:rgba(255,190,59,.30);color-scheme:dark}}
+:root[data-theme="dark"]{
+  --paper:#151936;--surface:#1F2449;--ink:#ECEEFF;--ink-2:#A8AFD6;--line:#363E70;--code:#262C5A;
+  --web:#5C8DFF;--db:#9E80FF;--client:#FFBE3B;--client-ink:#FFCB5C;--vol:#FF6FA4;--teal:#29C3D2;
+  --ok:#33D08E;--bad:#FF6A6A;--warn:#FFB340;--net:rgba(92,141,255,.09);--note:#EBCF63;--note-ink:#2A2000;--hl:rgba(255,190,59,.30);color-scheme:dark}
+*,*::before,*::after{box-sizing:inherit}
+html{height:100%;scroll-padding-top:env(safe-area-inset-top,0px);background:var(--paper)}
+body{height:100%;margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;overflow:hidden}
+.app{height:100%;display:grid;grid-template-rows:auto minmax(0,1fr) auto;padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
+.top{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px clamp(16px,3vw,44px) 4px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px;letter-spacing:-.01em}
+.brand svg{width:30px;height:22px}
+.where{font-size:15px;color:var(--ink-2);text-align:right}
+.where b{color:var(--ink);font-weight:650}
+.stage{position:relative;overflow:hidden}
+.scene{position:absolute;inset:0;display:grid;grid-template-columns:minmax(260px,.78fr) minmax(0,1.75fr);gap:clamp(16px,3.2vw,56px);align-items:center;padding:6px clamp(16px,3vw,44px) 10px;opacity:0;visibility:hidden;transform:translateX(48px);transition:opacity .45s ease,transform .6s cubic-bezier(.2,.8,.2,1),visibility 0s linear .6s}
+.scene.past{transform:translateX(-48px)}
+.scene.active{opacity:1;visibility:visible;transform:none;transition:opacity .55s ease .12s,transform .7s cubic-bezier(.2,.8,.2,1) .12s,visibility 0s}
+.copy{max-width:40ch;align-self:center;min-width:0}
+.copy h1{font-size:clamp(46px,6.6vw,98px);line-height:.95;letter-spacing:-.035em;margin:.08em 0 .25em;font-weight:800;font-variation-settings:"opsz" 96}
+.copy h2{font-size:clamp(26px,3.2vw,48px);line-height:1.04;letter-spacing:-.028em;margin:0 0 .45em;font-weight:760;font-variation-settings:"opsz" 96;text-wrap:balance}
+.copy p{font-size:clamp(15.5px,1.25vw,19px);line-height:1.45;color:var(--ink-2);margin:0 0 .75em;text-wrap:pretty}
+.copy p strong{color:var(--ink)}
+.copy code,.vis code{font-family:var(--mono);font-size:.84em;background:var(--code);color:var(--ink);padding:.06em .36em;border-radius:6px}
+.copy .rule{color:var(--ink);font-weight:680}
+.copy .rule span{background:linear-gradient(transparent 58%,var(--hl) 58%,var(--hl) 92%,transparent 92%);-webkit-box-decoration-break:clone;box-decoration-break:clone}
+.copy pre{font-family:var(--mono);font-size:13.5px;line-height:1.55;background:var(--code);color:var(--ink);padding:10px 12px;border-radius:10px;margin:0 0 .8em;overflow-x:auto;white-space:pre}
+.copy pre.yaml{font-size:12px;line-height:1.5;max-height:min(46vh,430px);overflow:auto}
+.copy .lede{font-size:clamp(18px,1.6vw,23px);color:var(--ink)}
+.copy .course{font-weight:650;color:var(--ink)}
+.copy .hint{font-size:14px}
+.rotate-hint{display:none}
+.start{font:inherit;font-weight:700;font-size:18px;padding:14px 24px 14px 20px;border-radius:999px;border:0;background:var(--ink);color:var(--paper);cursor:pointer;display:inline-flex;gap:10px;align-items:center;margin:.3em 0 1em;transition:background .2s,transform .15s}
+.start:hover{background:var(--web)}
+.start:active{transform:scale(.97)}
+.start svg{width:18px;height:18px}
+.vis{height:100%;min-height:0;min-width:0;display:flex;align-items:center;justify-content:center}
+.vis>svg{width:100%;height:100%;max-height:100%;overflow:visible;font-size:15px}
+.controls{display:flex;align-items:center;gap:10px;padding:8px clamp(16px,3vw,44px) 14px}
+.btn{width:44px;height:44px;border-radius:50%;border:1.5px solid var(--line);background:var(--surface);color:var(--ink);display:grid;place-items:center;cursor:pointer;flex:none;padding:0;transition:transform .15s,background .2s}
+.btn:hover{background:var(--code)}
+.btn:active{transform:scale(.94)}
+.btn:disabled{opacity:.35;cursor:default}
+.btn svg{width:20px;height:20px}
+.btn.play{width:52px;height:52px;background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.btn.play:hover{background:var(--web);border-color:var(--web)}
+:focus-visible{outline:3px solid var(--web);outline-offset:3px}
+.track{flex:1;display:flex;gap:4px;align-items:center;min-width:0}
+.seg{flex:1;height:28px;border:0;background:none;padding:0;cursor:pointer;display:flex;align-items:center;min-width:0}
+.seg.chstart{margin-left:7px}
+.seg i{display:block;width:100%;height:6px;border-radius:3px;background:var(--line);overflow:hidden;position:relative}
+.seg i b{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--ink);border-radius:3px}
+.seg:hover i{background:var(--ink-2)}
+.count{font-family:var(--mono);font-size:13px;color:var(--ink-2);min-width:4.6em;text-align:right}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+/* takeaways + quiz */
+.take{list-style:none;margin:0;padding:0;display:grid;gap:clamp(10px,1.8vh,20px);width:100%;max-width:660px}
+.take li{display:grid;grid-template-columns:64px 1fr;gap:16px;align-items:center;font-size:clamp(15px,1.25vw,19px);line-height:1.4;color:var(--ink-2)}
+.take li b{color:var(--ink)}
+.take svg{width:64px;height:auto;overflow:visible}
+.quiz{width:100%;max-width:740px;display:grid;gap:14px}
+.cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.card{perspective:1000px;border:0;background:none;padding:0;cursor:pointer;min-height:clamp(150px,23vh,210px);font:inherit;text-align:left;color:inherit;border-radius:18px}
+.card-inner{position:relative;display:block;width:100%;height:100%;min-height:inherit;transform-style:preserve-3d;transition:transform .65s cubic-bezier(.3,1.25,.5,1)}
+.card.flipped .card-inner{transform:rotateY(180deg)}
+.face{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;border-radius:18px;padding:16px 18px;display:flex;flex-direction:column;gap:8px}
+.front{background:var(--surface);border:2px solid var(--line);border-top:7px solid var(--k)}
+.back{background:var(--ink);color:var(--paper);transform:rotateY(180deg)}
+.face small{font-size:13px;font-weight:650;color:var(--ink-2)}
+.back small{color:var(--paper);opacity:.7}
+.face .q{font-size:clamp(15px,1.2vw,18px);line-height:1.35;font-weight:620}
+.face em{margin-top:auto;font-style:normal;font-size:13px;color:var(--ink-2)}
+.again{justify-self:start;font:inherit;font-weight:650;font-size:15px;padding:10px 16px;border-radius:999px;border:1.5px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+.again:hover{background:var(--code)}
+/* svg vocabulary */
+.vis text{fill:var(--ink);font-family:var(--sans);white-space:pre}
+.vis .m{font-family:var(--mono)}
+.vis .b{font-weight:700}
+.vis .mut{fill:var(--ink-2)}
+.vis .okc{fill:var(--ok)}.vis .badc{fill:var(--bad)}.vis .warnc{fill:var(--warn)}.vis .webc{fill:var(--web)}.vis .dbc{fill:var(--db)}.vis .clc{fill:var(--client-ink)}.vis .volc{fill:var(--vol)}.vis .tealc{fill:var(--teal)}.vis .wht{fill:#fff}.vis .inv{fill:var(--paper)}
+.f10{font-size:10px}.f11{font-size:11px}.f12{font-size:12px}.f13{font-size:13px}.f14{font-size:14px}.f15{font-size:15px}.f16{font-size:16px}.f17{font-size:17px}.f18{font-size:18px}.f20{font-size:20px}.f22{font-size:22px}.f30{font-size:30px}.f44{font-size:44px}
+.vis .cname{fill:var(--fg);font-size:15px;font-weight:750}
+.vis .csub{fill:var(--fg);font-family:var(--mono);font-size:10.5px;opacity:.85}
+.vis .ridge{stroke:rgba(255,255,255,.2);stroke-width:2;fill:none}
+.vis .capline{stroke:rgba(0,0,0,.14);stroke-width:2}
+.vis .eye{fill:#fff}.vis .pupil{fill:#18203F}
+.vis .mouth,.vis .lid{fill:none;stroke:var(--fg);stroke-width:3;stroke-linecap:round}
+.vis .ghost{fill-opacity:.12;stroke-width:2.5;stroke-dasharray:7 5}
+.vis .ghostf .eye{stroke:var(--fg);stroke-width:2}
+.vis .paper{fill:var(--surface);stroke:var(--ink);stroke-width:2}
+.vis .paperfold{fill:none;stroke:var(--ink);stroke-width:2}
+.vis .panel{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+.vis .codebg{fill:var(--code)}
+.vis .sep{stroke:var(--line);stroke-width:1.5}
+.vis .net{fill:var(--net);stroke:var(--ink-2);stroke-width:2;stroke-dasharray:9 7}
+.vis .hostbox{fill:none;stroke:var(--line);stroke-width:2.5}
+.vis .aline{fill:none;stroke-linecap:round}
+.vis .draw{stroke-dasharray:1 1;stroke-linecap:butt}
+.vis .dashy{stroke-dasharray:6 6}
+.vis .ahead{fill:none;stroke-linecap:round;stroke-linejoin:round}
+.vis .bub{fill:var(--surface);stroke-width:2;stroke-linejoin:round}
+.vis .note rect{fill:var(--note)}
+.vis .note text{fill:var(--note-ink);font-family:var(--mono);font-size:11.5px}
+.vis .hlbox{fill:var(--hl)}
+.vis .hlrow{fill:var(--hl)}
+.vis .badhl{fill:var(--bad);fill-opacity:.12}
+.vis .zz{fill:var(--ink-2);font-weight:800;font-size:15px}
+.vis .trackl{stroke:var(--line);stroke-width:6;stroke-linecap:round}
+.vis .post{fill:var(--ink-2)}
+.vis .okf{fill:var(--ok)}.vis .badf{fill:var(--bad)}.vis .warnf{fill:var(--warn)}.vis .mutf{fill:var(--ink-2)}.vis .inkf{fill:var(--ink)}
+.vis .ring{fill:none;stroke:var(--ink-2);stroke-width:2}
+.vis .axis{stroke:var(--ink-2);stroke-width:2;fill:none}
+.vis .playhead{stroke:var(--ink);stroke-width:2.5}
+.vis .pipe{fill:none;stroke:var(--vol);stroke-width:10;stroke-opacity:.6}
+.vis .spot{fill:none;stroke:var(--bad);stroke-width:2;stroke-dasharray:4 4}
+.vis .steth{fill:none;stroke:var(--ink);stroke-width:4;stroke-linecap:round}
+.vis .stampbox{fill:var(--surface);stroke:var(--bad);stroke-width:3}
+.vis .pill{fill:var(--surface);stroke-width:1.5}
+.vis .rowchip{fill:var(--note)}
+.vis .dim{fill:var(--paper);fill-opacity:.62}
+.vis .armstripe{stroke:var(--ink);stroke-width:12;stroke-dasharray:12 12}
+.vis .outline{fill:none;stroke:var(--ink);stroke-width:2.5}
+.vis .outline-bad{fill:none;stroke:var(--bad);stroke-width:2.5}
+.vis .glass{stroke-width:3;fill-opacity:.08}
+.vis .ic-ok-o{fill:var(--surface);stroke:var(--ok);stroke-width:2.5}
+.vis .ic-ok-s{fill:none;stroke:var(--ok);stroke-width:2.8;stroke-linecap:round;stroke-linejoin:round}
+.vis .ic-w{fill:none;stroke:#fff;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}
+.vis .ic-wf{fill:#fff}
+.vis .caret{fill:var(--ink)}
+.vis .folder{fill:var(--note);stroke:var(--note-ink);stroke-width:1.5}
+/* motion */
+.vis :is(.pop,.popout,.popoof,.drop,.poof,.shake,.wiggle,.pulse,.stamp,.fly,.slide,.bounce,.move,.travel,.press){transform-box:fill-box;transform-origin:center}
+.vis :is(.grow-x,.growshrink,.lift,.typing){transform-box:fill-box;transform-origin:left center}
+.vis .liftr{transform-box:fill-box;transform-origin:right center}
+@keyframes k-fade{from{opacity:0}to{opacity:1}}
+@keyframes k-out{from{opacity:1}to{opacity:0}}
+@keyframes k-up{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+@keyframes k-pop{0%{opacity:0;transform:scale(.45)}60%{opacity:1;transform:scale(1.07)}100%{opacity:1;transform:scale(1)}}
+@keyframes k-poof{0%{opacity:1;transform:scale(1)}35%{opacity:1;transform:scale(1.12)}100%{opacity:0;transform:scale(.15)}}
+@keyframes k-drop{0%{opacity:0;transform:translateY(-140px)}55%{opacity:1;transform:translateY(6px)}75%{transform:translateY(-6px)}100%{opacity:1;transform:none}}
+@keyframes k-draw{from{opacity:1;stroke-dashoffset:1}to{opacity:1;stroke-dashoffset:0}}
+@keyframes k-flow{to{stroke-dashoffset:-24}}
+@keyframes k-travel{0%{opacity:0;transform:translate(0,0)}12%{opacity:1}88%{opacity:1}100%{opacity:0;transform:translate(var(--tx),var(--ty))}}
+@keyframes k-move{from{transform:translate(0,0)}to{transform:translate(var(--tx,0px),var(--ty,0px))}}
+@keyframes k-fly{from{opacity:1;transform:translate(0,0) scale(1)}to{opacity:0;transform:translate(var(--tx),var(--ty)) scale(.35)}}
+@keyframes k-slide{from{opacity:0;transform:translate(var(--dx,0px),var(--dy,0px))}to{opacity:1;transform:none}}
+@keyframes k-shake{0%,100%{transform:translateX(0)}15%,55%{transform:translateX(-7px)}35%,75%{transform:translateX(7px)}}
+@keyframes k-wiggle{0%,100%{transform:rotate(0)}20%,60%{transform:rotate(-5deg)}40%,80%{transform:rotate(5deg)}}
+@keyframes k-float{0%{opacity:0;transform:translate(0,0)}25%{opacity:1}100%{opacity:0;transform:translate(8px,-22px)}}
+@keyframes k-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.2)}}
+@keyframes k-blink{0%,49%{opacity:1}50%,100%{opacity:0}}
+@keyframes k-blip{0%{opacity:0}18%{opacity:1}70%{opacity:1}100%{opacity:0}}
+@keyframes k-growx{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes k-shrinkx{from{transform:scaleX(1)}to{transform:scaleX(0)}}
+@keyframes k-stamp{0%{opacity:0;transform:scale(1.7) rotate(-3deg)}70%{opacity:1;transform:scale(.96) rotate(-3deg)}100%{opacity:1;transform:scale(1) rotate(-3deg)}}
+@keyframes k-lift{from{transform:rotate(0)}to{transform:rotate(-72deg)}}
+@keyframes k-liftr{from{transform:rotate(0)}to{transform:rotate(72deg)}}
+@keyframes k-press{0%{transform:translateY(0)}45%,60%{transform:translateY(var(--ty))}100%{transform:translateY(0)}}
+@keyframes k-bounce{0%{opacity:0;transform:translate(0,0)}10%{opacity:1}60%{opacity:1;transform:translate(var(--tx),var(--ty))}100%{opacity:0;transform:translate(calc(var(--tx) - 70px),calc(var(--ty) + 40px)) rotate(-25deg)}}
+@keyframes k-type{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+.on .fade{animation:k-fade .5s ease var(--d,0s) both}
+.on .out{animation:k-out .35s ease var(--o,0s) forwards}
+.on .inout{animation:k-fade .45s ease var(--d,0s) both,k-out .35s ease var(--o,9s) forwards}
+.on .up{animation:k-up .6s cubic-bezier(.2,.8,.2,1) var(--d,0s) both}
+.on .pop{animation:k-pop .55s cubic-bezier(.3,1.3,.5,1) var(--d,0s) both}
+.on .popout{animation:k-pop .5s cubic-bezier(.3,1.3,.5,1) var(--d,0s) both,k-out .35s ease var(--o,9s) forwards}
+.on .popoof{animation:k-pop .5s cubic-bezier(.3,1.3,.5,1) var(--d,0s) both,k-poof .55s ease-in var(--o,9s) forwards}
+.on .poof{animation:k-poof .55s ease-in var(--o,0s) forwards}
+.on .drop{animation:k-drop .85s ease-out var(--d,0s) both}
+.on .draw{animation:k-draw var(--dur,.7s) ease-in-out var(--d,0s) both}
+.on .drawout{animation:k-draw var(--dur,.7s) ease-in-out var(--d,0s) both,k-out .3s ease var(--o,9s) forwards}
+.on .dashy.fade{animation:k-fade .5s ease var(--d,0s) both,k-flow 1.1s linear var(--d,0s) infinite}
+.on .travel{animation:k-travel var(--dur,.9s) ease-in-out var(--d,0s) var(--n,1) both}
+.on .move{animation:k-move var(--dur,1s) var(--ease,cubic-bezier(.45,0,.25,1)) var(--d,0s) forwards}
+.on .fly{animation:k-fly var(--dur,.7s) cubic-bezier(.5,0,.3,1) var(--d,0s) forwards}
+.on .slide{animation:k-slide .7s cubic-bezier(.2,.8,.2,1) var(--d,0s) both}
+.on .shake{animation:k-shake .5s ease var(--d,0s) 1}
+.on .wiggle{animation:k-wiggle .8s ease var(--d,0s) 1}
+.on .zz{animation:k-float 2.4s ease-out var(--d,0s) infinite both}
+.on .pulse{animation:k-pulse 1.1s ease-in-out var(--d,0s) infinite}
+.on .blink{animation:k-blink 1s steps(1) var(--d,0s) infinite}
+.on .blip{animation:k-blip var(--dur,.9s) ease var(--d,0s) both}
+.on .grow-x{animation:k-growx var(--dur,.9s) var(--ease,cubic-bezier(.2,.8,.2,1)) var(--d,0s) both}
+.on .growshrink{animation:k-growx var(--dur,.9s) cubic-bezier(.2,.8,.2,1) var(--d,0s) both,k-shrinkx .45s ease-in var(--o,9s) forwards}
+.on .stamp{animation:k-stamp .45s cubic-bezier(.3,1.2,.5,1) var(--d,0s) both}
+.on .lift{animation:k-lift .7s cubic-bezier(.3,1.3,.5,1) var(--d,0s) forwards}
+.on .liftr{animation:k-liftr .7s cubic-bezier(.3,1.3,.5,1) var(--d,0s) forwards}
+.on .press{animation:k-press var(--dur,1.2s) ease-in-out var(--d,0s) 1}
+.on .bounce{animation:k-bounce var(--dur,1.4s) ease-in-out var(--d,0s) both}
+.on .typing{animation:k-type var(--dur,1s) var(--d,0s) both}
+.scene:not(.on) :is(.fade,.inout,.up,.pop,.popout,.popoof,.drop,.draw,.drawout,.travel,.slide,.zz,.blip,.stamp,.bounce,.grow-x,.growshrink){opacity:0}
+.scene:not(.on) .typing{transform:scaleX(0)}
+@media (max-width:820px),(max-aspect-ratio:1/1){
+  .scene{grid-template-columns:1fr;grid-template-rows:auto auto;align-items:start;align-content:start;overflow-y:auto;gap:10px;padding-top:4px}
+  .copy{max-width:62ch}
+  .copy h2{font-size:clamp(24px,6.2vw,36px);margin-bottom:.35em}
+  .copy p{font-size:15px;margin-bottom:.5em}
+  .copy pre.yaml{max-height:30vh}
+  .vis{height:auto}
+  .vis>svg{height:auto;max-height:64vh}
+}
+@media (max-width:600px) and (orientation:portrait){.rotate-hint{display:block}.cards{grid-template-columns:1fr}.card{min-height:130px}}
+@media (max-width:480px){.count{display:none}.btn{width:40px;height:40px}.btn.play{width:46px;height:46px}.brand span{font-size:14px}.where{font-size:13px}}
+@media (prefers-reduced-motion:reduce){
+  .scene,.scene.past,.scene.active{transform:none!important}
+  .scene{transition:opacity .25s ease,visibility 0s linear .25s}
+  .scene.active{transition:opacity .25s ease,visibility 0s}
+  .scene.on *{animation-duration:1ms!important;animation-iteration-count:1!important}
+  .card-inner{transition:none}
+}
+
+.vis .podseam{fill:none;stroke:rgba(255,255,255,.32);stroke-width:2.5;stroke-linecap:round}
+.vis .tagb{fill:var(--surface);stroke-width:2}
+.vis .deskbody{fill:var(--surface);stroke:var(--ink);stroke-width:2}
+.vis .clippaper{fill:var(--surface)}
+.vis .clipclip{fill:var(--ink-2)}
+.vis .lbl{fill:var(--note)}
+.vis .lbltxt{fill:var(--note-ink)}
+.vis .nodebox{fill:var(--net);stroke:var(--ink);stroke-width:2.5}
+.vis .door{fill:var(--client);stroke:var(--ink);stroke-width:2}
+.vis .road{fill:none;stroke:var(--line);stroke-width:22;stroke-linecap:round}
+.vis .roadmid{fill:none;stroke:var(--surface);stroke-width:2.5;stroke-dasharray:10 10}
+.vis .rope{fill:none;stroke:var(--bad);stroke-width:7;stroke-linecap:round}
+.vis .stanchion{fill:var(--ink-2)}
+.vis .pipe2{fill:none;stroke:var(--teal);stroke-width:14;stroke-linecap:round;stroke-linejoin:round;stroke-opacity:.28}
+.vis .flow{fill:none;stroke:var(--teal);stroke-width:4;stroke-dasharray:6 10;stroke-linecap:round}
+.vis .stop{fill:var(--surface);stroke:var(--ink-2);stroke-width:2.5}
+.vis .cniband{fill:var(--teal);fill-opacity:.1;stroke:var(--teal);stroke-width:2}
+.vis .valve{fill:var(--surface);stroke:var(--ink);stroke-width:2.5}
+.vis .brk{fill:none;stroke-width:2}
+@keyframes k-flow16{to{stroke-dashoffset:-32}}
+.on .flow.fade{animation:k-fade .5s ease var(--d,0s) both,k-flow16 .9s linear var(--d,0s) infinite}
+.on .flow.inout{animation:k-fade .5s ease var(--d,0s) both,k-out .35s ease var(--o,9s) forwards,k-flow16 .9s linear var(--d,0s) infinite}
+.take{gap:clamp(8px,1.5vh,18px)}
+.take svg{max-height:52px}
+.copy h1.long{font-size:clamp(36px,4.2vw,64px)}
+@keyframes k-unwind{from{stroke-dashoffset:0}to{stroke-dashoffset:1}}
+.on .unwind{animation:k-unwind var(--dur,3s) linear var(--d,0s) both}
+@keyframes k-spin{to{transform:rotate(360deg)}}
+.vis .spin{transform-box:fill-box;transform-origin:center}
+.on .spin{animation:k-spin 2.4s linear var(--d,0s) infinite}
+@keyframes k-ring{0%,100%{transform:rotate(0)}25%{transform:rotate(-12deg)}75%{transform:rotate(12deg)}}
+.vis .ringy{transform-box:fill-box;transform-origin:center}
+.on .ringy{animation:k-ring .22s linear var(--d,0s) 6}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand"><svg viewBox="0 0 30 22" aria-hidden="true"><rect x="2" y="3" width="26" height="5" rx="2" fill="var(--teal)" opacity=".45"/><rect x="2" y="10" width="14" height="5" rx="2" fill="var(--teal)" opacity=".75"/><rect x="2" y="17" width="7" height="4" rx="2" fill="var(--teal)"/></svg><span>Quantization for LLM inference, explained</span></div>
+    <div class="where" id="chap"></div>
+  </header>
+  <main class="stage" id="stage"></main>
+  <nav class="controls" aria-label="Explainer controls">
+    <button class="btn" id="prev" aria-label="Previous scene"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
+    <button class="btn play" id="play" aria-label="Start auto-play" aria-pressed="false"></button>
+    <button class="btn" id="next" aria-label="Next scene"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></button>
+    <div class="track" id="track"></div>
+    <span class="count" id="count"></span>
+    <button class="btn" id="replay" aria-label="Replay this scene"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4.5h4.5"/></svg></button>
+  </nav>
+  <div class="sr" aria-live="polite" id="live"></div>
+</div>
+<script>
+const I=n=>'\u00A0'.repeat(n);
+const S=o=>{const p=[];for(const k in o){const v=o[k];if(v==null)continue;const sec=['d','o','dur'].includes(k),px=['tx','ty','dx','dy'].includes(k);p.push(`--${k}:${v}${sec?'s':px?'px':''}`)}return p.length?`style="${p.join(';')}"`:''};
+const G=(inner,o={})=>{const{x,y,an,...v}=o;let g=an?`<g class="${an}" ${S(v)}>${inner}</g>`:inner;if(x!=null||y!=null)g=`<g transform="translate(${x||0} ${y||0})">${g}</g>`;return g};
+const T=(x,y,s,o={})=>{const{c='',a,an='fade',d=0,o:oo}=o;return `<text x="${x}" y="${y}"${a?` text-anchor="${a}"`:''} class="${c} ${an}" ${an?S({d,o:oo}):''}>${s}</text>`};
+const svg=(inner,label)=>`<svg viewBox="0 0 800 500" role="img" aria-label="${label}" xml:space="preserve">${inner}</svg>`;
+let UID=0;
+
+function face(m,w,h){
+  const a=w*.36,b=w*.64,ey=h*.56,mx=w/2,my=h*.75;
+  if(m==='sleepy')return `<path class="lid" d="M${a-7} ${ey}q7 5 14 0M${b-7} ${ey}q7 5 14 0"/><path class="mouth" d="M${mx-5} ${my}h10"/>`;
+  const eyes=`<circle cx="${a}" cy="${ey}" r="8" class="eye"/><circle cx="${a+1}" cy="${ey+1}" r="3.8" class="pupil"/><circle cx="${b}" cy="${ey}" r="8" class="eye"/><circle cx="${b+1}" cy="${ey+1}" r="3.8" class="pupil"/>`;
+  const M={happy:`<path class="mouth" d="M${mx-11} ${my-3}q11 10 22 0"/>`,sad:`<path class="mouth" d="M${mx-10} ${my+4}q10 -9 20 0"/>`,flat:`<path class="mouth" d="M${mx-8} ${my}h16"/>`,worried:`<path class="mouth" d="M${mx-11} ${my+2}q5.5 -5 11 0q5.5 5 11 0"/>`,wow:`<ellipse class="mouth" cx="${mx}" cy="${my}" rx="5" ry="6"/>`};
+  return eyes+(M[m]||M.happy);
+}
+const ZZ=w=>`<text x="${w-26}" y="14" class="zz" style="--d:0s">z</text><text x="${w-14}" y="4" class="zz" style="--d:.8s">z</text><text x="${w-2}" y="-6" class="zz" style="--d:1.6s">Z</text>`;
+
+function crate({x=0,y=0,w=140,h=96,k='web',name='',sub='',mood='happy',m2,t2,m3,t3,an='',v={},s=1,ghost=false,extra=''}={}){
+  const fg=ghost?(k==='client'?'var(--client-ink)':`var(--${k})`):(k==='client'?'var(--on-client)':'#fff');
+  let r='';for(let i=16;i<w-8;i+=16)r+=`M${i} 30V${h-8}`;
+  const seq=[[mood,0]];if(m2)seq.push([m2,t2]);if(m3)seq.push([m3,t3]);
+  let faces='';
+  seq.forEach(([m,t],i)=>{const nx=seq[i+1];let cls='',st={};
+    if(i>0){cls='fade';st.d=t}
+    if(nx){cls=cls?'inout':'out';st.o=nx[1]}
+    faces+=`<g${cls?` class="${cls}" ${S(st)}`:''}>${face(m,w,h)}${m==='sleepy'?ZZ(w):''}</g>`;});
+  const body=ghost?`<rect width="${w}" height="${h}" rx="14" class="ghost" style="stroke:var(--${k});fill:var(--${k})"/>`
+    :`<rect width="${w}" height="${h}" rx="14" style="fill:var(--${k})"/><path d="${r}" class="ridge"/><path d="M8 27H${w-8}" class="capline"/>`;
+  let g=`<g class="${ghost?'ghostf':''}" style="--fg:${fg}">${body}${name?`<text x="12" y="19" class="cname">${name}</text>`:''}${sub?`<text x="${w-10}" y="18" text-anchor="end" class="csub">${sub}</text>`:''}${faces}${extra}</g>`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})${s!==1?` scale(${s})`:''}">${g}</g>`;
+}
+
+function drum({x=0,y=0,w=130,h=110,label='postgres_data',an='',v={},fs=12,ring=.5,extra=''}={}){
+  const rx=w/2,ry=13,ry2=Math.round(h*ring);
+  let g=`<path d="M0 ${ry}V${h-ry}A${rx} ${ry} 0 0 0 ${w} ${h-ry}V${ry}" style="fill:var(--vol)"/><ellipse cx="${rx}" cy="${ry}" rx="${rx}" ry="${ry}" style="fill:var(--vol)"/><ellipse cx="${rx}" cy="${ry}" rx="${rx}" ry="${ry}" fill="#fff" fill-opacity=".28"/><path d="M0 ${ry2}A${rx} ${ry} 0 0 0 ${w} ${ry2}" fill="none" stroke="#fff" stroke-opacity=".35" stroke-width="2"/>${label?`<text x="${rx}" y="${h-12}" text-anchor="middle" class="m b wht" style="font-size:${fs}px">${label}</text>`:''}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+
+function bubPath(W,H,tail,tp){
+  const top=tail==='tl'?`H${tp}L${tp+4} -12L${tp+14} 0H${W-12}`:`H${W-12}`;
+  const bot=tail==='bl'?`H${tp+14}L${tp+4} ${H+12}L${tp} ${H}H12`:`H12`;
+  return `M12 0${top}Q${W} 0 ${W} 12V${H-12}Q${W} ${H} ${W-12} ${H}${bot}Q0 ${H} 0 ${H-12}V12Q0 0 12 0Z`;
+}
+function bubble(x,y,txt,{w,c='var(--ink)',fs=14,mono=true,tail='bl',tp=16,an='pop',d=0,o}={}){
+  const plain=txt.replace(/<[^>]+>/g,'').replace(/&[a-z#0-9]+;/g,'x');
+  const W=w||Math.round(plain.length*fs*(mono?.6:.56)+26),H=fs+18;
+  const inner=`<path d="${bubPath(W,H,tail,tp)}" class="bub" style="stroke:${c}"/><text x="13" y="${(H/2+fs*.36).toFixed(1)}" class="${mono?'m ':''}b" style="fill:${c};font-size:${fs}px">${txt}</text>`;
+  let a=an;if(o!=null)a=an==='pop'?'popout':an==='fade'?'inout':an;
+  return G(inner,{x,y,an:a,d,o});
+}
+
+function arrow(p,{c='var(--ink)',d=0,dur=.7,w=2.5,dash=false}={}){
+  let path,fx,fy;const{x1,y1,x2,y2,q,c1,c2,poly}=p;let ex=x2,ey=y2;
+  if(poly){path='M'+poly.map(pt=>pt.join(' ')).join('L');const n=poly.length;[ex,ey]=poly[n-1];[fx,fy]=poly[n-2]}
+  else if(c1){path=`M${x1} ${y1}C${c1[0]} ${c1[1]} ${c2[0]} ${c2[1]} ${x2} ${y2}`;[fx,fy]=c2}
+  else if(q){path=`M${x1} ${y1}Q${q[0]} ${q[1]} ${x2} ${y2}`;[fx,fy]=q}
+  else{path=`M${x1} ${y1}L${x2} ${y2}`;fx=x1;fy=y1}
+  const ang=Math.atan2(ey-fy,ex-fx),L=12;
+  const h1=[ex+L*Math.cos(ang+2.55),ey+L*Math.sin(ang+2.55)],h2=[ex+L*Math.cos(ang-2.55),ey+L*Math.sin(ang-2.55)];
+  const head=`<path d="M${h1[0].toFixed(1)} ${h1[1].toFixed(1)}L${ex} ${ey}L${h2[0].toFixed(1)} ${h2[1].toFixed(1)}" class="ahead fade" style="stroke:${c};stroke-width:${w};--d:${(d+dur*.8).toFixed(2)}s"/>`;
+  const line=dash?`<path d="${path}" class="aline dashy fade" style="stroke:${c};stroke-width:${w};--d:${d}s"/>`
+    :`<path d="${path}" pathLength="1" class="aline draw" style="stroke:${c};stroke-width:${w};--d:${d}s;--dur:${dur}s"/>`;
+  return `<g>${line}${head}</g>`;
+}
+const packet=(x1,y1,x2,y2,{d=0,dur=.8,c='var(--web)',r=7}={})=>`<circle cx="${x1}" cy="${y1}" r="${r}" class="travel" style="fill:${c};--d:${d}s;--dur:${dur}s;--tx:${x2-x1}px;--ty:${y2-y1}px"/>`;
+
+function icon(t,x,y,{d=0,o,r=14,an='pop'}={}){
+  const s=r/14;
+  const sym={
+    kept:`<circle r="14" class="ic-ok-o"/><path d="M-6 0l4 4 8-8" class="ic-ok-s"/>`,
+    yes:`<circle r="14" class="okf"/><path d="M-6 0l4 4 8-8" class="ic-w"/>`,
+    no:`<circle r="14" class="badf"/><path d="M-5 -5l10 10M5 -5l-10 10" class="ic-w"/>`,
+    stop:`<circle r="14" class="mutf"/><path d="M-3.5 -5v10M3.5 -5v10" class="ic-w"/>`,
+    play:`<circle r="14" class="okf"/><path d="M-3.5 -6L6 0L-3.5 6Z" class="ic-wf"/>`,
+    restart:`<circle r="14" style="fill:var(--web)"/><path d="M6 1.5A6.2 6.2 0 1 1 3.6 -5" class="ic-w"/><path d="M4.5 -9.5L4 -4.6L-0.8 -5.6" class="ic-w"/>`,
+    plus:`<circle r="14" class="okf"/><path d="M0 -6V6M-6 0H6" class="ic-w"/>`,
+    warn:`<circle r="14" class="warnf"/><path d="M0 -6.5V1.5" class="ic-w"/><circle cy="6" r="1.7" class="ic-wf"/>`
+  }[t];
+  const a=o!=null?(an==='pop'?'popout':an):an;
+  return `<g transform="translate(${x} ${y})${s!==1?` scale(${s})`:''}"><g class="${a}" ${S({d,o})}>${sym}</g></g>`;
+}
+function typed(x,y,str,{fs=15,d=0,dur=1,c=''}={}){
+  const id='clip'+(UID++),w=str.length*fs*.6+6;
+  return `<clipPath id="${id}"><rect x="${x-2}" y="${y-fs}" width="${w}" height="${fs*1.5}" class="typing" style="--d:${d}s;--dur:${dur}s;animation-timing-function:steps(${str.length},end)"/></clipPath><text x="${x}" y="${y}" class="m ${c}" clip-path="url(#${id})" style="font-size:${fs}px">${str}</text>`;
+}
+function browser(x,y,w,h,addr,o={}){
+  return G(`<rect width="${w}" height="${h}" rx="10" class="panel"/><path d="M0 22H${w}" class="sep"/><circle cx="12" cy="11" r="3.5" class="badf"/><circle cx="24" cy="11" r="3.5" class="warnf"/><circle cx="36" cy="11" r="3.5" class="okf"/><rect x="8" y="32" width="${w-16}" height="24" rx="6" class="codebg"/><text x="16" y="49" class="m f12">${addr}</text>`,{x,y,...o});
+}
+const glass=(x,y,w,h,k,label,o={})=>G(`<rect width="${w}" height="${h}" rx="16" class="glass" style="stroke:var(--${k});fill:var(--${k})"/><path d="M0 16Q0 0 16 0H${label.length*8.2+30}V28H0Z" style="fill:var(--${k})"/><text x="14" y="19" class="f14 b" style="fill:${k==='client'?'var(--on-client)':'#fff'}">${label}</text>`,{x,y,...o});
+const codeLine=(x,y,s,c='')=>`<text x="${x}" y="${y}" class="m ${c}">${s}</text>`;
+// ---------- Day 10 helpers ----------
+function faceSeq(seq,w,h){let f='';seq.forEach(([m,t],i)=>{const nx=seq[i+1];let cls='',st={};if(i>0){cls='fade';st.d=t}if(nx){cls=cls?'inout':'out';st.o=nx[1]}f+=`<g${cls?` class="${cls}" ${S(st)}`:''}>${face(m,w,h)}${m==='sleepy'?ZZ(w):''}</g>`});return f}
+function pod({x=0,y=0,w=104,h=74,k='web',ip='',mood='happy',m2,t2,m3,t3,an='',v={},s=1,ghost=false,extra='',under=''}={}){
+  const fg=ghost?(k==='client'?'var(--client-ink)':`var(--${k})`):(k==='client'?'var(--on-client)':'#fff');
+  const r=Math.min(h/2,34),seq=[[mood,0]];if(m2)seq.push([m2,t2]);if(m3)seq.push([m3,t3]);
+  const body=ghost?`<rect width="${w}" height="${h}" rx="${r}" class="ghost" style="stroke:var(--${k});fill:var(--${k})"/>`
+    :`<rect width="${w}" height="${h}" rx="${r}" style="fill:var(--${k})"/><path d="M${(r*.75).toFixed(1)} 12Q${w/2} 2 ${(w-r*.75).toFixed(1)} 12" class="podseam"/>`;
+  let g=`<g class="${ghost?'ghostf':''}" style="--fg:${fg}">${body}${faceSeq(seq,w,h)}${extra}</g>${ip?`<text x="${w/2}" y="${h+17}" text-anchor="middle" class="m f12 mut">${ip}</text>`:''}${under}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})${s!==1?` scale(${s})`:''}">${g}</g>`;
+}
+const tagW=t=>Math.round(t.length*7.2+26);
+const tagD=w=>`M0 12L9.5 1.5Q11 0 13 0H${w-5}Q${w} 0 ${w} 5V19Q${w} 24 ${w-5} 24H13Q11 24 9.5 22.5Z`;
+const tagRaw=(t,k='ink-2')=>`<path d="${tagD(tagW(t))}" class="tagb" style="stroke:var(--${k})"/><circle cx="11" cy="12" r="2.5" style="fill:var(--${k})"/><text x="19" y="16.5" class="m f12">${t}</text>`;
+const tag=(x,y,t,{k='ink-2',an='fade',d=0,o}={})=>G(tagRaw(t,k),{x,y,an:o!=null?'inout':an,d,o});
+const tagHL=(x,y,t,ok,{d=0,o}={})=>{const c=ok?'ok':'bad';return `<path transform="translate(${x} ${y})" d="${tagD(tagW(t))}" class="${o!=null?'inout':'fade'}" style="fill:var(--${c});fill-opacity:.18;stroke:var(--${c});stroke-width:3;--d:${d}s${o!=null?`;--o:${o}s`:''}"/>`};
+function desk({x=0,y=0,w=170,name='Service: web',ip='',sub='',an='',v={},s=1,extra=''}={}){
+  let g=`<path d="M30 28V46M${w-30} 28V46" style="stroke:var(--ink-2);stroke-width:3"/><rect x="6" width="${w-12}" height="30" rx="8" class="inkf"/><text x="${w/2}" y="20" text-anchor="middle" class="f14 b inv">${name}</text><path d="M${w-64} 46a11 11 0 0 1 22 0Z" style="fill:var(--client)"/><circle cx="${w-53}" cy="33" r="2.6" style="fill:var(--client)"/><rect y="45" width="${w}" height="11" rx="4" class="inkf"/><rect x="8" y="56" width="${w-16}" height="58" rx="6" class="deskbody"/>${ip?`<text x="${w/2}" y="${sub?81:90}" text-anchor="middle" class="m f14 b">${ip}</text>`:''}${sub?`<text x="${w/2}" y="${ip?101:90}" text-anchor="middle" class="f12 mut">${sub}</text>`:''}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})${s!==1?` scale(${s})`:''}">${g}</g>`;
+}
+function clip({x=0,y=0,w=210,h=160,title='EndpointSlice',an='',v={},extra=''}={}){
+  let g=`<rect width="${w}" height="${h}" rx="10" class="inkf"/><rect x="8" y="12" width="${w-16}" height="${h-20}" rx="4" class="clippaper"/><rect x="${w/2-28}" y="-7" width="56" height="18" rx="5" class="clipclip"/><text x="20" y="38" class="f13 b">${title}</text><path d="M20 48H${w-20}" class="sep"/>${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function book({x=0,y=0,w=160,h=96,title='CoreDNS',sub='10.96.0.10',an='',v={},extra=''}={}){
+  let g=`<rect x="7" y="7" width="${w}" height="${h}" rx="8" style="fill:var(--note)"/><rect width="${w}" height="${h}" rx="8" class="inkf"/><path d="M18 6V${h-6}" style="stroke:var(--paper);stroke-opacity:.3;stroke-width:3"/><text x="30" y="${h/2-3}" class="f17 b inv">${title}</text>${sub?`<text x="30" y="${h/2+19}" class="m f12 inv" opacity=".78">${sub}</text>`:''}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function letterG(label=''){const w=Math.round(label.length*7.2+16);
+  return `<rect x="-14" y="-10" width="28" height="20" rx="3" class="paper"/><path d="M-14 -9L0 2L14 -9" class="paperfold"/>${label?`<rect x="${-w/2}" y="-40" width="${w}" height="22" rx="6" class="lbl"/><text x="0" y="-25" text-anchor="middle" class="m f12 b lbltxt">${label}</text>`:''}`}
+const sendL=(x1,y1,x2,y2,{d=0,dur=.8,label=''}={})=>`<g transform="translate(${x1} ${y1})"><g class="travel" ${S({d,dur,tx:x2-x1,ty:y2-y1})}>${letterG(label)}</g></g>`;
+const svcChip=(x,y,name,{w=170,an='pop',d=0}={})=>G(`<rect width="${w}" height="44" rx="12" class="deskbody"/><path d="M13 30a10 10 0 0 1 20 0Z" style="fill:var(--client)"/><rect x="10" y="29" width="26" height="4" rx="2" class="inkf"/><text x="44" y="28" class="f14 b">${name}</text>`,{x,y,an,d});
+const shieldP=`<path d="M0 -17L14 -11V0C14 9 7 15 0 18C-7 15 -14 9 -14 0V-11Z" class="inkf"/><path d="M-6 0l4 4 8-8" style="fill:none;stroke:var(--paper);stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round"/>`;
+const shield=(x,y,{s=1,an='pop',d=0}={})=>`<g transform="translate(${x} ${y}) scale(${s})"><g class="${an}" ${S({d})}>${shieldP}</g></g>`;
+const pill=(x,y,txt,{c='ok',an='pop',d=0}={})=>{const w=Math.round(txt.length*7.6+30);return G(`<rect width="${w}" height="24" rx="12" class="pill" style="stroke:var(--${c})"/><circle cx="13" cy="12" r="4.5" style="fill:var(--${c})"/><text x="23" y="16.5" class="f13 b">${txt}</text>`,{x,y,an,d})};
+const chipT=(t,w)=>`<rect x="${-w/2}" y="-12" width="${w}" height="24" rx="12" class="lbl"/><text x="0" y="5" text-anchor="middle" class="m f12 b lbltxt">${t}</text>`;
+const flyChip=(x1,y1,x2,y2,t,{d=0,dur=.8}={})=>`<g transform="translate(${x1} ${y1})"><g class="travel" ${S({d,dur,tx:x2-x1,ty:y2-y1})}>${chipT(t,Math.round(t.length*7.2+22))}</g></g>`;
+// ---------- Day 11 helpers ----------
+function ticket({x=0,y=0,w=170,h=96,title='PVC',lines=[],an='',v={},extra='',k='client'}={}){
+  const n=9,m=h/2;
+  const d=`M10 0H${w-10}Q${w} 0 ${w} 10V${m-n}A${n} ${n} 0 0 0 ${w} ${m+n}V${h-10}Q${w} ${h} ${w-10} ${h}H10Q0 ${h} 0 ${h-10}V${m+n}A${n} ${n} 0 0 0 0 ${m-n}V10Q0 0 10 0Z`;
+  let g=`<path d="${d}" class="paper"/><path d="M10 1H${w-10}Q${w-1} 1 ${w-1} 10V12H1V10Q1 1 10 1Z" style="fill:var(--${k})"/><text x="14" y="${m-9}" class="m f13 b">${title}</text><path d="M${n+5} ${m}H${w-n-5}" class="sep" style="stroke-dasharray:4 4"/>${lines.map((l,i)=>`<text x="14" y="${m+22+i*18}" class="m f12">${l}</text>`).join('')}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function pad({x=0,y=0,w=120,h=86,title='emptyDir',lines=[],an='',v={},extra=''}={}){
+  let rings='';for(let i=14;i<=w-20;i+=22)rings+=`<rect x="${i}" y="-6" width="6" height="14" rx="3" class="inkf"/>`;
+  let g=`<rect width="${w}" height="${h}" rx="8" style="fill:var(--note)"/>${rings}<text x="12" y="28" class="m f12 b lbltxt">${title}</text>${lines.map((l,i)=>`<text x="12" y="${50+i*18}" class="m f12 lbltxt">${l}</text>`).join('')}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function rack({x=0,y=0,w=110,h=90,label='backing storage',an='',v={}}={}){
+  const sh=(h-20)/3;let g=`<rect width="${w}" height="${h}" rx="10" style="fill:var(--ink-2)"/>`;
+  for(let i=0;i<3;i++){const yy=10+i*sh;g+=`<rect x="10" y="${yy}" width="${w-20}" height="${sh-6}" rx="4" fill="#fff" fill-opacity=".16"/><circle cx="${w-22}" cy="${yy+(sh-6)/2}" r="3.5" class="okf"/>`}
+  if(label)g+=`<text x="${w/2}" y="${h+18}" text-anchor="middle" class="f12 mut">${label}</text>`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function menuCard({x=0,y=0,w=200,h=150,title='StorageClass',rows='',an='',v={}}={}){
+  let g=`<rect width="${w}" height="${h}" rx="12" class="panel"/><path d="M12 0H${w-12}Q${w} 0 ${w} 12V32H0V12Q0 0 12 0Z" class="inkf"/><text x="14" y="21" class="f14 b inv">${title}</text>${rows}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+const HAT=w=>`<path d="M${w/2-36} -2Q${w/2-46} -20 ${w/2-28} -24Q${w/2-20} -40 ${w/2} -32Q${w/2+18} -42 ${w/2+28} -24Q${w/2+46} -20 ${w/2+36} -2Z" style="fill:#fff;stroke:var(--ink);stroke-width:2;stroke-linejoin:round"/>`;
+const nodeBox=(x,y,w,h,label,o={})=>G(`<rect width="${w}" height="${h}" rx="14" class="nodebox"/><text x="12" y="22" class="f13 b">${label}</text>`,{x,y,...o});
+const jersey=n=>`<circle cx="16" cy="16" r="12" class="stop"/><text x="16" y="21" text-anchor="middle" class="f13 b">${n}</text>`;
+const fileI=`<path d="M0 3Q0 0 3 0H12L18 6V21Q18 24 15 24H3Q0 24 0 21Z" class="paper"/><path d="M12 0.5V6H17.5" class="paperfold"/>`;
+const fileChip=(x,y,name,{an='fade',d=0,o,c=''}={})=>G(`${fileI}<text x="26" y="17" class="m f13 ${c}">${name}</text>`,{x,y,an:o!=null?'inout':an,d,o});
+const flyFile=(x1,y1,x2,y2,name='',{d=0,dur=.9}={})=>`<g transform="translate(${x1} ${y1})"><g class="travel" ${S({d,dur,tx:x2-x1,ty:y2-y1})}>${fileI}${name?`<text x="24" y="16" class="m f12 b">${name}</text>`:''}</g></g>`;
+const PENCIL=`<path d="M-7 7L-6 2L4 -8L8 -4L-2 6Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.8;stroke-linejoin:round"/>`;
+const EYE=`<path d="M-10 0Q0 -8 10 0Q0 8 -10 0Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.8"/><circle r="3" class="inkf"/>`;
+const LOCK=`<path d="M-6 -2V-7A6 6 0 0 1 6 -7V-2" style="fill:none;stroke:var(--ink);stroke-width:2.5"/><rect x="-9" y="-3" width="18" height="15" rx="3" class="inkf"/>`;
+const TRASH=`<rect x="-6" y="0" width="72" height="10" rx="3" class="inkf"/><rect x="22" y="-6" width="16" height="8" rx="2" class="inkf"/><path d="M2 14H58L54 76H6Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:2.5;stroke-linejoin:round"/><path d="M20 26V64M30 26V64M40 26V64" style="stroke:var(--ink-2);stroke-width:2.5"/>`;
+const sym=(g,x,y,{d=0,an='pop',s=1}={})=>`<g transform="translate(${x} ${y}) scale(${s})"><g class="${an}" ${S({d})}>${g}</g></g>`;
+const STAIRS=`<rect x="0" y="34" width="15" height="14" rx="3" style="fill:var(--web)"/><rect x="16" y="23" width="15" height="25" rx="3" style="fill:var(--teal)"/><rect x="32" y="12" width="15" height="36" rx="3" style="fill:var(--db)"/><rect x="48" y="1" width="15" height="47" rx="3" style="fill:var(--vol)"/>`;
+const term=(x,y,w,h,L,{fs=12,lh=24,top=26,d=0}={})=>G(`<rect width="${w}" height="${h}" rx="12" class="codebg"/>`+L.map(([t,c,dd],i)=>T(16,top+i*lh,t.replace(/ /g,'\u00A0'),{c:`m f${fs} ${c}`,d:dd})).join(''),{x,y,an:'fade',d});
+const chipsRow=(x,y,arr,{maxX=380,d=0,k='line'}={})=>{let s='',cx=x,cy=y;arr.forEach((t,i)=>{const w=Math.round(t.length*6.9+22);if(cx+w>maxX){cx=x;cy+=36}s+=G(`<rect width="${w}" height="28" rx="14" class="pill" style="stroke:var(--${k})"/><text x="${w/2}" y="19" text-anchor="middle" class="f13">${t}</text>`,{x:cx,y:cy,an:'pop',d:d+i*.15});cx+=w+8});return s};
+// ---------- Day 12 helpers ----------
+const LOCKW=`<path d="M-6 -2V-7A6 6 0 0 1 6 -7V-2" style="fill:none;stroke:#fff;stroke-width:2.5"/><rect x="-9" y="-3" width="18" height="15" rx="3" fill="#fff"/>`;
+function cfgCard({x=0,y=0,w=240,kind='cm',name='inference-config',rows=[],rh=24,an='',v={},extra=''}={}){
+  const k=kind==='cm'?'teal':'db',h=46+rows.length*rh;
+  let g=`<rect width="${w}" height="${h}" rx="12" class="panel"/><path d="M12 0H${w-12}Q${w} 0 ${w} 12V34H0V12Q0 0 12 0Z" style="fill:var(--${k})"/>${kind==='sec'?`<g transform="translate(${w-20} 18) scale(.75)">${LOCKW}</g>`:''}<text x="14" y="22" class="f13 b wht">${kind==='cm'?'ConfigMap':'Secret'}: ${name}</text>`;
+  rows.forEach(([kk,vv],i)=>{g+=`<text x="14" y="${58+i*rh}" class="m f12"><tspan class="b">${kk}</tspan><tspan class="mut">: </tspan>${vv}</text>`});
+  g+=extra;if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+const polaroid=(x,y,lines,{w=170,an='pop',d=0,o,label='photo at start'}={})=>{const h=40+lines.length*22+28;return G(`<rect width="${w}" height="${h}" rx="4" style="fill:#fff;stroke:var(--ink);stroke-width:2"/><rect x="10" y="10" width="${w-20}" height="${h-44}" rx="2" style="fill:#1F2449"/>${lines.map((l,i)=>`<text x="20" y="${36+i*22}" class="m f13 b" style="fill:#FFE38A">${l}</text>`).join('')}<text x="${w/2}" y="${h-12}" text-anchor="middle" class="f12" style="fill:#18203F">${label}</text>`,{x,y,an:an?(o!=null?'popout':an):'',d,o})};
+const liveWin=(x,y,w,h,title,o={})=>G(`<rect width="${w}" height="${h}" rx="10" class="panel"/><path d="M10 0H${w-10}Q${w} 0 ${w} 10V26H0V10Q0 0 10 0Z" class="codebg"/><circle cx="14" cy="13" r="4" class="badf"/><circle cx="28" cy="13" r="4" class="warnf"/><circle cx="42" cy="13" r="4" class="okf"/><text x="56" y="18" class="m f11 mut">${title}</text>`,{x,y,...o});
+const DISGUISE=`<circle cx="-15" cy="0" r="11" style="fill:var(--surface);fill-opacity:.2;stroke:var(--ink);stroke-width:3"/><circle cx="15" cy="0" r="11" style="fill:var(--surface);fill-opacity:.2;stroke:var(--ink);stroke-width:3"/><path d="M-4 0Q0 -4 4 0M-26 -2L-34 -6M26 -2L34 -6" style="fill:none;stroke:var(--ink);stroke-width:3;stroke-linecap:round"/><path d="M-22 20Q-11 12 0 18Q11 12 22 20Q11 26 0 22Q-11 26 -22 20Z" class="inkf"/>`;
+const room=(x,y,w,h,name,o={})=>{const tw=Math.round((11+name.length)*8.1+30);return G(`<rect width="${w}" height="${h}" rx="16" class="nodebox"/><path d="M16 0H${tw}V30H0V16Q0 0 16 0Z" class="inkf"/><text x="14" y="20" class="f13 b inv">namespace: ${name}</text>`,{x,y,...o})};
+const BOLT=`<path d="M8 0L0 18H8L4 34L20 12H11L16 0Z" style="fill:var(--warn);stroke:var(--ink);stroke-width:1.5;stroke-linejoin:round"/>`;
+const pillT=(x,y,t,{k='line',an='pop',d=0,o,c='f13'}={})=>{const w=Math.round(t.length*6.9+28);return G(`<rect width="${w}" height="32" rx="16" class="pill" style="stroke:var(--${k})"/><text x="14" y="21" class="${c}">${t}</text>`,{x,y,an:o!=null?'popout':an,d,o})};
+const valX=k=>14+(k.length+2)*7.2;
+// ---------- Day 13 helpers ----------
+function nodeCard({x=0,y=0,w=200,h=150,name='node',k='ink',an='',v={},extra=''}={}){
+  const head=k==='ink'?'class="inkf"':`style="fill:var(--${k})"`,tc=k==='ink'?'class="f13 b inv"':(k==='client'?'class="f13 b" style="fill:var(--on-client)"':'class="f13 b wht"');
+  let g=`<rect width="${w}" height="${h}" rx="14" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><path d="M14 0H${w-14}Q${w} 0 ${w} 14V30H0V14Q0 0 14 0Z" ${head}/><text x="14" y="21" ${tc}>${name}</text>${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function signRaw(t){const w=Math.round(t.length*7.2+24);let st='';for(let i=4;i<w-12;i+=12)st+=`M${i} 12L${i+8} 0`;return `<rect width="${w}" height="44" rx="6" style="fill:var(--surface);stroke:var(--ink);stroke-width:2"/><path d="M6 1H${w-6}Q${w-1} 1 ${w-1} 6V12H1V6Q1 1 6 1Z" style="fill:var(--warn)"/><path d="${st}" style="stroke:var(--ink);stroke-width:2.5"/><text x="12" y="33" class="m f12 b">${t}</text>`}
+const sign=(x,y,t,{an='pop',d=0,o}={})=>G(signRaw(t),{x,y,an:o!=null?'popout':an,d,o});
+function badgeRaw(t,k='ok'){const w=Math.round(t.length*6.6+44);return `<rect width="${w}" height="34" rx="8" style="fill:var(--surface);stroke:var(--${k});stroke-width:2.5"/><rect width="14" height="34" rx="6" style="fill:var(--${k})"/><circle cx="7" cy="9" r="2.5" style="fill:var(--surface)"/><text x="24" y="22" class="m f11 b">${t}</text>`}
+const badge=(x,y,t,{k='ok',an='pop',d=0,o}={})=>G(badgeRaw(t,k),{x,y,an:o!=null?'popout':an,d,o});
+function pizza(cx,cy,r,frac,{d=0}={}){let wedge;
+  if(frac>=1)wedge=`<circle cx="${cx}" cy="${cy}" r="${r-4}" style="fill:var(--warn)"/><circle cx="${cx-12}" cy="${cy-10}" r="5" class="badf"/><circle cx="${cx+14}" cy="${cy-4}" r="5" class="badf"/><circle cx="${cx-2}" cy="${cy+14}" r="5" class="badf"/>`;
+  else{const a=-Math.PI/2+frac*2*Math.PI,x2=cx+(r-4)*Math.cos(a),y2=cy+(r-4)*Math.sin(a),lg=frac>.5?1:0;wedge=`<path d="M${cx} ${cy}L${cx} ${cy-r+4}A${r-4} ${r-4} 0 ${lg} 1 ${x2.toFixed(1)} ${y2.toFixed(1)}Z" style="fill:var(--warn);stroke:var(--client-ink);stroke-width:2;stroke-linejoin:round"/>`}
+  return G(`<circle cx="${cx}" cy="${cy}" r="${r}" style="fill:none;stroke:var(--line);stroke-width:2;stroke-dasharray:5 5"/>${wedge}${frac>=1?`<circle cx="${cx}" cy="${cy}" r="${r-2}" style="fill:none;stroke:var(--client-ink);stroke-width:4"/>`:''}`,{an:'pop',d});}
+const BALLOON=`<ellipse cx="0" cy="0" rx="24" ry="30" style="fill:var(--vol)"/><ellipse cx="-8" cy="-10" rx="6" ry="9" fill="#fff" fill-opacity=".35"/><path d="M-4 29L4 29L0 35Z" style="fill:var(--vol)"/><path d="M0 35Q8 48 0 60" style="fill:none;stroke:var(--ink-2);stroke-width:2"/>`;
+const FUNNEL=`<path d="M0 0H60L38 26V46L22 54V26Z" style="fill:var(--teal)"/>`;
+const MAG=`<circle cx="20" cy="20" r="15" style="fill:var(--surface);stroke:var(--ink);stroke-width:5"/><path d="M31 31L46 46" style="stroke:var(--ink);stroke-width:7;stroke-linecap:round"/>`;
+const TARGET=`<circle r="16" style="fill:none;stroke:var(--web);stroke-width:4"/><circle r="8" style="fill:none;stroke:var(--web);stroke-width:4"/><circle r="3" style="fill:var(--web)"/>`;
+const miniPod=(x,y,k='web')=>`<g transform="translate(${x} ${y})"><rect width="32" height="24" rx="8" style="fill:var(--${k})"/><circle cx="11" cy="12" r="3" fill="#fff"/><circle cx="21" cy="12" r="3" fill="#fff"/></g>`;
+// ---------- Day 14 helpers ----------
+const ptick=(x,y,ok,{d=0,r=8}={})=>`<circle cx="${x}" cy="${y}" r="${r}" class="pop" style="fill:var(--${ok?'ok':'bad'});--d:${d}s"/>`;
+const CLOCK=`<circle r="10" class="warnf"/><path d="M0 -6V0L4 3" style="fill:none;stroke:#fff;stroke-width:2;stroke-linecap:round"/>`;
+const ptag=(x,y,name,k,{d=0,an='pop'}={})=>G(`<rect width="${Math.round(name.length*8.2+24)}" height="26" rx="13" style="fill:var(--${k})"/><text x="12" y="18" class="f13 b wht">${name}</text>`,{x,y,an,d});
+const spill=(x,y,txt,k='ok',{d=0,o,an}={})=>{const w=Math.round(txt.length*7.6+30);return G(`<rect width="${w}" height="24" rx="12" class="pill" style="stroke:var(--${k})"/><circle cx="13" cy="12" r="4.5" style="fill:var(--${k})"/><text x="23" y="16.5" class="f13 b">${txt}</text>`,{x,y,an:an||(o!=null?'inout':'pop'),d,o})};
+const pbox=(x,y,w,h,k,t,q,d)=>G(`<rect width="${w}" height="${h}" rx="14" class="panel" style="stroke:var(--${k});stroke-width:3"/><rect x="14" y="14" width="${Math.round(t.length*8.6+24)}" height="26" rx="13" style="fill:var(--${k})"/><text x="26" y="32" class="f14 b wht">${t}</text><text x="16" y="66" class="f14">${q}</text>`,{x,y,an:'pop',d});
+// ---------- Day 15 helpers ----------
+const crowd=(x,y,n,cols,{first=0,d0=.6,d1=1.8,gap=16,k='ink-2'}={})=>{let s='';for(let i=0;i<n;i++){const cx=x+(i%cols)*gap,cy=y+Math.floor(i/cols)*gap,d=i<first?d0:d1+(i-first)*.012;s+=`<circle cx="${cx}" cy="${cy}" r="5.5" class="pop" style="fill:var(--${k});--d:${d.toFixed(2)}s"/>`}return s};
+const meterCard=(x,y,w,h,title,val,frac,k,cap,{d=0,extra=''}={})=>G(`<rect width="${w}" height="${h}" rx="14" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><text x="16" y="30" class="f13 b mut">${title}</text>${val?`<text x="16" y="84" class="f30 b" style="fill:var(--${k})">${val}</text>`:''}<rect x="16" y="108" width="${w-32}" height="14" rx="7" style="fill:var(--line)"/><rect x="16" y="108" width="${Math.round((w-32)*frac)}" height="14" rx="7" class="grow-x" style="fill:var(--${k});--d:${d+.3}s"/><text x="16" y="150" class="f12">${cap}</text>${extra}`,{x,y,an:'pop',d});
+// ---------- Day 16 helpers ----------
+function house({x=0,y=0,w=150,h=140,name='inference-dev',k='teal',an='',v={},extra='',solar=false}={}){
+  const rh=Math.round(h*.38),bh=h-rh;
+  let g=`<path d="M${w/2} 0L${w} ${rh}H0Z" style="fill:var(--${k})"/>${solar?`<path d="M${w*.56} ${rh*.32}L${w*.86} ${rh*.82}L${w*.74} ${rh*.82}L${w*.48} ${rh*.42}Z" class="inkf" opacity=".75"/>`:''}<rect x="${w*.08}" y="${rh}" width="${w*.84}" height="${bh-24}" style="fill:var(--surface);stroke:var(--ink);stroke-width:2.5"/><rect x="${w/2-12}" y="${h-24-34}" width="24" height="34" rx="3" style="fill:var(--${k});fill-opacity:.6"/><rect x="${w*.18}" y="${rh+14}" width="22" height="18" rx="3" style="fill:var(--note)"/><rect x="${w*.82-22}" y="${rh+14}" width="22" height="18" rx="3" style="fill:var(--note)"/><rect y="${h-22}" width="${w}" height="22" rx="6" class="inkf"/><text x="${w/2}" y="${h-7}" text-anchor="middle" class="m f11 b inv">${name}</text>${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function blueprint({x=0,y=0,w=160,h=110,title='inference-chart',lines=[],an='',v={}}={}){
+  let grid='';for(let i=12;i<w;i+=16)grid+=`M${i} 0V${h}`;for(let j=12;j<h;j+=16)grid+=`M0 ${j}H${w}`;
+  let g=`<rect width="${w}" height="${h}" rx="8" style="fill:var(--web)"/><path d="${grid}" style="stroke:#fff;stroke-opacity:.14;stroke-width:1"/><path d="M${w-50} ${h-12}V${h-34}L${w-32} ${h-50}L${w-14} ${h-34}V${h-12}Z" style="fill:none;stroke:#fff;stroke-width:2;stroke-opacity:.75"/><text x="12" y="22" class="m f12 b wht">${title}</text>${lines.map((l,i)=>`<text x="12" y="${42+i*17}" class="m f11 wht">${l}</text>`).join('')}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function gears({x=0,y=0,w=150,h=120,label='helm render',an='',v={},d=0}={}){
+  const gear=(cx,cy,r,dd)=>{let t='';for(let i=0;i<8;i++)t+=`<rect x="${(cx-3.5).toFixed(1)}" y="${(cy-r-6).toFixed(1)}" width="7" height="10" rx="2" transform="rotate(${i*45} ${cx} ${cy})"/>`;return `<g class="spin" style="--d:${dd}s"><g style="fill:var(--ink-2)">${t}<circle cx="${cx}" cy="${cy}" r="${r}"/></g><circle cx="${cx}" cy="${cy}" r="${(r*.4).toFixed(1)}" style="fill:var(--surface)"/></g>`};
+  let g=`<rect width="${w}" height="${h}" rx="14" class="panel" style="stroke:var(--db);stroke-width:3"/>${gear(w*.36,h*.42,18,d)}${gear(w*.66,h*.58,13,d)}<text x="${w/2}" y="${h-12}" text-anchor="middle" class="m f12 b dbc">${label}</text>`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function docPaper({x=0,y=0,w=130,h=150,title='',lines=[],an='',v={},extra=''}={}){
+  let g=`<path d="M0 8Q0 0 8 0H${w-22}L${w} 22V${h-8}Q${w} ${h} ${w-8} ${h}H8Q0 ${h} 0 ${h-8}Z" class="paper"/><path d="M${w-22} 1V22H${w-1}" class="paperfold"/>${title?`<text x="12" y="22" class="m f11 b">${title}</text>`:''}${lines.map((l,i)=>`<text x="12" y="${46+i*18}" class="m f11">${l}</text>`).join('')}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+const PARCEL=w=>`<rect width="${w}" height="80" rx="6" style="fill:var(--warn);fill-opacity:.35;stroke:var(--ink);stroke-width:2.5"/><rect x="${w/2-9}" width="18" height="80" style="fill:var(--warn)"/><path d="M0 22H${w}" style="stroke:var(--ink);stroke-width:2"/>`;
+const bx2=(x,y,w,h,a,b,k,d)=>G(`<rect width="${w}" height="${h}" rx="12" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><text x="${w/2}" y="${b?h/2-3:h/2+5}" text-anchor="middle" class="f14 b">${a}</text>${b?`<text x="${w/2}" y="${h/2+15}" text-anchor="middle" class="f11 mut">${b}</text>`:''}`,{x,y,an:'pop',d});
+// ---------- Day 17 helpers ----------
+function idCard({x=0,y=0,w=150,h=80,name='model-sa',sub='ServiceAccount',k='teal',an='',v={}}={}){
+  const m=h/2+10;
+  let g=`<rect x="${w/2-14}" y="-10" width="28" height="16" rx="5" class="inkf"/><rect width="${w}" height="${h}" rx="10" style="fill:var(--surface);stroke:var(--${k});stroke-width:3"/><path d="M0 10Q0 0 10 0H${w-10}Q${w} 0 ${w} 10V18H0Z" style="fill:var(--${k})"/><circle cx="26" cy="${m}" r="14" style="fill:var(--${k});fill-opacity:.22"/><circle cx="26" cy="${m-4}" r="5" style="fill:var(--${k})"/><path d="M17 ${m+11}Q26 ${m+1} 35 ${m+11}Z" style="fill:var(--${k})"/><text x="48" y="${m-1}" class="m f12 b">${name}</text><text x="48" y="${m+15}" class="f11 mut">${sub}</text>`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function rdoor(x,y,label,{k='web',d=0,open=null,deny=null,w=64,h=96}={}){
+  let s=G(`<rect width="${w}" height="${h}" rx="4" style="fill:var(--line);stroke:var(--ink);stroke-width:2.5"/><rect x="6" y="6" width="${w-12}" height="${h-6}" rx="3" style="fill:var(--${k});fill-opacity:.55"/><circle cx="${w-14}" cy="${h/2+6}" r="3.5" class="inkf"/>${label?`<text x="${w/2}" y="${h+18}" text-anchor="middle" class="f12 b">${label}</text>`:''}`,{x,y,an:'pop',d});
+  s+=`<circle cx="${x+w/2}" cy="${y-10}" r="6" class="${open!=null?'inout':'pop'}" style="fill:var(--bad);--d:${d}s${open!=null?`;--o:${open}s`:''}"/>`;
+  if(open!=null)s+=G(`<rect x="6" y="6" width="${w-12}" height="${h-6}" rx="3" class="inkf" opacity=".85"/><path d="M6 6L${Math.round(w*.32)} 14V${h-4}L6 ${h}Z" style="fill:var(--${k})"/><circle cx="${w/2}" cy="-10" r="6" style="fill:var(--ok)"/>`,{x,y,an:'fade',d:open});
+  if(deny!=null)s+=icon('no',x+w/2,y+h/2,{r:13,d:deny});
+  return s;
+}
+const keyI=(x,y,{s=1,d=0,o,an='pop',k='warn'}={})=>G(`<g transform="scale(${s})"><circle cx="12" cy="15" r="10" style="fill:none;stroke:var(--${k});stroke-width:6"/><rect x="21" y="12" width="40" height="7" rx="3" style="fill:var(--${k})"/><rect x="47" y="18" width="6" height="9" rx="2" style="fill:var(--${k})"/><rect x="55" y="18" width="6" height="12" rx="2" style="fill:var(--${k})"/></g>`,{x,y,an:o!=null?'inout':an,d,o});
+const bindBand=(x,y,w,h,a,b,{d=0,k='vol'}={})=>G(`<rect width="${w}" height="${h}" rx="${h/2}" style="fill:var(--${k});fill-opacity:.18;stroke:var(--${k});stroke-width:3"/><g transform="translate(14 ${h/2-8})" style="fill:none;stroke:var(--${k});stroke-width:3"><rect width="16" height="10" rx="5"/><rect x="10" y="6" width="16" height="10" rx="5"/></g><text x="${w/2+14}" y="${b?h/2-2:h/2+5}" text-anchor="middle" class="f13 b">${a}</text>${b?`<text x="${w/2+14}" y="${h/2+14}" text-anchor="middle" class="f11 mut">${b}</text>`:''}`,{x,y,an:'pop',d});
+const mchip=(x,y,t,k,{d=0,o}={})=>{const w=Math.round(t.length*7.2+20);return G(`<rect width="${w}" height="24" rx="12" style="fill:var(--${k});fill-opacity:.18;stroke:var(--${k});stroke-width:2"/><text x="${w/2}" y="17" text-anchor="middle" class="m f12 b">${t}</text>`,{x,y,an:o!=null?'inout':'pop',d,o})};
+const hlr=(x,y,w,h,k,d)=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="4" class="fade" style="fill:var(--${k});fill-opacity:.22;stroke:var(--${k});stroke-width:1.5;--d:${d}s"/>`;
+// ---------- Day 18 helpers ----------
+function alarmClock(x,y,{s=1,an='pop',d=0,ring=null,k='warn'}={}){
+  const face=`<circle cx="9" cy="10" r="8" style="fill:var(--${k})"/><circle cx="51" cy="10" r="8" style="fill:var(--${k})"/><path d="M14 58L8 66M46 58L52 66" style="stroke:var(--ink);stroke-width:4;stroke-linecap:round"/><circle cx="30" cy="36" r="26" style="fill:var(--surface);stroke:var(--ink);stroke-width:4"/><path d="M30 20V36L41 42" style="fill:none;stroke:var(--ink);stroke-width:3.5;stroke-linecap:round"/><circle cx="30" cy="36" r="3" class="inkf"/>`;
+  const inner=ring!=null?`<g class="ringy" style="--d:${ring}s">${face}</g>`:face;
+  return G(`<g transform="scale(${s})">${inner}</g>`,{x,y,an,d});
+}
+function clipb({x=0,y=0,w=90,h=100,title='Job',k='db',an='pop',v={},extra=''}={}){
+  let g=`<rect width="${w}" height="${h}" rx="8" style="fill:var(--surface);stroke:var(--${k});stroke-width:3"/><rect x="${w/2-18}" y="-8" width="36" height="16" rx="5" style="fill:var(--${k})"/><text x="${w/2}" y="30" text-anchor="middle" class="f13 b">${title}</text><path d="M14 46H${w-14}M14 62H${w-14}M14 78H${w-30}" style="stroke:var(--line);stroke-width:4;stroke-linecap:round"/>${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+const gbar=(x,y,w,h,k,d,label='',{dur=.8,lc='wht',op=1}={})=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="5" class="grow-x" style="fill:var(--${k});fill-opacity:${op};--d:${d}s;--dur:${dur}s"/>`+(label?T(x+8,y+h/2+4.5,label,{c:`f12 b ${lc}`,d:d+dur*.6}):'');
+const vline=(x,y1,y2,k,d,dash=true)=>`<path d="M${x} ${y1}V${y2}" class="fade" style="stroke:var(--${k});stroke-width:2.5;${dash?'stroke-dasharray:6 5;':''}--d:${d}s"/>`;
+// ---------- Day 19 helpers ----------
+const evCard=(x,y,w,h,lines,{d=0,k='warn',an='pop',rot=0}={})=>G(`<g transform="rotate(${rot} ${w/2} ${h/2})"><rect width="${w}" height="${h}" rx="6" style="fill:var(--note);stroke:var(--ink);stroke-width:1.5"/><circle cx="${w/2}" cy="8" r="6" style="fill:var(--${k});stroke:var(--ink);stroke-width:1.5"/>${lines.map(([t,c],i)=>`<text x="14" y="${34+i*20}" class="${c||'f12'} lbltxt">${t}</text>`).join('')}</g>`,{x,y,an,d});
+const chip=(x,y,w,t,k,{d=0,o,mono=false,h=30}={})=>G(`<rect width="${w}" height="${h}" rx="${h/2}" style="fill:var(--${k});fill-opacity:.16;stroke:var(--${k});stroke-width:2"/><text x="${w/2}" y="${h/2+4.5}" text-anchor="middle" class="${mono?'m ':''}f12 b">${t}</text>`,{x,y,an:o!=null?'inout':'pop',d,o});
+const stepsChain=(items,y,{x0=20,gap=14,d0=0,step=.4,h=34}={})=>{let s='',x=x0;items.forEach(([t,w,k],i)=>{s+=chip(x,y,w,t,k,{d:d0+i*step,h});if(i<items.length-1)s+=arrow({x1:x+w+2,y1:y+h/2,x2:x+w+gap-2,y2:y+h/2},{d:d0+i*step+.2,dur:.15,c:'var(--ink-2)',w:2});x+=w+gap});return s};
+// ---------- Day 21 helpers ----------
+const cgrid=(x,y,cols,rows,cell,gap,k,{d0=0,step=.01,op=1,an='pop',rnd=false}={})=>{let s='';for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){const i=r*cols+c,d=d0+(rnd?((i*37)%97)/97*step*cols*rows:i*step);s+=`<rect x="${x+c*(cell+gap)}" y="${y+r*(cell+gap)}" width="${cell}" height="${cell}" rx="${Math.max(2,cell/5)}" class="${an}" style="fill:var(--${k});fill-opacity:${op};--d:${d.toFixed(2)}s"/>`}return s};
+const progRing=(cx,cy,r,frac,k,d,{w=12}={})=>{const a=-Math.PI/2+frac*2*Math.PI,x=cx+r*Math.cos(a),y=cy+r*Math.sin(a),big=frac>.5?1:0;return `<circle cx="${cx}" cy="${cy}" r="${r}" class="fade" style="fill:none;stroke:var(--line);stroke-width:${w};--d:${d}s"/><path d="M${cx} ${cy-r}A${r} ${r} 0 ${big} 1 ${x.toFixed(1)} ${y.toFixed(1)}" pathLength="1" class="aline draw" style="stroke:var(--${k});stroke-width:${w};stroke-linecap:round;--d:${d}s;--dur:1.2s"/>`};
+const hbar=(x,y,w,h,k,d,{dur=.8,op=1,label='',lc='wht'}={})=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="4" class="grow-x" style="fill:var(--${k});fill-opacity:${op};--d:${d}s;--dur:${dur}s"/>`+(label?T(x+8,y+h/2+4.5,label,{c:`f12 b ${lc}`,d:d+dur*.6}):'');
+const vbar=(x,base,w,h,k,d,{op=1}={})=>`<rect x="${x}" y="${base-h}" width="${w}" height="${h}" rx="3" class="up" style="fill:var(--${k});fill-opacity:${op};--d:${d}s"/>`;
+const zbox=(x,y,w,h,a,b,{k='ink',d=0,inv=false,an='pop',o}={})=>G(inv?`<rect width="${w}" height="${h}" rx="10" class="inkf"/><text x="${w/2}" y="${b?h/2-2:h/2+5}" text-anchor="middle" class="f13 b inv">${a}</text>${b?`<text x="${w/2}" y="${h/2+15}" text-anchor="middle" class="m f11 inv" opacity=".8">${b}</text>`:''}`:`<rect width="${w}" height="${h}" rx="10" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><text x="${w/2}" y="${b?h/2-2:h/2+5}" text-anchor="middle" class="f13 b">${a}</text>${b?`<text x="${w/2}" y="${h/2+15}" text-anchor="middle" class="m f11 mut">${b}</text>`:''}`,{x,y,an:o!=null?'inout':an,d,o});
+// ---------- Day 22 helpers ----------
+const STK=[['Application','Python / C++ / model serving','ink'],['Framework','PyTorch / TensorFlow','vol'],['CUDA runtime + libraries','libcudart.so · cuBLAS · cuDNN · NCCL','teal'],['CUDA Driver API','libcuda.so','db'],['NVIDIA host driver','user-space + kernel modules','web'],['Physical GPU','','ok']];
+const stackL=(x,y,w,L,{h=44,gap=10,d0=0,step=.2,rev=false,an='pop'}={})=>L.map(([n,sub,k],i)=>{const yy=y+i*(h+gap),d=d0+(rev?(L.length-1-i):i)*step;return G(`<rect width="${w}" height="${h}" rx="10" style="fill:var(--${k})"/><text x="16" y="${sub?h/2-2:h/2+5}" class="f14 b wht">${n}</text>${sub?`<text x="16" y="${h/2+15}" class="m f11 wht" opacity=".88">${sub}</text>`:''}`,{x,y:yy,an,d})}).join('');
+const vtag=(x,y,w,h,k,d,inner)=>G(`<path d="M24 0H${w-8}Q${w} 0 ${w} 8V${h-8}Q${w} ${h} ${w-8} ${h}H24L0 ${h/2}Z" style="fill:var(--surface);stroke:var(--${k});stroke-width:3;stroke-linejoin:round"/><circle cx="22" cy="${h/2}" r="6" style="fill:var(--paper);stroke:var(--${k});stroke-width:2.5"/>${inner}`,{x,y,an:'pop',d});
+// ---------- Day 23 helpers ----------
+const halfGauge=(cx,cy,r,frac,k,d,{w=12}={})=>{const a=Math.PI+Math.max(.001,Math.min(1,frac))*Math.PI,x=cx+r*Math.cos(a),y=cy+r*Math.sin(a);return `<path d="M${cx-r} ${cy}A${r} ${r} 0 0 1 ${cx+r} ${cy}" class="fade" style="fill:none;stroke:var(--line);stroke-width:${w};stroke-linecap:round;--d:${d}s"/><path d="M${cx-r} ${cy}A${r} ${r} 0 0 1 ${x.toFixed(1)} ${y.toFixed(1)}" pathLength="1" class="aline draw" style="stroke:var(--${k});stroke-width:${w};stroke-linecap:round;--d:${d}s;--dur:1.2s"/>`};
+const thermo=(x,y,frac,k,d)=>G(`<rect x="8" y="0" width="16" height="80" rx="8" style="fill:var(--surface);stroke:var(--ink);stroke-width:2.5"/><circle cx="16" cy="92" r="14" style="fill:var(--${k});stroke:var(--ink);stroke-width:2.5"/>`,{x,y,an:'pop',d})+`<rect x="${x+12}" y="${y+80-70*frac}" width="8" height="${70*frac+12}" rx="4" class="up" style="fill:var(--${k});--d:${d+.3}s"/>`;
+const lineP=(pts,k,d,{w=3.5,dash=false,dur=2}={})=>`<path d="M${pts.map(p=>p.join(' ')).join('L')}" pathLength="1" class="aline draw" style="stroke:var(--${k});stroke-width:${w};${dash?'stroke-dasharray:1 1;':''}--d:${d}s;--dur:${dur}s"/>`;
+// ---------- Day 24 helpers ----------
+const vramBar=(x,y,w,h,segs,{d0=0,step=.3,total=null,lab=true}={})=>{const tot=total||segs.reduce((a,s)=>a+s[0],0);let cx=x,s='';segs.forEach(([v,k,l,hat],i)=>{const sw=Math.round(v/tot*w),d=d0+i*step;s+=`<rect x="${cx}" y="${y}" width="${Math.max(sw,1)}" height="${h}" rx="3" class="grow-x" style="fill:var(--${k});fill-opacity:${hat?.25:1};${hat?`stroke:var(--${k});stroke-width:2;stroke-dasharray:5 4;`:''}--d:${d}s;--dur:.5s"/>`;if(lab&&l&&sw>l.length*6.6+12)s+=T(cx+sw/2,y+h/2+4,l,{c:`f11 b ${hat||k==='line'?'':'wht'}`,a:'middle',d:d+.3});cx+=sw});return s};
+const brk=(x1,x2,y,label,k,d,{up=false,c='f12 b'}={})=>{const t=up?-8:8;return `<path d="M${x1} ${y}V${y+t}H${x2}V${y}" class="fade" style="fill:none;stroke:var(--${k});stroke-width:2.5;--d:${d}s"/>`+T((x1+x2)/2,y+(up?-14:24),label,{c:`${c}`,a:'middle',d})};
+const lot=(x,y,slots,{w=40,h=56,gap=6,d0=0,step=.08}={})=>slots.split('').map((ch,i)=>{const sx=x+i*(w+gap),d=d0+i*step;let g=`<rect x="${sx}" y="${y}" width="${w}" height="${h}" rx="5" class="fade" style="fill:none;stroke:var(--line);stroke-width:2;stroke-dasharray:4 3;--d:${d0}s"/>`;if(ch==='L')g+=G(`<rect x="4" y="8" width="${w-8}" height="${h-16}" rx="8" style="fill:var(--teal)"/><rect x="9" y="14" width="${w-18}" height="10" rx="3" style="fill:#fff;opacity:.55"/>`,{x:sx,y,an:'drop',d});if(ch==='C')g+=G(`<path d="M${w/2} 12L${w/2+10} ${h-12}H${w/2-10}Z" style="fill:var(--db)"/><rect x="${w/2-13}" y="${h-14}" width="26" height="5" rx="2" style="fill:var(--db)"/>`,{x:sx,y,an:'pop',d});if(ch==='X')g+=G(`<rect x="4" y="8" width="${w-8}" height="${h-16}" rx="6" style="fill:var(--ink-2)"/>`,{x:sx,y,an:'pop',d});return g}).join('');
+// ---------- Day 25 helpers ----------
+const laneL=(x,y,t,d,{w=680,c='f12 b'}={})=>T(x,y+18,t,{c,d})+`<path d="M${x+60} ${y+28}H${x+60+w}" class="fade" style="stroke:var(--line);stroke-width:1.5;--d:${d}s"/>`;
+const blk=(x,y,w,k,d,label='',{h=28,op=1,dash=false,lc='wht',dur=.4}={})=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="5" class="grow-x" style="fill:var(--${k});fill-opacity:${op};${dash?`stroke:var(--${k});stroke-width:2;stroke-dasharray:5 4;`:''}--d:${d}s;--dur:${dur}s"/>`+(label?T(x+w/2,y+h/2+4.5,label,{c:`f11 b ${lc}`,a:'middle',d:d+dur*.7}):'');
+const tkt=(x,y,t,k,d,{an='drop'}={})=>G(`<path d="M0 0H44V46L38 52L32 46L26 52L20 46L14 52L8 46L2 52L0 50Z" style="fill:var(--surface);stroke:var(--${k});stroke-width:2.5"/><text x="22" y="30" text-anchor="middle" class="m f15 b" style="fill:var(--${k})">${t}</text>`,{x,y,an,d});
+// ---------- Day 26 helpers ----------
+const lockI=(x,y,{d=0,k='bad',s=1,an='pop',o}={})=>G(`<g transform="scale(${s})"><path d="M6 14V9A8 8 0 0 1 22 9V14" style="fill:none;stroke:var(--${k});stroke-width:3.5"/><rect x="1" y="14" width="26" height="20" rx="4" style="fill:var(--${k})"/><circle cx="14" cy="23" r="3" style="fill:#fff"/></g>`,{x,y,an:o!=null?'inout':an,d,o});
+const gpuChip=(x,y,w,h,label,{d=0,k='ok',an='pop'}={})=>G(`<rect width="${w}" height="${h}" rx="8" style="fill:var(--${k})"/><rect x="8" y="8" width="${w-16}" height="${h-16}" rx="4" style="fill:none;stroke:#fff;stroke-width:1.5;opacity:.6"/>`+[0,1,2,3].map(i=>`<path d="M${10+i*(w-20)/3} ${h}V${h+5}M${10+i*(w-20)/3} -5V0" style="stroke:var(--${k});stroke-width:2"/>`).join('')+`<text x="${w/2}" y="${h/2+5}" text-anchor="middle" class="f12 b wht">${label}</text>`,{x,y,an,d});
+const nbox=(x,y,w,h,lines,k,d,{an='pop',fill=.12,first='f13 b',rest='f12',lh=19,top=26}={})=>G(`<rect width="${w}" height="${h}" rx="12" style="fill:var(--${k});fill-opacity:${fill};stroke:var(--${k});stroke-width:2"/>`+lines.map((l,i)=>`<text x="14" y="${top+i*lh}" class="${i===0?first:rest}">${l}</text>`).join(''),{x,y,an,d});
+// ---------- Day 52 visuals 0-9 ----------
+const wrapL=(t,n)=>{const w=t.split(' ');let L=[''];w.forEach(x=>{if((L[L.length-1]+' '+x).trim().length>n)L.push(x);else L[L.length-1]=(L[L.length-1]+' '+x).trim()});return L};
+const box2=(x,y,w,h,lines,k,d,{fill=.9,fs='f13'}={})=>G(`<rect width="${w}" height="${h}" rx="12" style="fill:var(--${k});fill-opacity:${fill};stroke:var(--${k});stroke-width:2"/>`+lines.map((l,j,a)=>`<text x="${w/2}" y="${h/2+5-(a.length-1)*9+j*18}" text-anchor="middle" class="${fs} b${fill>=.6?' wht':''}">${l}</text>`).join(''),{x,y,an:'pop',d});
+const tok=(x,y,k,d,{w=22,h=22,l='',an='pop'}={})=>G(`<rect width="${w}" height="${h}" rx="4" style="fill:var(--${k})"/>`+(l?`<text x="${w/2}" y="${h/2+4}" text-anchor="middle" class="m f11 b wht">${l}</text>`:''),{x,y,an,d});
+function V0(){
+  const K=560/14;
+  let s=G(`<rect width="760" height="210" rx="16" class="panel"/><text x="18" y="32" class="f15 b">Same 7B parameters. Different storage budgets.</text><text x="18" y="52" class="f12 mut">raw model weights only: no KV cache, no runtime overhead</text>`,{x:20,y:16,an:'fade',d:.1});
+  s+=hbar(40,82,Math.round(14*K),40,'web',.4,{label:'FP16 / BF16',dur:1.0})+T(48+Math.round(14*K),108,'14.0 GB',{c:'m f15 b',d:1.4});
+  s+=hbar(40,136,Math.round(3.5*K),40,'teal',1.6,{label:'4-bit',dur:.5})+T(48+Math.round(3.5*K),162,'3.5 GB',{c:'m f15 b',d:2.1});
+  s+=T(40,206,'75% less theoretical weight storage',{c:'f13 b okc',d:2.4})+T(740,206,'real models need more',{c:'f11 mut',a:'end',d:2.4});
+  s+=G(`<rect width="760" height="100" rx="16" style="fill:var(--ink)"/><text x="380" y="36" text-anchor="middle" class="f13 b inv">the essential question</text><text x="380" y="68" text-anchor="middle" class="f17 b inv">If a model gets 4× smaller, does inference get 4× faster?</text>`,{x:20,y:244,an:'up',d:2.8});
+  [['−54.3%','NF4 model footprint','ok'],['−30.1%','NF4 tokens per second','bad'],['22.1%','INT4 matrix-output error','warn']].forEach(([a,b,k],i)=>{s+=G(`<rect width="245" height="80" rx="14" style="fill:var(--${k});fill-opacity:.12;stroke:var(--${k});stroke-width:2.5"/><text x="122" y="40" text-anchor="middle" class="m f22 b" style="fill:var(--${k})">${a}</text><text x="122" y="64" text-anchor="middle" class="f12">${b}</text>`,{x:20+i*257,y:362,an:'pop',d:3.4+i*.25})});
+  s+=T(400,466,'measured in the Day 52 labs; the 7B bars are ideal arithmetic',{c:'f11 mut',a:'middle',d:4.2});
+  return svg(s,'Same 7B parameters, different storage budgets: as raw weights only, FP16 or BF16 needs 14.0 GB while ideal 4-bit storage needs 3.5 GB, 75% less theoretical weight storage, though real models need more. The essential question: if a model gets 4 times smaller, does inference get 4 times faster? Measured in the Day 52 labs: NF4 cut a model’s footprint by 54.3% but generated 30.1% fewer tokens per second, and basic INT4 produced 22.1% matrix-output error.');
+}
+
+function V1(){
+  let s=G(`<rect width="760" height="200" rx="16" class="panel"/><text x="18" y="30" class="f13 b">Intuition: store a shorter, approximate number</text>`,{x:20,y:16,an:'fade',d:.1});
+  '12.345678'.split('').forEach((c,i)=>{const keep=i<4;s+=G(`<rect width="44" height="60" rx="8" style="fill:var(--${keep?'teal':'line'});fill-opacity:${keep?.9:.5}"/><text x="22" y="40" text-anchor="middle" class="m f22 b${keep?' wht':''}">${c}</text>`,{x:40+i*50,y:62,an:'pop',d:.3+i*.08})});
+  s+=G(`<rect width="460" height="60" rx="8" style="fill:var(--surface);fill-opacity:.7"/>`,{x:240,y:62,an:'inout',d:9,o:9});
+  for(let i=4;i<9;i++)s+=`<path d="M${44+i*50} 66L${80+i*50} 118" class="fade" style="stroke:var(--bad);stroke-width:3;--d:${(1.4+(i-4)*.12).toFixed(2)}s"/>`;
+  s+=arrow({x1:500,y1:92,x2:560,y2:92},{d:2.0,dur:.2})+G(`<rect width="150" height="60" rx="10" style="fill:var(--ok)"/><text x="75" y="40" text-anchor="middle" class="m f22 b wht">12.3</text>`,{x:570,y:62,an:'pop',d:2.2});
+  s+=T(40,160,'less detail, often accurate enough for the task',{c:'f13 b',d:2.4})+T(40,184,'a real quantizer stores integer codes plus scaling info, not shorter decimal strings',{c:'f11 mut',d:2.6});
+  s+=G(`<rect width="760" height="130" rx="16" class="panel" style="stroke:var(--teal);stroke-width:2.5"/><text x="18" y="36" class="m f17 b">M<tspan font-size="11">weights</tspan> = N · b ÷ 8 bytes</text><text x="18" y="70" class="m f13">FP16: 7 × 10⁹ × 16 ÷ 8 = 14 × 10⁹ bytes = 14 GB</text><text x="18" y="94" class="m f13">4-bit: 7 × 10⁹ × 4 ÷ 8 = 3.5 × 10⁹ bytes = 3.5 GB</text><text x="18" y="118" class="f11 mut">decimal GB; metadata, unquantized layers and runtime add more</text>`,{x:20,y:232,an:'up',d:3.0});
+  s+=G(`<rect width="760" height="100" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="18" y="34" class="f14 b">Smaller weights can make an impossible deployment possible…</text><text x="18" y="62" class="f13">…but they don’t guarantee faster generation, identical answers, or enough VRAM for</text><text x="18" y="82" class="f13">a real serving workload.</text>`,{x:20,y:380,an:'up',d:3.6});
+  return svg(s,'Rounding, systematically: storing 12.345678 as 12.3 loses detail but is often accurate enough, and quantization makes that compromise systematically for huge arrays of numbers; a real quantizer stores integer codes plus scaling information, not shorter decimal strings. Weight memory is N parameters times b bits divided by 8 bytes: for 7 billion parameters, FP16 needs 14 GB and 4-bit 3.5 GB, in decimal GB before metadata and runtime. Smaller weights can make an impossible deployment possible, but don’t guarantee faster generation, identical answers or enough VRAM.');
+}
+
+function V2(){
+  let s=G(`<rect width="760" height="190" rx="16" class="panel"/><text x="18" y="30" class="f13 b">Storage for one number (conceptual: not the floating-point field layout)</text>`,{x:20,y:16,an:'fade',d:.1});
+  [['FP32',32,'web'],['FP16',16,'web'],['INT8',8,'teal'],['INT4',4,'bad']].forEach(([n,b,k],i)=>{const y=58+i*34,d=.3+i*.3;s+=T(80,y+18,n,{c:'f13 b',a:'end',d});for(let j=0;j<b;j++)s+=`<rect x="${92+j*18}" y="${y}" width="15" height="24" rx="2" class="pop" style="fill:var(--${k});fill-opacity:.8;--d:${(d+j*.01).toFixed(2)}s"/>`;s+=T(92+b*18+10,y+18,b+' bits',{c:'m f12 b',d:d+.3})});
+  s+=G(`<rect width="760" height="210" rx="16" class="panel"/><text x="36" y="28" class="f12 b mut">format</text><text x="110" y="28" class="f12 b mut">bits</text><text x="160" y="28" class="f12 b mut">what’s encoded</text><text x="460" y="28" class="f12 b mut">typical use</text>`,{x:20,y:222,an:'fade',d:1.6});
+  [['FP32','32','floating-point value','reference precision'],['FP16','16','floating-point value','common inference baseline'],['BF16','16','float, FP32-like exponent range','training + inference'],['FP8','8','low-bit float (E4M3 / E5M2)','kernels on compatible GPUs'],['INT8','8','signed integer + scaling','weights and activations'],['INT4','4','4-bit integer levels + scaling','compact weight storage'],['NF4','4','nonuniform 4-bit codebook','bitsandbytes 4-bit weights']].forEach(([a,b,c,dd],i)=>{const y=270+i*22,d=1.8+i*.1;s+=T(40,y,a,{c:'m f12 b',d})+T(120,y,b,{c:'m f12',a:'middle',d})+T(160,y,c,{c:'f12',d})+T(460,y,dd,{c:'f12',d})});
+  s+=G(`<rect width="760" height="58" rx="14" style="fill:var(--warn);fill-opacity:.1;stroke:var(--warn);stroke-width:2"/><text x="18" y="24" class="f13 b">FP8 and INT8 are both 8 bits, but not the same thing.</text><text x="18" y="44" class="f12">Different instructions, scaling, accuracy and kernels: check the exact GPU + software, not the bit count.</text>`,{x:20,y:438,an:'up',d:2.8});
+  return svg(s,'Formats and bit widths: one number takes 32 bits in FP32, 16 in FP16, 8 in INT8 and 4 in INT4. FP32 is a floating-point reference precision; FP16 a common inference baseline; BF16 a 16-bit float with FP32-like exponent range; FP8 a low-bit float family such as E4M3 or E5M2 for compatible GPU kernels; INT8 a signed integer with scaling for weights and activations; INT4 four-bit integer levels with scaling for compact weights; and NF4 a nonuniform 4-bit codebook used by bitsandbytes. FP8 and INT8 are both 8 bits but differ in instructions, scaling, accuracy and kernels.');
+}
+
+function V3(){
+  const X=v=>Math.round(400+v*230);
+  let s=G(`<rect width="760" height="110" rx="16" class="panel"/><text x="40" y="52" class="m f15 b">q = clip( round(x ÷ s) + z, q<tspan font-size="10">min</tspan>, q<tspan font-size="10">max</tspan> )      x̂ = s · (q − z)</text><text x="40" y="84" class="f12">s = scale · z = zero point · q = integer code · x̂ = dequantized approximation</text>`,{x:20,y:16,an:'fade',d:.1});
+  s+=G(`<rect width="760" height="200" rx="16" class="panel"/><text x="18" y="30" class="f13 b">Toy symmetric 4-bit grid: levels −7…7, s = 0.20, z = 0</text>`,{x:20,y:142,an:'fade',d:.6});
+  s+=`<path d="M60 262H740" class="axis fade" style="--d:.8s"/>`;
+  for(let i=-7;i<=7;i++){const x=X(i*.2);s+=`<circle cx="${x}" cy="262" r="5" class="pop" style="fill:var(--teal);--d:${(.9+(i+7)*.03).toFixed(2)}s"/>`;if(i%2!==0)s+=T(x,286,(i*.2).toFixed(1),{c:'m f11 mut',a:'middle',d:.9})}
+  s+=`<path d="M${X(.73)} 196V258" class="fade" style="stroke:var(--warn);stroke-width:2.5;stroke-dasharray:5 4;--d:1.6s"/><circle cx="${X(.73)}" cy="196" r="7" class="pop" style="fill:var(--warn);--d:1.6s"/>`+T(X(.73),186,'x = 0.73',{c:'m f13 b warnc',a:'middle',d:1.6});
+  s+=arrow({x1:X(.73)+4,y1:220,c1:[X(.76),236],c2:[X(.8),240],x2:X(.8),y2:254},{d:2.2,c:'var(--ok)',w:2.5})+G(`<circle r="9" style="fill:none;stroke:var(--ok);stroke-width:3"/>`,{x:X(.8),y:262,an:'pop',d:2.6})+T(X(.8)+16,236,'x̂ = 0.80',{c:'m f13 b okc',d:2.6});
+  s+=G(`<rect width="760" height="140" rx="16" class="panel" style="stroke:var(--ok);stroke-width:2.5"/><text x="18" y="30" class="f13 b">Worked example: quantize x = 0.73</text>`,{x:20,y:356,an:'up',d:2.8});
+  [['q = round(0.73 ÷ 0.20) = round(3.65) = 4',3.0],['x̂ = 0.20 × 4 = 0.80',3.3],['error = x̂ − x = +0.07',3.6]].forEach(([t,d],i)=>{s+=T(40,414+i*26,t,{c:'m f13 b',d})});
+  s+=T(500,430,'not a bug: 0.73 isn’t on the grid,',{c:'f12',d:3.9})+T(500,450,'so it rounds to the nearest level',{c:'f12',d:3.9});
+  return svg(s,'How a quantizer maps numbers: q = clip(round(x ÷ s) + z, q_min, q_max), and the dequantized approximation is x̂ = s × (q − z), where s is the scale and z the zero point. On a toy symmetric 4-bit grid with levels −7 to 7 and scale 0.20, the value x = 0.73 isn’t on the grid: q = round(0.73 ÷ 0.20) = round(3.65) = 4, so x̂ = 0.20 × 4 = 0.80, an error of +0.07. That’s not a bug; the value simply rounds to the nearest available level.');
+}
+
+function V4(){
+  let s='';
+  const line=(x0,y,d)=>`<path d="M${x0} ${y}H${x0+210}" class="axis fade" style="--d:${d}s"/>`;
+  [['Rounding error','a value lies between levels','teal'],['Clipping error','an outlier lies beyond the range','bad'],['Shared-scale error','one extreme value makes the scale too coarse for small ones','warn']].forEach(([t,b,k],i)=>{const x=20+i*257,d=.2+i*.5;s+=G(`<rect width="245" height="250" rx="16" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><text x="16" y="32" class="f14 b" style="fill:var(--${k})">${t}</text>`+wrapL(b,30).map((l,j)=>`<text x="16" y="${178+j*18}" class="f12">${l}</text>`).join(''),{x,y:16,an:'up',d})});
+  s+=line(36,120,.4);for(let i=0;i<8;i++)s+=`<circle cx="${42+i*28}" cy="120" r="4" class="pop" style="fill:var(--teal);--d:.5s"/>`;s+=`<circle cx="${42+3.5*28}" cy="96" r="6" class="pop" style="fill:var(--warn);--d:.8s"/>`+arrow({x1:42+3.5*28,y1:102,x2:42+4*28,y2:114},{d:1.0,dur:.15,c:'var(--ok)',w:1.8});
+  s+=line(293,120,.9);for(let i=0;i<6;i++)s+=`<circle cx="${300+i*28}" cy="120" r="4" class="pop" style="fill:var(--teal);--d:1.0s"/>`;s+=`<path d="M${300+5*28+8} 108V132" class="fade" style="stroke:var(--bad);stroke-width:3;--d:1.1s"/><circle cx="${300+7.4*28}" cy="96" r="6" class="pop" style="fill:var(--bad);--d:1.3s"/>`+arrow({x1:300+7.2*28,y1:100,x2:300+5*28+4,y2:116},{d:1.5,dur:.2,c:'var(--bad)',w:1.8})+T(300+5*28,150,'clipped to the edge',{c:'f11 b badc',a:'middle',d:1.6});
+  s+=line(550,120,1.4);for(let i=0;i<4;i++)s+=`<circle cx="${556+i*64}" cy="120" r="4" class="pop" style="fill:var(--teal);--d:1.5s"/>`;[0,4,8,12,18].forEach((o,i)=>{s+=`<circle cx="${556+o}" cy="104" r="3.5" class="pop" style="fill:var(--warn);--d:${(1.7+i*.05).toFixed(2)}s"/>`});s+=`<circle cx="${556+3*64}" cy="104" r="6" class="pop" style="fill:var(--bad);--d:1.9s"/>`+T(660,150,'small values collapse to 0',{c:'f11 b warnc',a:'middle',d:2.0});
+  s+=G(`<rect width="760" height="96" rx="16" class="panel" style="stroke:var(--teal);stroke-width:2.5"/><text x="18" y="32" class="f13 b">Per-channel or small-group scales shrink shared-scale error</text><text x="18" y="56" class="f12">…at the cost of extra metadata and more complex kernels. Better methods aim to preserve the</text><text x="18" y="74" class="f12">model’s output behavior, not just each weight’s individual error.</text>`,{x:20,y:282,an:'up',d:2.4});
+  s+=G(`<rect width="760" height="96" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="18" y="32" class="f13 b">Think it through: s = 0.20, z = 0, x = −0.31</text>`,{x:20,y:390,an:'up',d:3.0})+T(36,450,'q = round(−1.55) = −2 → x̂ = −0.40 → error = −0.09',{c:'m f13 b',d:5.0});
+  return svg(s,'Where the error comes from: rounding error, when a value lies between levels; clipping error, when an outlier lies beyond the range and gets clipped to the edge; and shared-scale error, when one extreme value makes the scale so coarse that small values collapse to zero. Per-channel or small-group scales reduce shared-scale error at the cost of extra metadata and more complex kernels, and better methods aim to preserve output behavior. Think it through with s = 0.20 and x = −0.31: q = round(−1.55) = −2, so x̂ = −0.40 and the error is −0.09.');
+}
+
+function V5(){
+  let s=G(`<rect width="760" height="200" rx="16" class="panel"/><text x="36" y="30" class="f12 b mut">notation</text><text x="170" y="30" class="f12 b mut">meaning</text><text x="460" y="30" class="f12 b mut">practical implication</text>`,{x:20,y:16,an:'fade',d:.1});
+  [['W4A16','4-bit weights, 16-bit activations','smaller weights; activations stay high precision','teal'],['W8A8','8-bit weights, 8-bit activations','may speed compute with compatible kernels','vol'],['W8A16','8-bit weights, 16-bit activations','weight savings, 16-bit activation path','warn'],['FP8 KV cache','KV entries stored in FP8','separately shrinks the attention cache','ok']].forEach(([a,b,c,k],i)=>{const y=74+i*36,d=.3+i*.2;s+=chip(36,y-18,118,a,k,{d,mono:true,h:26})+T(170,y,b,{c:'f12 b',d})+T(460,y,c,{c:'f12',d})});
+  s+=T(400,206,'W/A notation describes data precision, not an end-to-end performance promise',{c:'f11 mut',a:'middle',d:1.2});
+  s+=G(`<rect width="760" height="160" rx="16" class="panel"/><text x="18" y="30" class="f13 b">A conceptual W4A16 execution path</text>`,{x:20,y:232,an:'fade',d:1.4});
+  s+=box2(60,276,180,56,['stored weights','4-bit packed'],'web',1.6,{fs:'f12'})+arrow({x1:242,y1:304,x2:300,y2:304},{d:1.8,dur:.15,c:'var(--web)'})+box2(304,276,190,56,['quantized kernel','scales + compute'],'teal',2.0,{fs:'f12'})+arrow({x1:496,y1:304,x2:554,y2:304},{d:2.2,dur:.15,c:'var(--teal)'})+box2(558,276,180,56,['activations','16-bit output'],'web',2.4,{fs:'f12'});
+  s+=box2(150,340,140,40,['inputs: 16-bit'],'warn',2.6,{fs:'f12',fill:.85})+arrow({x1:292,y1:356,c1:[330,356],c2:[380,350],x2:390,y2:334},{d:2.8,dur:.2,c:'var(--warn)'});
+  s+=T(530,370,'kernels often dequantize tiles on the fly',{c:'f11 mut',d:3.0});
+  s+=G(`<rect width="760" height="70" rx="14" style="fill:var(--bad);fill-opacity:.08;stroke:var(--bad);stroke-width:2"/><text x="18" y="30" class="f13 b">Quantizing weights doesn’t automatically quantize the KV cache.</text><text x="18" y="52" class="f12">With long contexts and many requests, the KV cache can be substantial on its own.</text>`,{x:20,y:410,an:'up',d:3.2});
+  return svg(s,'What exactly gets quantized? W4A16 means 4-bit weights with 16-bit activations, shrinking weights while activations stay high precision; W8A8 means 8-bit weights and activations, which may speed compute with compatible kernels; W8A16 saves weight memory with a 16-bit activation path; and an FP8 KV cache separately shrinks attention-cache memory. The notation describes precision, not performance. In a conceptual W4A16 path, 4-bit packed weights and 16-bit inputs feed a quantized kernel that often dequantizes tiles on the fly. Quantizing weights doesn’t automatically quantize the KV cache.');
+}
+
+function V6(){
+  let s=G(`<rect width="760" height="140" rx="16" class="panel"/><text x="18" y="30" class="f13 b">Post-training quantization (PTQ): no full retraining required</text>`,{x:20,y:16,an:'fade',d:.1});
+  s+=box2(40,62,200,56,['trained','FP16 / BF16 model'],'web',.3,{fs:'f13'})+arrow({x1:242,y1:90,x2:290,y2:90},{d:.6,dur:.15})+box2(294,62,200,56,['calibration','+ quantization'],'warn',.8,{fs:'f13'})+arrow({x1:496,y1:90,x2:544,y2:90},{d:1.1,dur:.15})+box2(548,62,200,56,['low-bit','deployment'],'ok',1.3,{fs:'f13'});
+  s+=T(400,140,'QAT, by contrast, simulates quantization during training so the model can adapt',{c:'f11 mut',a:'middle',d:1.6});
+  s+=G(`<rect width="370" height="300" rx="16" class="panel" style="stroke:var(--web);stroke-width:2.5"/><text x="18" y="32" class="f15 b" style="fill:var(--web)">GPTQ: error compensation</text>`,{x:20,y:176,an:'up',d:1.8});
+  for(let r=0;r<3;r++)for(let c=0;c<5;c++)s+=`<rect x="${44+c*26}" y="${226+r*24}" width="20" height="18" rx="3" class="pop" style="fill:var(--web);fill-opacity:.55;--d:${(2.0+(r*5+c)*.02).toFixed(2)}s"/>`;
+  s+=arrow({x1:180,y1:254,x2:216,y2:254},{d:2.4,dur:.15,c:'var(--web)'})+box2(220,222,150,64,['round weights,','then compensate','for output error'],'web',2.6,{fs:'f11',fill:.15});
+  s+=T(38,336,'uses approximate second-order info:',{c:'f12',d:2.9})+T(38,356,'“if I must round this weight, how do I',{c:'f12 b',d:3.0})+T(38,374,'adjust the rest to limit output damage?”',{c:'f12 b',d:3.0})+T(38,410,'an intuition, not the full algorithm',{c:'f11 mut',d:3.1});
+  s+=G(`<rect width="370" height="300" rx="16" class="panel" style="stroke:var(--teal);stroke-width:2.5"/><text x="18" y="32" class="f15 b tealc">AWQ: activation-aware scaling</text>`,{x:410,y:176,an:'up',d:2.2});
+  s+=box2(430,222,140,64,['observe','calibration','activations'],'teal',2.4,{fs:'f11',fill:.15})+arrow({x1:572,y1:254,x2:606,y2:254},{d:2.7,dur:.15,c:'var(--teal)'})+box2(610,222,150,64,['scale salient','weight channels','before rounding'],'teal',2.9,{fs:'f11',fill:.15});
+  s+=T(428,336,'activation statistics reveal which',{c:'f12',d:3.1})+T(428,356,'channels matter most, and scaling',{c:'f12 b',d:3.2})+T(428,374,'protects them, without keeping them',{c:'f12 b',d:3.2})+T(428,392,'in higher precision',{c:'f12 b',d:3.2});
+  return svg(s,'PTQ, GPTQ and AWQ. Post-training quantization takes a trained FP16 or BF16 model through calibration and quantization to a low-bit deployment without full retraining; quantization-aware training instead simulates quantization during training. GPTQ is error compensation: using approximate second-order information, it rounds weights and then adjusts the rest to limit the damage to layer outputs. AWQ is activation-aware scaling: it observes calibration activations to find salient weight channels and scales them before rounding, protecting them without keeping them in higher precision.');
+}
+
+function V7(){
+  const X0=60,W=300,Y=150;
+  let s=G(`<rect width="760" height="230" rx="16" class="panel"/><text x="18" y="30" class="f13 b">Same 4 bits, different level placement (schematic)</text>`,{x:20,y:16,an:'fade',d:.1});
+  const bell=(x0)=>{let p='';for(let i=0;i<=60;i++){const t=-3+i*.1,y=Y-Math.exp(-t*t/2)*70;p+=(i?'L':'M')+(x0+W/2+t*W/6).toFixed(1)+' '+y.toFixed(1)}return p};
+  [[X0,'INT4: evenly spaced levels','bad',[...Array(15)].map((_,i)=>-1+i/7)],[X0+360,'NF4: levels crowd where weights cluster','teal',[-1,-.7,-.53,-.39,-.28,-.18,-.09,0,.08,.16,.25,.34,.44,.56,.72,1]]].forEach(([x0,t,k,lv],j)=>{const d=.3+j*1.0;s+=T(x0,60,t,{c:'f13 b',d}).replace('class="f13 b"',`class="f13 b" style="fill:var(--${k})"`)+`<path d="${bell(x0)}" class="fade" style="fill:var(--line);fill-opacity:.5;stroke:var(--ink-2);stroke-width:1.5;--d:${d}s"/>`+`<path d="M${x0} ${Y}H${x0+W}" class="axis fade" style="--d:${d}s"/>`;lv.forEach((v,i)=>{s+=`<path d="M${(x0+W/2+v*W/2).toFixed(1)} ${Y-8}V${Y+12}" class="pop" style="stroke:var(--${k});stroke-width:3;--d:${(d+.3+i*.03).toFixed(2)}s"/>`})});
+  s+=T(X0,190,'gray hump = a roughly normal weight distribution',{c:'f11 mut',d:2.4})+T(X0+360,190,'NF4 is a codebook (bitsandbytes / QLoRA)',{c:'f11 mut',d:2.4});
+  s+=G(`<rect width="760" height="160" rx="16" class="panel"/><text x="36" y="28" class="f12 b mut">name</text><text x="120" y="28" class="f12 b mut">category</text><text x="320" y="28" class="f12 b mut">core idea</text>`,{x:20,y:262,an:'fade',d:2.6});
+  [['INT4','number representation','uniform low-bit integers + scales','bad'],['NF4','representation / codebook','nonuniform levels for weight distributions','teal'],['GPTQ','PTQ algorithm','second-order, output-aware error compensation','web'],['AWQ','PTQ algorithm','activation-aware scaling of important channels','ok'],['FP8','floating-point family','8-bit float; speed depends on kernel + hardware','vol']].forEach(([a,b,c,k],i)=>{const y=310+i*22,d=2.8+i*.12;s+=T(40,y,a,{c:'m f12 b',d}).replace('class="m f12 b"',`class="m f12 b" style="fill:var(--${k})"`)+T(120,y,b,{c:'f12',d})+T(320,y,c,{c:'f12',d})});
+  s+=G(`<rect width="760" height="58" rx="14" style="fill:var(--warn);fill-opacity:.1;stroke:var(--warn);stroke-width:2"/><text x="18" y="24" class="f13 b">Loading a model in NF4 isn’t a GPTQ or AWQ benchmark.</text><text x="18" y="44" class="f12">A fair comparison names the format, algorithm, kernel, GPU, model, sequence lengths and concurrency.</text>`,{x:20,y:436,an:'up',d:3.6});
+  return svg(s,'Formats aren’t algorithms. With the same 4 bits, INT4 places its levels evenly, while NF4 crowds its levels where roughly normal weights cluster near zero; NF4 is a codebook used by bitsandbytes and described in QLoRA. INT4 is a number representation of uniform integers with scales; NF4 a nonuniform representation; GPTQ a PTQ algorithm using second-order error compensation; AWQ a PTQ algorithm using activation-aware channel scaling; and FP8 a floating-point family whose speed depends on kernels and hardware. Loading a model in NF4 isn’t a GPTQ or AWQ benchmark.');
+}
+
+function V8(){
+  let s=G(`<rect width="760" height="96" rx="16" class="panel"/><text x="40" y="52" class="m f15 b">M<tspan font-size="10">total</tspan> ≈ M<tspan font-size="10">weights</tspan> + M<tspan font-size="10">KV</tspan> + M<tspan font-size="10">activations</tspan> + M<tspan font-size="10">runtime</tspan></text><text x="40" y="78" class="f12 mut">workspaces, temporary tensors and framework allocations hide in the last two terms</text>`,{x:20,y:16,an:'fade',d:.1});
+  s+=G(`<rect width="760" height="150" rx="16" class="panel"/><text x="18" y="30" class="f13 b">KV cache, a first estimate: M_KV ≈ 2 · L · H_kv · d · T · B · p</text>`,{x:20,y:128,an:'fade',d:.6});
+  [['L','32'],['H_kv','8'],['d','128'],['T','4,096'],['B','4'],['p','2 B']].forEach(([a,b],i)=>{s+=chip(40+i*118,172,108,a+' = '+b,'ink-2',{d:.8+i*.1,mono:true,h:28})});
+  s+=G(`<text x="40" y="244" class="m f15 b">2 · 32 · 8 · 128 · 4,096 · 4 · 2 = 2,147,483,648 bytes = <tspan class="okc">2 GiB</tspan></text>`,{an:'fade',d:1.6})+T(40,266,'doubling B or T roughly doubles it',{c:'f12 b',d:1.9});
+  const K=700/12;
+  s+=G(`<rect width="760" height="184" rx="16" class="panel"/><text x="18" y="30" class="f13 b">A hypothetical 12 GB budget for a 4-bit 7B model (non-weight values illustrative)</text>`,{x:20,y:294,an:'fade',d:2.2});
+  [['weights 3.5',3.5,'teal'],['KV 4.0',4,'web'],['other 1.5',1.5,'bad'],['headroom 3.0',3,'line']].reduce((x,[l,v,k],i)=>{s+=hbar(x,340,Math.round(v*K)-3,46,k,2.4+i*.3,{label:l,dur:.4});return x+Math.round(v*K)},40);
+  s+=T(40,412,'A 12 GB device can’t hold 14 GB of FP16 weights. 4-bit weights might fit,',{c:'f13',d:3.6})+T(40,432,'but long prompts and many users still need a model-and-request-specific memory test.',{c:'f13',d:3.6});
+  return svg(s,'Budget the whole GPU: total memory is roughly weights plus KV cache plus activations plus runtime. A first KV estimate is 2 × layers × KV heads × head dimension × cached tokens × sequences × bytes; with 32 layers, 8 KV heads, dimension 128, 4,096 tokens, 4 sequences and 2-byte FP16, that’s 2,147,483,648 bytes, 2 GiB, and doubling sequences or tokens roughly doubles it. In a hypothetical 12 GB budget for a 4-bit 7B model, weights take 3.5 GB, KV 4 GB, other allocations 1.5 GB, leaving 3 GB of headroom. FP16 weights alone wouldn’t fit; 4-bit might, but needs a real memory test.');
+}
+
+function V9(){
+  let s=G(`<rect width="760" height="210" rx="16" class="panel"/><text x="36" y="28" class="f12 b mut">primary constraint</text><text x="200" y="28" class="f12 b mut">quantization may help by…</text><text x="480" y="28" class="f12 b mut">but verify…</text>`,{x:20,y:16,an:'fade',d:.1});
+  [['out of memory','shrinking resident weights','KV, allocator, workspace, metadata'],['memory bandwidth','moving fewer weight bytes','real kernels + conversion cost'],['high latency','speeding memory-bound ops, sometimes','prefill vs decode, saturation, batch'],['low throughput','freeing room for more requests','requests/s, p95 / p99 under load'],['output quality','keeping behavior at lower precision','task-specific evaluation, not anecdotes']].forEach(([a,b,c],i)=>{const y=70+i*30,d=.3+i*.15;s+=T(40,y,a,{c:'f12 b',d})+T(200,y,b,{c:'f12 okc',d})+T(480,y,c,{c:'f12',d})});
+  s+=G(`<rect width="470" height="250" rx="16" class="panel" style="stroke:var(--teal);stroke-width:2.5"/><text x="18" y="32" class="f14 b">Two cars, two different questions</text>`,{x:20,y:242,an:'up',d:1.4});
+  const car=(x,y,k,tank,d)=>G(`<rect width="150" height="44" rx="14" style="fill:var(--${k})"/><rect x="24" y="-22" width="90" height="28" rx="10" style="fill:var(--${k});fill-opacity:.8"/><circle cx="34" cy="46" r="11" class="inkf"/><circle cx="118" cy="46" r="11" class="inkf"/><rect x="152" y="8" width="${tank}" height="22" rx="4" style="fill:var(--warn);stroke:var(--ink-2);stroke-width:1.5"/>`,{x,y,an:'slide',d,dx:-40});
+  s+=car(48,312,'web',46,1.6)+T(270,330,'bigger tank (FP16)',{c:'f12 b',d:1.8})+car(48,402,'teal',20,2.0)+T(270,420,'smaller tank (4-bit)',{c:'f12 b',d:2.2});
+  s+=T(38,482,'tank size says nothing about acceleration or fleet capacity',{c:'f12',d:2.6});
+  s+=G(`<rect width="270" height="250" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="16" y="32" class="f14 b">Latency ≠ throughput</text><text x="16" y="62" class="f12"><tspan class="b">latency</tspan>: how long one request</text><text x="16" y="80" class="f12">takes (TTFT + generation)</text><text x="16" y="112" class="f12"><tspan class="b">throughput</tspan>: a rate, such as</text><text x="16" y="130" class="f12">tokens/s or requests/s</text><text x="16" y="168" class="f12 b">batch-1 timing is a start,</text><text x="16" y="186" class="f12 b">not how a busy server behaves</text>`,{x:510,y:242,an:'up',d:2.4});
+  return svg(s,'Memory, speed and quality: quantization may help an out-of-memory problem by shrinking weights, a bandwidth problem by moving fewer bytes, latency by speeding memory-bound operations, throughput by freeing room for requests, and quality by keeping useful behavior; but verify the KV cache and allocator, real kernels and conversion cost, prefill versus decode, tail latency under load, and task-specific quality. Two cars: a smaller fuel tank says nothing about acceleration or fleet capacity. Latency is how long one request takes; throughput is a rate; batch-1 timing isn’t a busy server.');
+}
+
+// ---------- Day 52 visuals 10-18 ----------
+function V10(){
+  let s=G(`<rect width="760" height="200" rx="16" class="panel"/><text x="18" y="30" class="f13 b">Lab A: what the script did (CUDA laptop GPU, PyTorch)</text>`,{x:20,y:16,an:'fade',d:.1});
+  s+=box2(40,62,130,60,['W: 2048 × 2048','FP16 weights'],'web',.3,{fs:'f12'})+arrow({x1:172,y1:92,x2:204,y2:92},{d:.5,dur:.1})+box2(208,62,150,60,['symmetric','per-tensor scale'],'warn',.6,{fs:'f12'})+arrow({x1:360,y1:92,x2:392,y2:92},{d:.8,dur:.1})+box2(396,62,140,60,['INT8 / packed','INT4 codes'],'teal',.9,{fs:'f12'})+arrow({x1:538,y1:92,x2:570,y2:92},{d:1.1,dur:.1})+box2(574,62,170,60,['restore to FP16,','then X·W (X: 32 × 2048)'],'vol',1.2,{fs:'f11'});
+  s+=T(40,152,'packed INT4: two 4-bit codes share one byte',{c:'f12 b',d:1.6});
+  s+=G(`<rect width="80" height="30" rx="6" style="fill:var(--teal)"/><rect x="40" width="40" height="30" rx="6" style="fill:var(--ok)"/><text x="20" y="20" text-anchor="middle" class="m f11 b wht">0101</text><text x="60" y="20" text-anchor="middle" class="m f11 b wht">1100</text>`,{x:360,y:132,an:'pop',d:1.8})+T(460,152,'= 1 byte, 2 weights',{c:'f12',d:1.9});
+  s+=T(40,192,'no optimized 4-bit GEMM kernel: weights were dequantized before an ordinary matmul',{c:'f11 mut',d:2.1});
+  const K=560/8;
+  s+=G(`<rect width="760" height="200" rx="16" class="panel"/><text x="18" y="30" class="f13 b">Stored weight data (measured; scale metadata excluded)</text>`,{x:20,y:234,an:'fade',d:2.4});
+  [['FP16',8,'web','8.00 MiB','baseline'],['INT8',4,'teal','4.00 MiB','−50%'],['packed INT4',2,'ok','2.00 MiB','−75%']].forEach(([a,v,k,l,p],i)=>{const y=278+i*46,d=2.6+i*.3;s+=T(40,y+20,a,{c:'f13 b',d})+hbar(160,y,Math.round(v*K),30,k,d,{label:l,dur:.5})+T(170+Math.round(v*K),y+20,p,{c:'m f13 b',d:d+.4})});
+  s+=T(40,460,'cd ~/ai-infra/day52-quantization && python quantization_lab.py',{c:'m f11',d:3.6});
+  return svg(s,'Lab A: shrink a matrix. On a CUDA laptop GPU with PyTorch, the script took a 2048 by 2048 FP16 weight matrix, chose a symmetric per-tensor scale, quantized it to INT8 and to packed INT4 codes, where two 4-bit codes share one byte, then restored the weights to FP16 and multiplied by a 32 by 2048 input; no optimized 4-bit kernel was used. Measured stored weight data, excluding scale metadata: FP16 8.00 MiB, INT8 4.00 MiB (50% less) and packed INT4 2.00 MiB (75% less).');
+}
+
+function V11(){
+  const K=264/25;
+  let s=G(`<rect width="470" height="350" rx="16" class="panel"/><text x="18" y="30" class="f13 b">Relative matrix-output error, % (measured)</text><text x="18" y="48" class="f11 mut">lower is better</text>`,{x:20,y:16,an:'fade',d:.1});
+  s+=`<path d="M80 60V340H470" class="axis fade" style="--d:.1s"/>`+[0,5,10,15,20,25].map(v=>T(74,340-v*K+4,String(v),{c:'m f11 mut',a:'end',d:.1})+`<path d="M80 ${340-v*K}H470" class="fade" style="stroke:var(--line);stroke-width:1;--d:.1s"/>`).join('');
+  s+=vbar(140,340,90,Math.round(1.2211*K),'teal',.4)+T(185,330-Math.round(1.2211*K),'1.2211%',{c:'m f13 b',a:'middle',d:.8})+T(185,360,'INT8',{c:'f14 b',a:'middle',d:.4});
+  s+=vbar(300,340,90,Math.round(22.1487*K),'bad',1.0)+T(345,330-Math.round(22.1487*K),'22.1487%',{c:'m f13 b',a:'middle',d:1.6})+T(345,360,'INT4',{c:'f14 b',a:'middle',d:1.0});
+  s+=G(`<rect width="270" height="160" rx="16" class="panel"/><text x="16" y="30" class="f13 b">The metric</text><text x="16" y="66" class="m f12">‖Y_quant − Y_FP16‖_F</text><path d="M16 74H200" style="stroke:var(--ink);stroke-width:1.5"/><text x="16" y="94" class="m f12">‖Y_FP16‖_F</text><text x="16" y="130" class="f11 mut">relative Frobenius-norm error of</text><text x="16" y="146" class="f11 mut">the matmul output vs FP16</text>`,{x:510,y:16,an:'fade',d:1.8});
+  s+=G(`<rect width="270" height="174" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="16" y="32" class="f14 b">≈ 18.1× the error</text><text x="16" y="56" class="m f12">22.1487 ÷ 1.2211 ≈ 18.1</text><text x="16" y="88" class="f12">in this basic per-tensor test only</text>`,{x:510,y:192,an:'up',d:2.4});
+  s+=G(`<rect width="760" height="100" rx="16" class="panel" style="stroke:var(--bad);stroke-width:2.5"/><text x="18" y="32" class="f14 b">Not a 22% accuracy loss for an LLM</text><text x="18" y="58" class="f12">It’s a matrix-output error for naive per-tensor INT4. It says nothing about how GPTQ, AWQ or NF4</text><text x="18" y="76" class="f12">would behave, and nothing about task accuracy.</text>`,{x:20,y:386,an:'up',d:3.0});
+  return svg(s,'Lab A: the price in error. The relative matrix-output error, the Frobenius norm of the quantized output minus the FP16 output divided by the norm of the FP16 output, was measured at 1.2211% for INT8 and 22.1487% for INT4: about 18.1 times as much error, in this basic per-tensor test only. That’s not a 22% accuracy loss for an LLM: it’s a matrix-output error for naive per-tensor INT4, and says nothing about GPTQ, AWQ or NF4, or about task accuracy.');
+}
+
+function V12(){
+  let s=term(20,16,400,240,[['from transformers import BitsAndBytesConfig','',.2],['import torch','',.2],['','',.2],['nf4_config = BitsAndBytesConfig(','tealc b',.4],['    load_in_4bit=True,','',.6],['    bnb_4bit_quant_type="nf4",','warnc b',.6],['    bnb_4bit_compute_dtype=torch.float16,','',.6],[')','',.4]],{fs:12,lh:24,top:34,d:.1});
+  s+=G(`<rect width="340" height="240" rx="16" class="panel"/><text x="16" y="30" class="f13 b">The model</text><text x="16" y="58" class="m f13 b">Qwen/Qwen2.5-0.5B-Instruct</text><text x="16" y="96" class="f12"><tspan class="b">baseline</tspan>: FP16 weights</text><text x="16" y="120" class="f12"><tspan class="b">quantized</tspan>: bitsandbytes 4-bit NF4,</text><text x="16" y="138" class="f12">with FP16 compute</text><text x="16" y="176" class="f12">loaded via Transformers</text>`,{x:440,y:16,an:'fade',d:.8});
+  s+=term(20,272,400,110,[['python compare_llm.py --mode fp16','okc b',1.4],['python compare_llm.py --mode nf4','tealc b',1.6]],{fs:12,lh:28,top:40,d:1.3});
+  s+=G(`<rect width="340" height="110" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="16" y="30" class="f13 b">A fair-ish protocol</text><text x="16" y="56" class="f12">each mode in its own process</text><text x="16" y="76" class="f12">warmup, then 3 timed generations</text><text x="16" y="96" class="f12">up to 64 new tokens · CUDA sync</text>`,{x:440,y:272,an:'up',d:1.8});
+  s+=G(`<rect width="760" height="82" rx="14" style="fill:var(--teal);fill-opacity:.1;stroke:var(--teal);stroke-width:2"/><text x="18" y="32" class="f13 b">The prompt: “explain why quantization reduces GPU memory usage”</text><text x="18" y="56" class="f12">one small model, one prompt, batch size one: a clean first comparison, not a load test</text>`,{x:20,y:398,an:'up',d:2.4});
+  return svg(s,'Lab B: a real small LLM. Qwen2.5-0.5B-Instruct was loaded through Transformers twice: a baseline with FP16 weights, and a quantized version using a BitsAndBytesConfig with load_in_4bit, quantization type NF4 and FP16 compute. Each mode ran in its own process via compare_llm.py with fp16 or nf4; the model was warmed up, then three generations of up to 64 new tokens were timed with CUDA synchronization. The prompt asked the model to explain why quantization reduces GPU memory usage: one small model, one prompt, batch size one.');
+}
+
+function V13(){
+  let s=G(`<rect width="370" height="290" rx="16" class="panel"/><text x="18" y="30" class="f13 b">Model footprint, MiB</text><text x="352" y="30" text-anchor="end" class="f11 mut">measured</text>`,{x:20,y:16,an:'fade',d:.1});
+  const K1=200/1000;s+=`<path d="M60 270H370" class="axis fade" style="--d:.1s"/>`+vbar(110,270,90,Math.round(942.29*K1),'web',.3)+T(155,262-Math.round(942.29*K1),'942.29',{c:'m f13 b',a:'middle',d:.8})+T(155,292,'FP16',{c:'f14 b',a:'middle',d:.3})+vbar(240,270,90,Math.round(430.42*K1),'teal',.6)+T(285,262-Math.round(430.42*K1),'430.42',{c:'m f13 b',a:'middle',d:1.1})+T(285,292,'NF4',{c:'f14 b',a:'middle',d:.6});
+  s+=G(`<rect width="370" height="290" rx="16" class="panel"/><text x="18" y="30" class="f13 b">Generation throughput, tokens/s</text><text x="352" y="30" text-anchor="end" class="f11 mut">measured</text>`,{x:410,y:16,an:'fade',d:1.2});
+  const K2=200/60;s+=`<path d="M450 270H760" class="axis fade" style="--d:1.2s"/>`+vbar(500,270,90,Math.round(55.08*K2),'web',1.4)+T(545,262-Math.round(55.08*K2),'55.08',{c:'m f13 b',a:'middle',d:1.9})+T(545,292,'FP16',{c:'f14 b',a:'middle',d:1.4})+vbar(630,270,90,Math.round(38.48*K2),'teal',1.7)+T(675,262-Math.round(38.48*K2),'38.48',{c:'m f13 b',a:'middle',d:2.2})+T(675,292,'NF4',{c:'f14 b',a:'middle',d:1.7});
+  s+=G(`<rect width="370" height="76" rx="14" style="fill:var(--ok);fill-opacity:.12;stroke:var(--ok);stroke-width:2.5"/><text x="185" y="40" text-anchor="middle" class="m f22 b okc">−54.3%</text><text x="185" y="62" text-anchor="middle" class="f12">model footprint: (942.29 − 430.42) ÷ 942.29</text>`,{x:20,y:318,an:'pop',d:2.6})+G(`<rect width="370" height="76" rx="14" style="fill:var(--bad);fill-opacity:.12;stroke:var(--bad);stroke-width:2.5"/><text x="185" y="40" text-anchor="middle" class="m f22 b badc">−30.1%</text><text x="185" y="62" text-anchor="middle" class="f12">tokens/s: (55.08 − 38.48) ÷ 55.08</text>`,{x:410,y:318,an:'pop',d:2.9});
+  s+=T(40,424,'GPU alloc. after load: 942.32 vs 451.86 MiB · peak allocated: 953.10 vs 469.48 MiB',{c:'m f11',d:3.3})+T(40,446,'avg generation: 1.162 vs 1.663 s (+43.1%) · 64 output tokens each',{c:'m f11',d:3.5})+T(40,474,'same two configurations, opposite outcomes: smaller wasn’t faster here',{c:'f13 b',d:3.8});
+  return svg(s,'Lab B: opposite outcomes, measured. The model footprint was 942.29 MiB in FP16 and 430.42 MiB in NF4, 54.3% smaller; but generation throughput was 55.08 tokens per second in FP16 versus 38.48 in NF4, 30.1% lower. GPU allocation after loading was 942.32 versus 451.86 MiB, peak allocated memory 953.10 versus 469.48 MiB, and average generation time 1.162 versus 1.663 seconds, 43.1% longer, for 64 output tokens each. Smaller wasn’t faster here.');
+}
+
+function V14(){
+  let s=G(`<rect width="760" height="230" rx="16" class="panel" style="stroke:var(--bad);stroke-width:2.5"/><text x="18" y="32" class="f14 b">What Lab B doesn’t establish</text>`,{x:20,y:16,an:'fade',d:.1});
+  [['that NF4 is always slower','small model, batch size one, only 3 timed generations per mode'],['task-quality loss','two single, truncated 64-token samples prove nothing about quality'],['device-wide peak VRAM','max_memory_allocated() counts tensors only'],['anything about GPTQ or AWQ','this was NF4 versus FP16, and nothing else']].forEach(([a,b],i)=>{const y=82+i*36,d=.3+i*.3;s+=icon('no',46,y-5,{r:10,d})+T(66,y,a,{c:'f13 b',d})+T(316,y,b,{c:'f12',d})});
+  s+=G(`<rect width="370" height="230" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="18" y="32" class="f14 b">Plausible hypotheses</text><text x="18" y="52" class="f11 mut">not confirmed diagnoses</text>`,{x:20,y:262,an:'up',d:1.8});
+  [['dequantization overhead','warn'],['GPU kernel efficiency','vol'],['a model too small to benefit','teal']].forEach(([t,k],i)=>{s+=chip(38,330+i*42,330,t,k,{d:2.0+i*.25,h:30})});
+  s+=G(`<rect width="370" height="230" rx="16" class="panel" style="stroke:var(--ok);stroke-width:2.5"/><text x="18" y="32" class="f14 b">How you’d find out</text>`,{x:410,y:262,an:'up',d:2.6});
+  ['profile the operators','increase repetitions','vary input + output lengths','test concurrency, controlled'].forEach((t,i)=>{s+=icon('yes',436,330+i*36,{r:9,d:2.8+i*.2})+T(454,335+i*36,t,{c:'f13',d:2.8+i*.2})});
+  return svg(s,'What Lab B doesn’t prove: that NF4 is always slower, since it was a small model at batch size one with three timed generations per mode; task-quality loss, since the samples were two truncated 64-token responses; device-wide peak VRAM, since max_memory_allocated counts tensors rather than reserved or CUDA-context memory; or anything about GPTQ or AWQ, since this was NF4 versus FP16. Plausible hypotheses, not diagnoses: dequantization overhead, GPU kernel efficiency, or a model too small to benefit. To find out, profile operators, add repetitions, vary lengths and test concurrency.');
+}
+
+function V15(){
+  let s=G(`<rect width="440" height="290" rx="16" class="panel"/><text x="18" y="30" class="f13 b">Symptom → first useful checks</text>`,{x:20,y:16,an:'fade',d:.1});
+  [['OOM despite compact weights','KV growth, workspace, peak allocated + reserved'],['NF4 slower than FP16','profiler, warmup, tokens/s, multiple trials'],['output quality worse','fixed prompt set, same decoding, task accuracy'],['shape error in generate()','pass input_ids, not a BatchEncoding'],['can’t load the quantized model','driver, CUDA, package versions, formats']].forEach(([a,b],i)=>{const y=74+i*44,d=.3+i*.2;s+=T(36,y,a,{c:'f12 b',d})+T(36,y+18,b,{c:'f11',d})});
+  s+=box2(480,16,300,40,['measure FP16 + full serving workload'],'web',1.2,{fs:'f12'})+arrow({x1:630,y1:58,x2:630,y2:72},{d:1.4,dur:.1})+zbox(500,76,260,40,'fits VRAM at target load?','',{k:'db',d:1.6});
+  s+=arrow({x1:560,y1:118,x2:530,y2:142},{d:1.8,dur:.15,c:'var(--ok)'})+T(528,132,'yes',{c:'f11 b okc',a:'end',d:1.8})+arrow({x1:700,y1:118,x2:730,y2:142},{d:1.8,dur:.15,c:'var(--bad)'})+T(734,132,'no',{c:'f11 b badc',d:1.8});
+  s+=box2(470,146,150,58,['benchmark FP16;','keep if SLOs met'],'ok',2.0,{fs:'f11'})+box2(640,146,140,58,['choose supported','low-bit formats'],'bad',2.2,{fs:'f11'});
+  s+=arrow({x1:545,y1:206,x2:600,y2:226},{d:2.4,dur:.15})+arrow({x1:710,y1:206,x2:660,y2:226},{d:2.4,dur:.15})+box2(480,228,300,56,['measure quality, p95 latency, throughput,','peak VRAM and concurrency'],'warn',2.6,{fs:'f11'});
+  s+=arrow({x1:630,y1:286,x2:630,y2:298},{d:2.8,dur:.1})+box2(480,300,300,40,['select the best feasible; record tradeoffs'],'ok',3.0,{fs:'f11'});
+  s+=G(`<rect width="760" height="120" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="18" y="36" class="f15 b">Start from measured constraints, not from “fewer bits must be faster”.</text><text x="18" y="66" class="f13">If FP16 fits and meets its service-level objectives, keeping it can be the right answer.</text><text x="18" y="90" class="f13">Quantize when memory forces it, then prove the new setup with real measurements.</text>`,{x:20,y:362,an:'up',d:3.4});
+  return svg(s,'Debug, then decide. First checks by symptom: out of memory despite compact weights means checking KV growth, workspace and peak allocated and reserved memory; NF4 slower than FP16 means profiling, consistent warmup and multiple trials; worse quality means a fixed prompt set and task accuracy; a shape error in generate means passing input_ids; and a model that won’t load means checking driver, CUDA and package versions. To decide: measure FP16 under the full workload; if it fits VRAM, benchmark and keep it if it meets SLOs; if not, choose supported low-bit formats; either way, measure quality, p95 latency, throughput, peak VRAM and concurrency, then select and record tradeoffs.');
+}
+
+function V16(){
+  let s=G(`<rect width="760" height="230" rx="16" class="panel" style="stroke:var(--ok);stroke-width:2.5"/><text x="18" y="32" class="f14 b">Make the next benchmark more rigorous</text>`,{x:20,y:16,an:'fade',d:.1})+chipsRow(36,64,['multiple prompt lengths','dozens of timed repetitions','fixed decoding settings','a common evaluation set','median + p95 latency','TTFT + inter-token latency','requests/s under concurrency','peak allocated + reserved VRAM','one task-quality metric','versions, GPU, driver, clocks','other processes on the GPU'],{maxX:772,d:.3});
+  s+=G(`<rect width="760" height="226" rx="16" class="panel" style="stroke:var(--warn);stroke-width:2.5"/><text x="18" y="34" class="f14 b">Discussion: “We switched to 4-bit, so throughput will rise 4×.”</text>`,{x:20,y:262,an:'up',d:2.0});
+  s+=pod({x:40,y:316,s:.5,k:'vol',mood:'happy',an:'pop',v:{d:2.2}})+G(`<rect width="250" height="44" rx="12" style="fill:var(--surface);stroke:var(--ink-2);stroke-width:2"/><text x="125" y="28" text-anchor="middle" class="f12 b">“4 bits = 4× faster, right?”</text>`,{x:110,y:316,an:'pop',d:2.4});
+  s+=T(400,322,'An evidence-based reply:',{c:'f13 b okc',d:3.0})+T(400,346,'4-bit shrinks stored weights, not total VRAM.',{c:'f12',d:3.2})+T(400,368,'In our lab NF4 was 30.1% slower per request.',{c:'f12',d:3.4})+T(400,390,'Throughput depends on kernels, batch, KV',{c:'f12',d:3.6})+T(400,410,'and concurrency, so let’s benchmark it.',{c:'f12',d:3.6});
+  s+=T(40,454,'storage efficiency and computation efficiency are different measurements',{c:'f13 b',d:3.9});
+  return svg(s,'A more rigorous benchmark would include multiple prompt lengths, dozens of timed repetitions, fixed decoding settings, a common evaluation set, median and p95 latency, time to first token and inter-token latency, requests per second under concurrency, peak allocated and reserved VRAM, a task-quality metric, versions, GPU, driver and clocks, and any other processes on the GPU. Discussion: a colleague says switching to 4-bit will raise throughput 4 times. An evidence-based reply: 4-bit shrinks stored weights, not total VRAM; NF4 was 30.1% slower per request in our lab; throughput depends on kernels, batching, the KV cache and concurrency, so benchmark it.');
+}
+
+const miniSvg=(inner,vb)=>`<svg viewBox="${vb}" aria-hidden="true">${inner}</svg>`;
+function V17(){
+  const BT=`<rect width="56" height="10" rx="2" style="fill:var(--web)"/><rect y="16" width="14" height="10" rx="2" style="fill:var(--teal)"/>`;
+  const RD=`<path d="M0 20H56" style="stroke:var(--ink-2);stroke-width:2"/><circle cx="8" cy="20" r="3" style="fill:var(--teal)"/><circle cx="24" cy="20" r="3" style="fill:var(--teal)"/><circle cx="40" cy="20" r="3" style="fill:var(--teal)"/><circle cx="31" cy="8" r="4.5" style="fill:var(--warn)"/>`;
+  const FA=`<rect width="24" height="22" rx="4" style="fill:var(--teal)"/><text x="30" y="16" class="f13 b">≠</text><rect x="40" y="2" width="18" height="18" rx="9" style="fill:var(--vol)"/>`;
+  const VR=`<rect width="14" height="16" rx="2" style="fill:var(--teal)"/><rect x="16" width="20" height="16" rx="2" style="fill:var(--web)"/><rect x="38" width="8" height="16" rx="2" style="fill:var(--bad)"/><rect x="48" width="10" height="16" rx="2" style="fill:var(--line)"/>`;
+  const SF=`<rect y="14" width="14" height="16" rx="2" style="fill:var(--teal)"/><rect x="20" y="4" width="14" height="26" rx="2" style="fill:var(--web)"/><text x="40" y="22" class="f13 b">?</text>`;
+  const EV=`<path d="M4 16L14 26L32 4" style="fill:none;stroke:var(--ok);stroke-width:4;stroke-linecap:round"/><rect x="38" y="10" width="18" height="14" rx="3" style="fill:var(--warn)"/>`;
+  const items=[[miniSvg(BT,'-2 -2 60 30'),'<b>Fewer bits, smaller weights.</b> N·b/8: a 7B model drops from 14 GB (FP16) to 3.5 GB (4-bit), in theory.'],
+    [miniSvg(RD,'-2 0 60 26'),'<b>Quantizing means scale, round, clip.</b> Error comes from rounding, clipping and shared scales.'],
+    [miniSvg(FA,'-2 -2 62 26'),'<b>Formats ≠ algorithms.</b> INT4 and NF4 are formats; GPTQ and AWQ are ways to quantize.'],
+    [miniSvg(VR,'-2 -2 62 20'),'<b>Weights are one slice of VRAM.</b> The KV cache, activations and runtime still need room.'],
+    [miniSvg(SF,'-2 -2 56 34'),'<b>Smaller isn’t automatically faster.</b> NF4: −54.3% footprint, but −30.1% tokens/s in our lab.'],
+    [miniSvg(EV,'0 0 60 30'),'<b>Decide with evidence.</b> Measure quality, p95 latency, throughput, peak VRAM and concurrency.']];
+  return `<ul class="take">${items.map(([ic,t],i)=>`<li class="up" style="--d:${.3+i*.3}s">${ic}<div>${t}</div></li>`).join('')}</ul>`;
+}
+function V18(){
+  const Q=[['teal','Why can a smaller 4-bit model generate more slowly than FP16?','Fewer weight bytes don’t remove dequantization work or slower kernels; latency also depends on compute, prompt length and batch size.'],
+    ['warn','A 7B model: ideal weight footprint at FP16 and at 4 bits? Why isn’t 4-bit the whole VRAM need?','14 GB and 3.5 GB (decimal). Scales, unquantized tensors, the KV cache, activations and runtime also need memory.'],
+    ['db','Doubling concurrent sequences changes KV memory by what factor? What if the context doubles too?','About 2×; with the context doubled as well, about 2 × 2 = 4×.'],
+    ['vol','Is NF4 another name for GPTQ? Name one difference between GPTQ and AWQ.','No: NF4 is a nonuniform 4-bit format. GPTQ compensates rounding error with second-order info; AWQ scales salient channels using activations.']];
+  return `<div class="quiz"><div class="cards">${Q.map(([k,q,a],i)=>`<button class="card up" style="--k:var(--${k});--d:${.3+i*.15}s" aria-pressed="false"><span class="card-inner"><span class="face front"><small>Question ${i+1}</small><span class="q">${q}</span><em>Tap to flip</em></span><span class="face back" aria-hidden="true"><small>Answer</small><span class="q">${a}</span></span></span></button>`).join('')}</div><button class="again up" style="--d:1s" data-action="restart">Watch again from the start</button></div>`;
+}
+
+// ---------- Scenes ----------
+const CH=['Intro','Why and what','The quantizer','Methods','Memory and speed','The labs','Deploying','Wrap-up'];
+const P=(t,d)=>`<p class="up" style="--d:${d}s">${t}</p>`;
+const R=(t,d)=>`<p class="rule up" style="--d:${d}s"><span>${t}</span></p>`;
+const SC=[
+ {ch:0,dur:10,title:'Quantization for LLM Inference',vis:V0(),copy:`<p class="course up" style="--d:.05s">AI Infrastructure &amp; ML Systems, Day 52</p><h1 class="long up" style="--d:.15s">Quantization for LLM Inference</h1><p class="lede up" style="--d:.3s">If a model becomes 4× smaller, does it become 4× faster? Two GPU labs say no, and show how to decide.</p><button class="start up" style="--d:.45s" data-action="start"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15l12-7.5z"/></svg>Start the explainer</button><p class="hint up" style="--d:.6s">About 4 minutes. Use ← → or swipe to go at your own pace.</p><p class="hint rotate-hint up" style="--d:.7s">Tip: turn your phone sideways for bigger diagrams.</p>`},
+ {ch:1,dur:11.5,title:'Rounding, systematically',vis:V1(),body:P('Store 12.3 instead of 12.345678: less detail, often good enough.',.2)+R('Bits × parameters ÷ 8 = bytes of weights.',.35)},
+ {ch:1,dur:11.5,title:'Formats and bit widths',vis:V2(),body:P('FP32, FP16 and BF16 are floats; INT8 and INT4 are integers with scales; NF4 is a 4-bit codebook.',.2)+R('Same bit count doesn’t mean same speed.',.35)},
+ {ch:2,dur:12,title:'How a quantizer maps numbers',vis:V3(),body:P('Divide by a scale, round to the grid, clip, then multiply back.',.2)+R('0.73 becomes 0.80: an error of +0.07.',.35)},
+ {ch:2,dur:12,title:'Where the error comes from',vis:V4(),body:P('Rounding, clipping, and one shared scale stretched by an outlier.',.2)+R('Smaller groups, smaller error, more metadata.',.35)},
+ {ch:3,dur:11.5,title:'What exactly gets quantized?',vis:V5(),body:P('Weights, activations and the KV cache are separate choices.',.2)+R('Quantizing weights doesn’t shrink the KV cache.',.35)},
+ {ch:3,dur:12,title:'PTQ, GPTQ and AWQ',vis:V6(),body:P('Post-training quantization needs no retraining; GPTQ compensates errors, AWQ protects salient channels.',.2)+R('Two strategies for the same goal.',.35)},
+ {ch:3,dur:12,title:'Formats aren’t algorithms',vis:V7(),body:P('INT4 spaces its levels evenly; NF4’s levels crowd where weights cluster.',.2)+R('Name the format, algorithm, kernel and GPU.',.35)},
+ {ch:4,dur:12,title:'Budget the whole GPU',vis:V8(),body:P('Weights + KV cache + activations + runtime.',.2)+R('4-bit weights might fit; test the full workload.',.35)},
+ {ch:4,dur:11.5,title:'Memory, speed and quality',vis:V9(),body:P('A smaller fuel tank says nothing about acceleration.',.2)+R('Storage efficiency ≠ computation efficiency.',.35)},
+ {ch:5,dur:11.5,title:'Lab A: shrink a matrix',vis:V10(),body:P('A 2048 × 2048 FP16 matrix, quantized to INT8 and packed INT4.',.2)+R('8 → 4 → 2 MiB of weight data.',.35)},
+ {ch:5,dur:11.5,title:'Lab A: the price in error',vis:V11(),body:P('INT4 produced about 18× the output error of INT8.',.2)+R('A matrix error, not an LLM accuracy loss.',.35)},
+ {ch:5,dur:11,title:'Lab B: a real small LLM',vis:V12(),body:P('Qwen2.5-0.5B-Instruct, FP16 versus bitsandbytes NF4.',.2)+P('Warmed up, then three timed 64-token generations each.',.35)},
+ {ch:5,dur:12.5,title:'Lab B: opposite outcomes',vis:V13(),body:P('NF4 cut the footprint by 54.3% but generated 30.1% fewer tokens per second.',.2)+R('Smaller wasn’t faster here.',.35)},
+ {ch:5,dur:11.5,title:'What Lab B doesn’t prove',vis:V14(),body:P('One small model, batch size one, three timings, NF4 only.',.2)+R('Hypotheses, not diagnoses.',.35)},
+ {ch:6,dur:12,title:'Debug, then decide',vis:V15(),body:P('Start from measured constraints: does FP16 even fit?',.2)+R('Fewer bits aren’t automatically faster.',.35)},
+ {ch:6,dur:12,title:'A more rigorous benchmark',vis:V16(),body:P('More prompts, more repetitions, concurrency, tail latency and quality.',.2)+R('“4-bit means 4× throughput” is a hypothesis to test.',.35)},
+ {ch:7,dur:12,title:'What to remember',vis:V17(),body:P('Six ideas carry the whole lesson.',.2)+P('Next, check yourself with four quick questions.',.35)},
+ {ch:7,dur:10,title:'Check yourself',vis:V18(),body:P('Answer in your head first, then tap a card to flip it.',.2)+P('Next: Day 53 continues the model-serving phase.',.35)}
+];
+// ---------- Player ----------
+const stage=document.getElementById('stage'),track=document.getElementById('track'),chap=document.getElementById('chap'),count=document.getElementById('count'),live=document.getElementById('live');
+const btnPrev=document.getElementById('prev'),btnNext=document.getElementById('next'),btnPlay=document.getElementById('play'),btnReplay=document.getElementById('replay');
+const strip=s=>s.replace(/<[^>]+>/g,'').replace(/&amp;/g,'&');
+const els=[],fills=[],segs=[];
+SC.forEach((s,i)=>{
+  const sec=document.createElement('section');sec.className='scene';
+  sec.setAttribute('aria-label',`Scene ${i+1} of ${SC.length}: ${strip(s.title)}`);
+  sec.innerHTML=`<div class="copy">${s.copy||`<h2 class="up" style="--d:.05s">${s.title}</h2>${s.body}`}</div><div class="vis">${s.vis}</div>`;
+  stage.appendChild(sec);els.push(sec);
+  const b=document.createElement('button');b.className='seg'+(i>0&&SC[i-1].ch!==s.ch?' chstart':'');
+  b.setAttribute('aria-label',`Go to scene ${i+1}: ${strip(s.title)}`);b.innerHTML='<i><b></b></i>';
+  b.addEventListener('click',()=>go(i));track.appendChild(b);segs.push(b);fills.push(b.querySelector('b'));
+});
+const ICON_PLAY='<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',ICON_PAUSE='<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6.5" y="5" width="4" height="14" rx="1"/><rect x="13.5" y="5" width="4" height="14" rx="1"/></svg>';
+let cur=-1,auto=false,t0=performance.now(),onTimer=null;
+function setAuto(v){
+  auto=v;btnPlay.innerHTML=v?ICON_PAUSE:ICON_PLAY;btnPlay.setAttribute('aria-label',v?'Pause auto-play':'Start auto-play');btnPlay.setAttribute('aria-pressed',String(v));
+  if(v&&cur>=0){const dur=SC[cur].dur*1000,el=performance.now()-t0;if(el>dur-1200)t0=performance.now()-(dur-1200)}
+}
+function go(i,{replay=false}={}){
+  i=Math.max(0,Math.min(SC.length-1,i));
+  if(i===cur&&!replay)return;
+  const prev=cur;
+  els.forEach((el,j)=>{el.classList.toggle('active',j===i);el.classList.toggle('past',j<i);
+    if(j===i){el.inert=false;el.removeAttribute('aria-hidden')}else{el.inert=true;el.setAttribute('aria-hidden','true')}});
+  if(prev>=0&&prev!==i){const p=prev;setTimeout(()=>{if(cur!==p)els[p].classList.remove('on')},750)}
+  const el=els[i];el.classList.remove('on');void el.getBoundingClientRect();
+  clearTimeout(onTimer);const delay=(prev===i)?40:260;
+  onTimer=setTimeout(()=>{el.classList.add('on');t0=performance.now()},delay);
+  t0=performance.now()+delay;cur=i;el.scrollTop=0;
+  const s=SC[i];
+  chap.innerHTML=s.ch===0?'<b>Intro</b>':`Chapter ${s.ch} of ${CH.length-1}: <b>${CH[s.ch]}</b>`;
+  count.textContent=`${i+1} / ${SC.length}`;
+  live.textContent=`Scene ${i+1} of ${SC.length}: ${strip(s.title)}`;
+  btnPrev.disabled=i===0;btnNext.disabled=i===SC.length-1;
+  fills.forEach((f,j)=>{f.style.width=j<i?'100%':'0%'});
+  segs.forEach((b,j)=>{if(j===i)b.setAttribute('aria-current','step');else b.removeAttribute('aria-current')});
+}
+function tick(now){
+  if(cur>=0){const dur=SC[cur].dur*1000,el=Math.max(0,now-t0);fills[cur].style.width=(Math.min(1,el/dur)*100).toFixed(2)+'%';
+    if(auto&&el>=dur){if(cur<SC.length-1)go(cur+1);else setAuto(false)}}
+  requestAnimationFrame(tick);
+}
+btnPrev.addEventListener('click',()=>go(cur-1));
+btnNext.addEventListener('click',()=>go(cur+1));
+btnPlay.addEventListener('click',()=>{if(!auto&&cur===SC.length-1){go(0)}setAuto(!auto);if(auto&&cur===0)go(1)});
+btnReplay.addEventListener('click',()=>go(cur,{replay:true}));
+stage.addEventListener('click',e=>{
+  const a=e.target.closest('[data-action]');
+  if(a){if(a.dataset.action==='start'){setAuto(true);go(1)}else if(a.dataset.action==='restart'){setAuto(true);go(1)}return}
+  const c=e.target.closest('.card');
+  if(c){const f=c.classList.toggle('flipped');c.setAttribute('aria-pressed',String(f));c.querySelector('.front').setAttribute('aria-hidden',String(f));c.querySelector('.back').setAttribute('aria-hidden',String(!f))}
+});
+document.addEventListener('keydown',e=>{
+  if(e.altKey||e.ctrlKey||e.metaKey)return;
+  const onBtn=e.target.closest&&e.target.closest('button');
+  if(e.key==='ArrowRight'||e.key==='PageDown'){e.preventDefault();go(cur+1)}
+  else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();go(cur-1)}
+  else if(e.key===' '&&!onBtn){e.preventDefault();btnPlay.click()}
+  else if(e.key==='r'||e.key==='R'){go(cur,{replay:true})}
+  else if(e.key==='Home'){go(0)}else if(e.key==='End'){go(SC.length-1)}
+});
+let sx=null,sy=null;
+stage.addEventListener('touchstart',e=>{const t=e.touches[0];sx=t.clientX;sy=t.clientY},{passive:true});
+stage.addEventListener('touchend',e=>{if(sx==null)return;const t=e.changedTouches[0],dx=t.clientX-sx,dy=t.clientY-sy;if(Math.abs(dx)>55&&Math.abs(dx)>Math.abs(dy)*1.4)go(cur+(dx<0?1:-1));sx=null},{passive:true});
+setAuto(false);go(0);requestAnimationFrame(tick);
+</script>
+</body>
+</html>
