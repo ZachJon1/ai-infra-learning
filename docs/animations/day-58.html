@@ -1,0 +1,1026 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kubernetes resource metrics, explained</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=JetBrains+Mono:wght@400;600;700&display=swap">
+<style>
+:root{
+  --paper:#EEF2FA;--surface:#FFFFFF;--ink:#18203F;--ink-2:#525B82;--line:#CBD3EA;--code:#E2E7F5;
+  --web:#2F6BFF;--db:#7A4CF5;--client:#F5A524;--client-ink:#A35F00;--vol:#E94A89;--teal:#0E9FAE;
+  --ok:#0F9D65;--bad:#E0433F;--warn:#D98200;--net:rgba(47,107,255,.06);--on-client:#2A1C00;
+  --note:#FFE38A;--note-ink:#3B2E00;--hl:rgba(245,165,36,.42);
+  --sans:"Bricolage Grotesque",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  color-scheme:light;box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --paper:#151936;--surface:#1F2449;--ink:#ECEEFF;--ink-2:#A8AFD6;--line:#363E70;--code:#262C5A;
+  --web:#5C8DFF;--db:#9E80FF;--client:#FFBE3B;--client-ink:#FFCB5C;--vol:#FF6FA4;--teal:#29C3D2;
+  --ok:#33D08E;--bad:#FF6A6A;--warn:#FFB340;--net:rgba(92,141,255,.09);--note:#EBCF63;--note-ink:#2A2000;--hl:rgba(255,190,59,.30);color-scheme:dark}}
+:root[data-theme="dark"]{
+  --paper:#151936;--surface:#1F2449;--ink:#ECEEFF;--ink-2:#A8AFD6;--line:#363E70;--code:#262C5A;
+  --web:#5C8DFF;--db:#9E80FF;--client:#FFBE3B;--client-ink:#FFCB5C;--vol:#FF6FA4;--teal:#29C3D2;
+  --ok:#33D08E;--bad:#FF6A6A;--warn:#FFB340;--net:rgba(92,141,255,.09);--note:#EBCF63;--note-ink:#2A2000;--hl:rgba(255,190,59,.30);color-scheme:dark}
+*,*::before,*::after{box-sizing:inherit}
+html{height:100%;scroll-padding-top:env(safe-area-inset-top,0px);background:var(--paper)}
+body{height:100%;margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;overflow:hidden}
+.app{height:100%;display:grid;grid-template-rows:auto minmax(0,1fr) auto;padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
+.top{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px clamp(16px,3vw,44px) 4px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px;letter-spacing:-.01em}
+.brand svg{width:30px;height:22px}
+.where{font-size:15px;color:var(--ink-2);text-align:right}
+.where b{color:var(--ink);font-weight:650}
+.stage{position:relative;overflow:hidden}
+.scene{position:absolute;inset:0;display:grid;grid-template-columns:minmax(260px,.78fr) minmax(0,1.75fr);gap:clamp(16px,3.2vw,56px);align-items:center;padding:6px clamp(16px,3vw,44px) 10px;opacity:0;visibility:hidden;transform:translateX(48px);transition:opacity .45s ease,transform .6s cubic-bezier(.2,.8,.2,1),visibility 0s linear .6s}
+.scene.past{transform:translateX(-48px)}
+.scene.active{opacity:1;visibility:visible;transform:none;transition:opacity .55s ease .12s,transform .7s cubic-bezier(.2,.8,.2,1) .12s,visibility 0s}
+.copy{max-width:40ch;align-self:center;min-width:0}
+.copy h1{font-size:clamp(46px,6.6vw,98px);line-height:.95;letter-spacing:-.035em;margin:.08em 0 .25em;font-weight:800;font-variation-settings:"opsz" 96}
+.copy h2{font-size:clamp(26px,3.2vw,48px);line-height:1.04;letter-spacing:-.028em;margin:0 0 .45em;font-weight:760;font-variation-settings:"opsz" 96;text-wrap:balance}
+.copy p{font-size:clamp(15.5px,1.25vw,19px);line-height:1.45;color:var(--ink-2);margin:0 0 .75em;text-wrap:pretty}
+.copy p strong{color:var(--ink)}
+.copy code,.vis code{font-family:var(--mono);font-size:.84em;background:var(--code);color:var(--ink);padding:.06em .36em;border-radius:6px}
+.copy .rule{color:var(--ink);font-weight:680}
+.copy .rule span{background:linear-gradient(transparent 58%,var(--hl) 58%,var(--hl) 92%,transparent 92%);-webkit-box-decoration-break:clone;box-decoration-break:clone}
+.copy pre{font-family:var(--mono);font-size:13.5px;line-height:1.55;background:var(--code);color:var(--ink);padding:10px 12px;border-radius:10px;margin:0 0 .8em;overflow-x:auto;white-space:pre}
+.copy pre.yaml{font-size:12px;line-height:1.5;max-height:min(46vh,430px);overflow:auto}
+.copy .lede{font-size:clamp(18px,1.6vw,23px);color:var(--ink)}
+.copy .course{font-weight:650;color:var(--ink)}
+.copy .hint{font-size:14px}
+.rotate-hint{display:none}
+.start{font:inherit;font-weight:700;font-size:18px;padding:14px 24px 14px 20px;border-radius:999px;border:0;background:var(--ink);color:var(--paper);cursor:pointer;display:inline-flex;gap:10px;align-items:center;margin:.3em 0 1em;transition:background .2s,transform .15s}
+.start:hover{background:var(--web)}
+.start:active{transform:scale(.97)}
+.start svg{width:18px;height:18px}
+.vis{height:100%;min-height:0;min-width:0;display:flex;align-items:center;justify-content:center}
+.vis>svg{width:100%;height:100%;max-height:100%;overflow:visible;font-size:15px}
+.controls{display:flex;align-items:center;gap:10px;padding:8px clamp(16px,3vw,44px) 14px}
+.btn{width:44px;height:44px;border-radius:50%;border:1.5px solid var(--line);background:var(--surface);color:var(--ink);display:grid;place-items:center;cursor:pointer;flex:none;padding:0;transition:transform .15s,background .2s}
+.btn:hover{background:var(--code)}
+.btn:active{transform:scale(.94)}
+.btn:disabled{opacity:.35;cursor:default}
+.btn svg{width:20px;height:20px}
+.btn.play{width:52px;height:52px;background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.btn.play:hover{background:var(--web);border-color:var(--web)}
+:focus-visible{outline:3px solid var(--web);outline-offset:3px}
+.track{flex:1;display:flex;gap:4px;align-items:center;min-width:0}
+.seg{flex:1;height:28px;border:0;background:none;padding:0;cursor:pointer;display:flex;align-items:center;min-width:0}
+.seg.chstart{margin-left:7px}
+.seg i{display:block;width:100%;height:6px;border-radius:3px;background:var(--line);overflow:hidden;position:relative}
+.seg i b{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--ink);border-radius:3px}
+.seg:hover i{background:var(--ink-2)}
+.count{font-family:var(--mono);font-size:13px;color:var(--ink-2);min-width:4.6em;text-align:right}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+/* takeaways + quiz */
+.take{list-style:none;margin:0;padding:0;display:grid;gap:clamp(10px,1.8vh,20px);width:100%;max-width:660px}
+.take li{display:grid;grid-template-columns:64px 1fr;gap:16px;align-items:center;font-size:clamp(15px,1.25vw,19px);line-height:1.4;color:var(--ink-2)}
+.take li b{color:var(--ink)}
+.take svg{width:64px;height:auto;overflow:visible}
+.quiz{width:100%;max-width:740px;display:grid;gap:14px}
+.cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.card{perspective:1000px;border:0;background:none;padding:0;cursor:pointer;min-height:clamp(150px,23vh,210px);font:inherit;text-align:left;color:inherit;border-radius:18px}
+.card-inner{position:relative;display:block;width:100%;height:100%;min-height:inherit;transform-style:preserve-3d;transition:transform .65s cubic-bezier(.3,1.25,.5,1)}
+.card.flipped .card-inner{transform:rotateY(180deg)}
+.face{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;border-radius:18px;padding:16px 18px;display:flex;flex-direction:column;gap:8px}
+.front{background:var(--surface);border:2px solid var(--line);border-top:7px solid var(--k)}
+.back{background:var(--ink);color:var(--paper);transform:rotateY(180deg)}
+.face small{font-size:13px;font-weight:650;color:var(--ink-2)}
+.back small{color:var(--paper);opacity:.7}
+.face .q{font-size:clamp(15px,1.2vw,18px);line-height:1.35;font-weight:620}
+.face em{margin-top:auto;font-style:normal;font-size:13px;color:var(--ink-2)}
+.again{justify-self:start;font:inherit;font-weight:650;font-size:15px;padding:10px 16px;border-radius:999px;border:1.5px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+.again:hover{background:var(--code)}
+/* svg vocabulary */
+.vis text{fill:var(--ink);font-family:var(--sans);white-space:pre}
+.vis .m{font-family:var(--mono)}
+.vis .b{font-weight:700}
+.vis .mut{fill:var(--ink-2)}
+.vis .okc{fill:var(--ok)}.vis .badc{fill:var(--bad)}.vis .warnc{fill:var(--warn)}.vis .webc{fill:var(--web)}.vis .dbc{fill:var(--db)}.vis .clc{fill:var(--client-ink)}.vis .volc{fill:var(--vol)}.vis .tealc{fill:var(--teal)}.vis .wht{fill:#fff}.vis .inv{fill:var(--paper)}
+.f10{font-size:10px}.f11{font-size:11px}.f12{font-size:12px}.f13{font-size:13px}.f14{font-size:14px}.f15{font-size:15px}.f16{font-size:16px}.f17{font-size:17px}.f18{font-size:18px}.f20{font-size:20px}.f22{font-size:22px}.f30{font-size:30px}.f44{font-size:44px}
+.vis .cname{fill:var(--fg);font-size:15px;font-weight:750}
+.vis .csub{fill:var(--fg);font-family:var(--mono);font-size:10.5px;opacity:.85}
+.vis .ridge{stroke:rgba(255,255,255,.2);stroke-width:2;fill:none}
+.vis .capline{stroke:rgba(0,0,0,.14);stroke-width:2}
+.vis .eye{fill:#fff}.vis .pupil{fill:#18203F}
+.vis .mouth,.vis .lid{fill:none;stroke:var(--fg);stroke-width:3;stroke-linecap:round}
+.vis .ghost{fill-opacity:.12;stroke-width:2.5;stroke-dasharray:7 5}
+.vis .ghostf .eye{stroke:var(--fg);stroke-width:2}
+.vis .paper{fill:var(--surface);stroke:var(--ink);stroke-width:2}
+.vis .paperfold{fill:none;stroke:var(--ink);stroke-width:2}
+.vis .panel{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+.vis .codebg{fill:var(--code)}
+.vis .sep{stroke:var(--line);stroke-width:1.5}
+.vis .net{fill:var(--net);stroke:var(--ink-2);stroke-width:2;stroke-dasharray:9 7}
+.vis .hostbox{fill:none;stroke:var(--line);stroke-width:2.5}
+.vis .aline{fill:none;stroke-linecap:round}
+.vis .draw{stroke-dasharray:1 1;stroke-linecap:butt}
+.vis .dashy{stroke-dasharray:6 6}
+.vis .ahead{fill:none;stroke-linecap:round;stroke-linejoin:round}
+.vis .bub{fill:var(--surface);stroke-width:2;stroke-linejoin:round}
+.vis .note rect{fill:var(--note)}
+.vis .note text{fill:var(--note-ink);font-family:var(--mono);font-size:11.5px}
+.vis .hlbox{fill:var(--hl)}
+.vis .hlrow{fill:var(--hl)}
+.vis .badhl{fill:var(--bad);fill-opacity:.12}
+.vis .zz{fill:var(--ink-2);font-weight:800;font-size:15px}
+.vis .trackl{stroke:var(--line);stroke-width:6;stroke-linecap:round}
+.vis .post{fill:var(--ink-2)}
+.vis .okf{fill:var(--ok)}.vis .badf{fill:var(--bad)}.vis .warnf{fill:var(--warn)}.vis .mutf{fill:var(--ink-2)}.vis .inkf{fill:var(--ink)}
+.vis .ring{fill:none;stroke:var(--ink-2);stroke-width:2}
+.vis .axis{stroke:var(--ink-2);stroke-width:2;fill:none}
+.vis .playhead{stroke:var(--ink);stroke-width:2.5}
+.vis .pipe{fill:none;stroke:var(--vol);stroke-width:10;stroke-opacity:.6}
+.vis .spot{fill:none;stroke:var(--bad);stroke-width:2;stroke-dasharray:4 4}
+.vis .steth{fill:none;stroke:var(--ink);stroke-width:4;stroke-linecap:round}
+.vis .stampbox{fill:var(--surface);stroke:var(--bad);stroke-width:3}
+.vis .pill{fill:var(--surface);stroke-width:1.5}
+.vis .rowchip{fill:var(--note)}
+.vis .dim{fill:var(--paper);fill-opacity:.62}
+.vis .armstripe{stroke:var(--ink);stroke-width:12;stroke-dasharray:12 12}
+.vis .outline{fill:none;stroke:var(--ink);stroke-width:2.5}
+.vis .outline-bad{fill:none;stroke:var(--bad);stroke-width:2.5}
+.vis .glass{stroke-width:3;fill-opacity:.08}
+.vis .ic-ok-o{fill:var(--surface);stroke:var(--ok);stroke-width:2.5}
+.vis .ic-ok-s{fill:none;stroke:var(--ok);stroke-width:2.8;stroke-linecap:round;stroke-linejoin:round}
+.vis .ic-w{fill:none;stroke:#fff;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}
+.vis .ic-wf{fill:#fff}
+.vis .caret{fill:var(--ink)}
+.vis .folder{fill:var(--note);stroke:var(--note-ink);stroke-width:1.5}
+/* motion */
+.vis :is(.pop,.popout,.popoof,.drop,.poof,.shake,.wiggle,.pulse,.stamp,.fly,.slide,.bounce,.move,.travel,.press){transform-box:fill-box;transform-origin:center}
+.vis :is(.grow-x,.growshrink,.lift,.typing){transform-box:fill-box;transform-origin:left center}
+.vis .liftr{transform-box:fill-box;transform-origin:right center}
+@keyframes k-fade{from{opacity:0}to{opacity:1}}
+@keyframes k-out{from{opacity:1}to{opacity:0}}
+@keyframes k-up{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+@keyframes k-pop{0%{opacity:0;transform:scale(.45)}60%{opacity:1;transform:scale(1.07)}100%{opacity:1;transform:scale(1)}}
+@keyframes k-poof{0%{opacity:1;transform:scale(1)}35%{opacity:1;transform:scale(1.12)}100%{opacity:0;transform:scale(.15)}}
+@keyframes k-drop{0%{opacity:0;transform:translateY(-140px)}55%{opacity:1;transform:translateY(6px)}75%{transform:translateY(-6px)}100%{opacity:1;transform:none}}
+@keyframes k-draw{from{opacity:1;stroke-dashoffset:1}to{opacity:1;stroke-dashoffset:0}}
+@keyframes k-flow{to{stroke-dashoffset:-24}}
+@keyframes k-travel{0%{opacity:0;transform:translate(0,0)}12%{opacity:1}88%{opacity:1}100%{opacity:0;transform:translate(var(--tx),var(--ty))}}
+@keyframes k-move{from{transform:translate(0,0)}to{transform:translate(var(--tx,0px),var(--ty,0px))}}
+@keyframes k-fly{from{opacity:1;transform:translate(0,0) scale(1)}to{opacity:0;transform:translate(var(--tx),var(--ty)) scale(.35)}}
+@keyframes k-slide{from{opacity:0;transform:translate(var(--dx,0px),var(--dy,0px))}to{opacity:1;transform:none}}
+@keyframes k-shake{0%,100%{transform:translateX(0)}15%,55%{transform:translateX(-7px)}35%,75%{transform:translateX(7px)}}
+@keyframes k-wiggle{0%,100%{transform:rotate(0)}20%,60%{transform:rotate(-5deg)}40%,80%{transform:rotate(5deg)}}
+@keyframes k-float{0%{opacity:0;transform:translate(0,0)}25%{opacity:1}100%{opacity:0;transform:translate(8px,-22px)}}
+@keyframes k-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.2)}}
+@keyframes k-blink{0%,49%{opacity:1}50%,100%{opacity:0}}
+@keyframes k-blip{0%{opacity:0}18%{opacity:1}70%{opacity:1}100%{opacity:0}}
+@keyframes k-growx{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes k-shrinkx{from{transform:scaleX(1)}to{transform:scaleX(0)}}
+@keyframes k-stamp{0%{opacity:0;transform:scale(1.7) rotate(-3deg)}70%{opacity:1;transform:scale(.96) rotate(-3deg)}100%{opacity:1;transform:scale(1) rotate(-3deg)}}
+@keyframes k-lift{from{transform:rotate(0)}to{transform:rotate(-72deg)}}
+@keyframes k-liftr{from{transform:rotate(0)}to{transform:rotate(72deg)}}
+@keyframes k-press{0%{transform:translateY(0)}45%,60%{transform:translateY(var(--ty))}100%{transform:translateY(0)}}
+@keyframes k-bounce{0%{opacity:0;transform:translate(0,0)}10%{opacity:1}60%{opacity:1;transform:translate(var(--tx),var(--ty))}100%{opacity:0;transform:translate(calc(var(--tx) - 70px),calc(var(--ty) + 40px)) rotate(-25deg)}}
+@keyframes k-type{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+.on .fade{animation:k-fade .5s ease var(--d,0s) both}
+.on .out{animation:k-out .35s ease var(--o,0s) forwards}
+.on .inout{animation:k-fade .45s ease var(--d,0s) both,k-out .35s ease var(--o,9s) forwards}
+.on .up{animation:k-up .6s cubic-bezier(.2,.8,.2,1) var(--d,0s) both}
+.on .pop{animation:k-pop .55s cubic-bezier(.3,1.3,.5,1) var(--d,0s) both}
+.on .popout{animation:k-pop .5s cubic-bezier(.3,1.3,.5,1) var(--d,0s) both,k-out .35s ease var(--o,9s) forwards}
+.on .popoof{animation:k-pop .5s cubic-bezier(.3,1.3,.5,1) var(--d,0s) both,k-poof .55s ease-in var(--o,9s) forwards}
+.on .poof{animation:k-poof .55s ease-in var(--o,0s) forwards}
+.on .drop{animation:k-drop .85s ease-out var(--d,0s) both}
+.on .draw{animation:k-draw var(--dur,.7s) ease-in-out var(--d,0s) both}
+.on .drawout{animation:k-draw var(--dur,.7s) ease-in-out var(--d,0s) both,k-out .3s ease var(--o,9s) forwards}
+.on .dashy.fade{animation:k-fade .5s ease var(--d,0s) both,k-flow 1.1s linear var(--d,0s) infinite}
+.on .travel{animation:k-travel var(--dur,.9s) ease-in-out var(--d,0s) var(--n,1) both}
+.on .move{animation:k-move var(--dur,1s) var(--ease,cubic-bezier(.45,0,.25,1)) var(--d,0s) forwards}
+.on .fly{animation:k-fly var(--dur,.7s) cubic-bezier(.5,0,.3,1) var(--d,0s) forwards}
+.on .slide{animation:k-slide .7s cubic-bezier(.2,.8,.2,1) var(--d,0s) both}
+.on .shake{animation:k-shake .5s ease var(--d,0s) 1}
+.on .wiggle{animation:k-wiggle .8s ease var(--d,0s) 1}
+.on .zz{animation:k-float 2.4s ease-out var(--d,0s) infinite both}
+.on .pulse{animation:k-pulse 1.1s ease-in-out var(--d,0s) infinite}
+.on .blink{animation:k-blink 1s steps(1) var(--d,0s) infinite}
+.on .blip{animation:k-blip var(--dur,.9s) ease var(--d,0s) both}
+.on .grow-x{animation:k-growx var(--dur,.9s) var(--ease,cubic-bezier(.2,.8,.2,1)) var(--d,0s) both}
+.on .growshrink{animation:k-growx var(--dur,.9s) cubic-bezier(.2,.8,.2,1) var(--d,0s) both,k-shrinkx .45s ease-in var(--o,9s) forwards}
+.on .stamp{animation:k-stamp .45s cubic-bezier(.3,1.2,.5,1) var(--d,0s) both}
+.on .lift{animation:k-lift .7s cubic-bezier(.3,1.3,.5,1) var(--d,0s) forwards}
+.on .liftr{animation:k-liftr .7s cubic-bezier(.3,1.3,.5,1) var(--d,0s) forwards}
+.on .press{animation:k-press var(--dur,1.2s) ease-in-out var(--d,0s) 1}
+.on .bounce{animation:k-bounce var(--dur,1.4s) ease-in-out var(--d,0s) both}
+.on .typing{animation:k-type var(--dur,1s) var(--d,0s) both}
+.scene:not(.on) :is(.fade,.inout,.up,.pop,.popout,.popoof,.drop,.draw,.drawout,.travel,.slide,.zz,.blip,.stamp,.bounce,.grow-x,.growshrink){opacity:0}
+.scene:not(.on) .typing{transform:scaleX(0)}
+@media (max-width:820px),(max-aspect-ratio:1/1){
+  .scene{grid-template-columns:1fr;grid-template-rows:auto auto;align-items:start;align-content:start;overflow-y:auto;gap:10px;padding-top:4px}
+  .copy{max-width:62ch}
+  .copy h2{font-size:clamp(24px,6.2vw,36px);margin-bottom:.35em}
+  .copy p{font-size:15px;margin-bottom:.5em}
+  .copy pre.yaml{max-height:30vh}
+  .vis{height:auto}
+  .vis>svg{height:auto;max-height:64vh}
+}
+@media (max-width:600px) and (orientation:portrait){.rotate-hint{display:block}.cards{grid-template-columns:1fr}.card{min-height:130px}}
+@media (max-width:480px){.count{display:none}.btn{width:40px;height:40px}.btn.play{width:46px;height:46px}.brand span{font-size:14px}.where{font-size:13px}}
+@media (prefers-reduced-motion:reduce){
+  .scene,.scene.past,.scene.active{transform:none!important}
+  .scene{transition:opacity .25s ease,visibility 0s linear .25s}
+  .scene.active{transition:opacity .25s ease,visibility 0s}
+  .scene.on *{animation-duration:1ms!important;animation-iteration-count:1!important}
+  .card-inner{transition:none}
+}
+
+.vis .podseam{fill:none;stroke:rgba(255,255,255,.32);stroke-width:2.5;stroke-linecap:round}
+.vis .tagb{fill:var(--surface);stroke-width:2}
+.vis .deskbody{fill:var(--surface);stroke:var(--ink);stroke-width:2}
+.vis .clippaper{fill:var(--surface)}
+.vis .clipclip{fill:var(--ink-2)}
+.vis .lbl{fill:var(--note)}
+.vis .lbltxt{fill:var(--note-ink)}
+.vis .nodebox{fill:var(--net);stroke:var(--ink);stroke-width:2.5}
+.vis .door{fill:var(--client);stroke:var(--ink);stroke-width:2}
+.vis .road{fill:none;stroke:var(--line);stroke-width:22;stroke-linecap:round}
+.vis .roadmid{fill:none;stroke:var(--surface);stroke-width:2.5;stroke-dasharray:10 10}
+.vis .rope{fill:none;stroke:var(--bad);stroke-width:7;stroke-linecap:round}
+.vis .stanchion{fill:var(--ink-2)}
+.vis .pipe2{fill:none;stroke:var(--teal);stroke-width:14;stroke-linecap:round;stroke-linejoin:round;stroke-opacity:.28}
+.vis .flow{fill:none;stroke:var(--teal);stroke-width:4;stroke-dasharray:6 10;stroke-linecap:round}
+.vis .stop{fill:var(--surface);stroke:var(--ink-2);stroke-width:2.5}
+.vis .cniband{fill:var(--teal);fill-opacity:.1;stroke:var(--teal);stroke-width:2}
+.vis .valve{fill:var(--surface);stroke:var(--ink);stroke-width:2.5}
+.vis .brk{fill:none;stroke-width:2}
+@keyframes k-flow16{to{stroke-dashoffset:-32}}
+.on .flow.fade{animation:k-fade .5s ease var(--d,0s) both,k-flow16 .9s linear var(--d,0s) infinite}
+.on .flow.inout{animation:k-fade .5s ease var(--d,0s) both,k-out .35s ease var(--o,9s) forwards,k-flow16 .9s linear var(--d,0s) infinite}
+.take{gap:clamp(8px,1.5vh,18px)}
+.take svg{max-height:52px}
+.copy h1.long{font-size:clamp(36px,4.2vw,64px)}
+@keyframes k-unwind{from{stroke-dashoffset:0}to{stroke-dashoffset:1}}
+.on .unwind{animation:k-unwind var(--dur,3s) linear var(--d,0s) both}
+@keyframes k-spin{to{transform:rotate(360deg)}}
+.vis .spin{transform-box:fill-box;transform-origin:center}
+.on .spin{animation:k-spin 2.4s linear var(--d,0s) infinite}
+@keyframes k-ring{0%,100%{transform:rotate(0)}25%{transform:rotate(-12deg)}75%{transform:rotate(12deg)}}
+.vis .ringy{transform-box:fill-box;transform-origin:center}
+.on .ringy{animation:k-ring .22s linear var(--d,0s) 6}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand"><svg viewBox="0 0 30 22" aria-hidden="true"><rect x="2" y="12" width="6" height="8" rx="1.5" fill="var(--teal)"/><rect x="10" y="8" width="6" height="12" rx="1.5" fill="var(--teal)"/><rect x="18" y="4" width="6" height="16" rx="1.5" fill="var(--warn)"/><path d="M4 7L12 4L20 1" fill="none" stroke="var(--ink-2)" stroke-width="2" stroke-linecap="round"/></svg><span>Kubernetes resource metrics, explained</span></div>
+    <div class="where" id="chap"></div>
+  </header>
+  <main class="stage" id="stage"></main>
+  <nav class="controls" aria-label="Explainer controls">
+    <button class="btn" id="prev" aria-label="Previous scene"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
+    <button class="btn play" id="play" aria-label="Start auto-play" aria-pressed="false"></button>
+    <button class="btn" id="next" aria-label="Next scene"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></button>
+    <div class="track" id="track"></div>
+    <span class="count" id="count"></span>
+    <button class="btn" id="replay" aria-label="Replay this scene"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4.5h4.5"/></svg></button>
+  </nav>
+  <div class="sr" aria-live="polite" id="live"></div>
+</div>
+<script>
+const I=n=>'\u00A0'.repeat(n);
+const S=o=>{const p=[];for(const k in o){const v=o[k];if(v==null)continue;const sec=['d','o','dur'].includes(k),px=['tx','ty','dx','dy'].includes(k);p.push(`--${k}:${v}${sec?'s':px?'px':''}`)}return p.length?`style="${p.join(';')}"`:''};
+const G=(inner,o={})=>{const{x,y,an,...v}=o;let g=an?`<g class="${an}" ${S(v)}>${inner}</g>`:inner;if(x!=null||y!=null)g=`<g transform="translate(${x||0} ${y||0})">${g}</g>`;return g};
+const T=(x,y,s,o={})=>{const{c='',a,an='fade',d=0,o:oo}=o;return `<text x="${x}" y="${y}"${a?` text-anchor="${a}"`:''} class="${c} ${an}" ${an?S({d,o:oo}):''}>${s}</text>`};
+const svg=(inner,label)=>`<svg viewBox="0 0 800 500" role="img" aria-label="${label}" xml:space="preserve">${inner}</svg>`;
+let UID=0;
+
+function face(m,w,h){
+  const a=w*.36,b=w*.64,ey=h*.56,mx=w/2,my=h*.75;
+  if(m==='sleepy')return `<path class="lid" d="M${a-7} ${ey}q7 5 14 0M${b-7} ${ey}q7 5 14 0"/><path class="mouth" d="M${mx-5} ${my}h10"/>`;
+  const eyes=`<circle cx="${a}" cy="${ey}" r="8" class="eye"/><circle cx="${a+1}" cy="${ey+1}" r="3.8" class="pupil"/><circle cx="${b}" cy="${ey}" r="8" class="eye"/><circle cx="${b+1}" cy="${ey+1}" r="3.8" class="pupil"/>`;
+  const M={happy:`<path class="mouth" d="M${mx-11} ${my-3}q11 10 22 0"/>`,sad:`<path class="mouth" d="M${mx-10} ${my+4}q10 -9 20 0"/>`,flat:`<path class="mouth" d="M${mx-8} ${my}h16"/>`,worried:`<path class="mouth" d="M${mx-11} ${my+2}q5.5 -5 11 0q5.5 5 11 0"/>`,wow:`<ellipse class="mouth" cx="${mx}" cy="${my}" rx="5" ry="6"/>`};
+  return eyes+(M[m]||M.happy);
+}
+const ZZ=w=>`<text x="${w-26}" y="14" class="zz" style="--d:0s">z</text><text x="${w-14}" y="4" class="zz" style="--d:.8s">z</text><text x="${w-2}" y="-6" class="zz" style="--d:1.6s">Z</text>`;
+
+function crate({x=0,y=0,w=140,h=96,k='web',name='',sub='',mood='happy',m2,t2,m3,t3,an='',v={},s=1,ghost=false,extra=''}={}){
+  const fg=ghost?(k==='client'?'var(--client-ink)':`var(--${k})`):(k==='client'?'var(--on-client)':'#fff');
+  let r='';for(let i=16;i<w-8;i+=16)r+=`M${i} 30V${h-8}`;
+  const seq=[[mood,0]];if(m2)seq.push([m2,t2]);if(m3)seq.push([m3,t3]);
+  let faces='';
+  seq.forEach(([m,t],i)=>{const nx=seq[i+1];let cls='',st={};
+    if(i>0){cls='fade';st.d=t}
+    if(nx){cls=cls?'inout':'out';st.o=nx[1]}
+    faces+=`<g${cls?` class="${cls}" ${S(st)}`:''}>${face(m,w,h)}${m==='sleepy'?ZZ(w):''}</g>`;});
+  const body=ghost?`<rect width="${w}" height="${h}" rx="14" class="ghost" style="stroke:var(--${k});fill:var(--${k})"/>`
+    :`<rect width="${w}" height="${h}" rx="14" style="fill:var(--${k})"/><path d="${r}" class="ridge"/><path d="M8 27H${w-8}" class="capline"/>`;
+  let g=`<g class="${ghost?'ghostf':''}" style="--fg:${fg}">${body}${name?`<text x="12" y="19" class="cname">${name}</text>`:''}${sub?`<text x="${w-10}" y="18" text-anchor="end" class="csub">${sub}</text>`:''}${faces}${extra}</g>`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})${s!==1?` scale(${s})`:''}">${g}</g>`;
+}
+
+function drum({x=0,y=0,w=130,h=110,label='postgres_data',an='',v={},fs=12,ring=.5,extra=''}={}){
+  const rx=w/2,ry=13,ry2=Math.round(h*ring);
+  let g=`<path d="M0 ${ry}V${h-ry}A${rx} ${ry} 0 0 0 ${w} ${h-ry}V${ry}" style="fill:var(--vol)"/><ellipse cx="${rx}" cy="${ry}" rx="${rx}" ry="${ry}" style="fill:var(--vol)"/><ellipse cx="${rx}" cy="${ry}" rx="${rx}" ry="${ry}" fill="#fff" fill-opacity=".28"/><path d="M0 ${ry2}A${rx} ${ry} 0 0 0 ${w} ${ry2}" fill="none" stroke="#fff" stroke-opacity=".35" stroke-width="2"/>${label?`<text x="${rx}" y="${h-12}" text-anchor="middle" class="m b wht" style="font-size:${fs}px">${label}</text>`:''}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+
+function bubPath(W,H,tail,tp){
+  const top=tail==='tl'?`H${tp}L${tp+4} -12L${tp+14} 0H${W-12}`:`H${W-12}`;
+  const bot=tail==='bl'?`H${tp+14}L${tp+4} ${H+12}L${tp} ${H}H12`:`H12`;
+  return `M12 0${top}Q${W} 0 ${W} 12V${H-12}Q${W} ${H} ${W-12} ${H}${bot}Q0 ${H} 0 ${H-12}V12Q0 0 12 0Z`;
+}
+function bubble(x,y,txt,{w,c='var(--ink)',fs=14,mono=true,tail='bl',tp=16,an='pop',d=0,o}={}){
+  const plain=txt.replace(/<[^>]+>/g,'').replace(/&[a-z#0-9]+;/g,'x');
+  const W=w||Math.round(plain.length*fs*(mono?.6:.56)+26),H=fs+18;
+  const inner=`<path d="${bubPath(W,H,tail,tp)}" class="bub" style="stroke:${c}"/><text x="13" y="${(H/2+fs*.36).toFixed(1)}" class="${mono?'m ':''}b" style="fill:${c};font-size:${fs}px">${txt}</text>`;
+  let a=an;if(o!=null)a=an==='pop'?'popout':an==='fade'?'inout':an;
+  return G(inner,{x,y,an:a,d,o});
+}
+
+function arrow(p,{c='var(--ink)',d=0,dur=.7,w=2.5,dash=false}={}){
+  let path,fx,fy;const{x1,y1,x2,y2,q,c1,c2,poly}=p;let ex=x2,ey=y2;
+  if(poly){path='M'+poly.map(pt=>pt.join(' ')).join('L');const n=poly.length;[ex,ey]=poly[n-1];[fx,fy]=poly[n-2]}
+  else if(c1){path=`M${x1} ${y1}C${c1[0]} ${c1[1]} ${c2[0]} ${c2[1]} ${x2} ${y2}`;[fx,fy]=c2}
+  else if(q){path=`M${x1} ${y1}Q${q[0]} ${q[1]} ${x2} ${y2}`;[fx,fy]=q}
+  else{path=`M${x1} ${y1}L${x2} ${y2}`;fx=x1;fy=y1}
+  const ang=Math.atan2(ey-fy,ex-fx),L=12;
+  const h1=[ex+L*Math.cos(ang+2.55),ey+L*Math.sin(ang+2.55)],h2=[ex+L*Math.cos(ang-2.55),ey+L*Math.sin(ang-2.55)];
+  const head=`<path d="M${h1[0].toFixed(1)} ${h1[1].toFixed(1)}L${ex} ${ey}L${h2[0].toFixed(1)} ${h2[1].toFixed(1)}" class="ahead fade" style="stroke:${c};stroke-width:${w};--d:${(d+dur*.8).toFixed(2)}s"/>`;
+  const line=dash?`<path d="${path}" class="aline dashy fade" style="stroke:${c};stroke-width:${w};--d:${d}s"/>`
+    :`<path d="${path}" pathLength="1" class="aline draw" style="stroke:${c};stroke-width:${w};--d:${d}s;--dur:${dur}s"/>`;
+  return `<g>${line}${head}</g>`;
+}
+const packet=(x1,y1,x2,y2,{d=0,dur=.8,c='var(--web)',r=7}={})=>`<circle cx="${x1}" cy="${y1}" r="${r}" class="travel" style="fill:${c};--d:${d}s;--dur:${dur}s;--tx:${x2-x1}px;--ty:${y2-y1}px"/>`;
+
+function icon(t,x,y,{d=0,o,r=14,an='pop'}={}){
+  const s=r/14;
+  const sym={
+    kept:`<circle r="14" class="ic-ok-o"/><path d="M-6 0l4 4 8-8" class="ic-ok-s"/>`,
+    yes:`<circle r="14" class="okf"/><path d="M-6 0l4 4 8-8" class="ic-w"/>`,
+    no:`<circle r="14" class="badf"/><path d="M-5 -5l10 10M5 -5l-10 10" class="ic-w"/>`,
+    stop:`<circle r="14" class="mutf"/><path d="M-3.5 -5v10M3.5 -5v10" class="ic-w"/>`,
+    play:`<circle r="14" class="okf"/><path d="M-3.5 -6L6 0L-3.5 6Z" class="ic-wf"/>`,
+    restart:`<circle r="14" style="fill:var(--web)"/><path d="M6 1.5A6.2 6.2 0 1 1 3.6 -5" class="ic-w"/><path d="M4.5 -9.5L4 -4.6L-0.8 -5.6" class="ic-w"/>`,
+    plus:`<circle r="14" class="okf"/><path d="M0 -6V6M-6 0H6" class="ic-w"/>`,
+    warn:`<circle r="14" class="warnf"/><path d="M0 -6.5V1.5" class="ic-w"/><circle cy="6" r="1.7" class="ic-wf"/>`
+  }[t];
+  const a=o!=null?(an==='pop'?'popout':an):an;
+  return `<g transform="translate(${x} ${y})${s!==1?` scale(${s})`:''}"><g class="${a}" ${S({d,o})}>${sym}</g></g>`;
+}
+function typed(x,y,str,{fs=15,d=0,dur=1,c=''}={}){
+  const id='clip'+(UID++),w=str.length*fs*.6+6;
+  return `<clipPath id="${id}"><rect x="${x-2}" y="${y-fs}" width="${w}" height="${fs*1.5}" class="typing" style="--d:${d}s;--dur:${dur}s;animation-timing-function:steps(${str.length},end)"/></clipPath><text x="${x}" y="${y}" class="m ${c}" clip-path="url(#${id})" style="font-size:${fs}px">${str}</text>`;
+}
+function browser(x,y,w,h,addr,o={}){
+  return G(`<rect width="${w}" height="${h}" rx="10" class="panel"/><path d="M0 22H${w}" class="sep"/><circle cx="12" cy="11" r="3.5" class="badf"/><circle cx="24" cy="11" r="3.5" class="warnf"/><circle cx="36" cy="11" r="3.5" class="okf"/><rect x="8" y="32" width="${w-16}" height="24" rx="6" class="codebg"/><text x="16" y="49" class="m f12">${addr}</text>`,{x,y,...o});
+}
+const glass=(x,y,w,h,k,label,o={})=>G(`<rect width="${w}" height="${h}" rx="16" class="glass" style="stroke:var(--${k});fill:var(--${k})"/><path d="M0 16Q0 0 16 0H${label.length*8.2+30}V28H0Z" style="fill:var(--${k})"/><text x="14" y="19" class="f14 b" style="fill:${k==='client'?'var(--on-client)':'#fff'}">${label}</text>`,{x,y,...o});
+const codeLine=(x,y,s,c='')=>`<text x="${x}" y="${y}" class="m ${c}">${s}</text>`;
+// ---------- Day 10 helpers ----------
+function faceSeq(seq,w,h){let f='';seq.forEach(([m,t],i)=>{const nx=seq[i+1];let cls='',st={};if(i>0){cls='fade';st.d=t}if(nx){cls=cls?'inout':'out';st.o=nx[1]}f+=`<g${cls?` class="${cls}" ${S(st)}`:''}>${face(m,w,h)}${m==='sleepy'?ZZ(w):''}</g>`});return f}
+function pod({x=0,y=0,w=104,h=74,k='web',ip='',mood='happy',m2,t2,m3,t3,an='',v={},s=1,ghost=false,extra='',under=''}={}){
+  const fg=ghost?(k==='client'?'var(--client-ink)':`var(--${k})`):(k==='client'?'var(--on-client)':'#fff');
+  const r=Math.min(h/2,34),seq=[[mood,0]];if(m2)seq.push([m2,t2]);if(m3)seq.push([m3,t3]);
+  const body=ghost?`<rect width="${w}" height="${h}" rx="${r}" class="ghost" style="stroke:var(--${k});fill:var(--${k})"/>`
+    :`<rect width="${w}" height="${h}" rx="${r}" style="fill:var(--${k})"/><path d="M${(r*.75).toFixed(1)} 12Q${w/2} 2 ${(w-r*.75).toFixed(1)} 12" class="podseam"/>`;
+  let g=`<g class="${ghost?'ghostf':''}" style="--fg:${fg}">${body}${faceSeq(seq,w,h)}${extra}</g>${ip?`<text x="${w/2}" y="${h+17}" text-anchor="middle" class="m f12 mut">${ip}</text>`:''}${under}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})${s!==1?` scale(${s})`:''}">${g}</g>`;
+}
+const tagW=t=>Math.round(t.length*7.2+26);
+const tagD=w=>`M0 12L9.5 1.5Q11 0 13 0H${w-5}Q${w} 0 ${w} 5V19Q${w} 24 ${w-5} 24H13Q11 24 9.5 22.5Z`;
+const tagRaw=(t,k='ink-2')=>`<path d="${tagD(tagW(t))}" class="tagb" style="stroke:var(--${k})"/><circle cx="11" cy="12" r="2.5" style="fill:var(--${k})"/><text x="19" y="16.5" class="m f12">${t}</text>`;
+const tag=(x,y,t,{k='ink-2',an='fade',d=0,o}={})=>G(tagRaw(t,k),{x,y,an:o!=null?'inout':an,d,o});
+const tagHL=(x,y,t,ok,{d=0,o}={})=>{const c=ok?'ok':'bad';return `<path transform="translate(${x} ${y})" d="${tagD(tagW(t))}" class="${o!=null?'inout':'fade'}" style="fill:var(--${c});fill-opacity:.18;stroke:var(--${c});stroke-width:3;--d:${d}s${o!=null?`;--o:${o}s`:''}"/>`};
+function desk({x=0,y=0,w=170,name='Service: web',ip='',sub='',an='',v={},s=1,extra=''}={}){
+  let g=`<path d="M30 28V46M${w-30} 28V46" style="stroke:var(--ink-2);stroke-width:3"/><rect x="6" width="${w-12}" height="30" rx="8" class="inkf"/><text x="${w/2}" y="20" text-anchor="middle" class="f14 b inv">${name}</text><path d="M${w-64} 46a11 11 0 0 1 22 0Z" style="fill:var(--client)"/><circle cx="${w-53}" cy="33" r="2.6" style="fill:var(--client)"/><rect y="45" width="${w}" height="11" rx="4" class="inkf"/><rect x="8" y="56" width="${w-16}" height="58" rx="6" class="deskbody"/>${ip?`<text x="${w/2}" y="${sub?81:90}" text-anchor="middle" class="m f14 b">${ip}</text>`:''}${sub?`<text x="${w/2}" y="${ip?101:90}" text-anchor="middle" class="f12 mut">${sub}</text>`:''}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})${s!==1?` scale(${s})`:''}">${g}</g>`;
+}
+function clip({x=0,y=0,w=210,h=160,title='EndpointSlice',an='',v={},extra=''}={}){
+  let g=`<rect width="${w}" height="${h}" rx="10" class="inkf"/><rect x="8" y="12" width="${w-16}" height="${h-20}" rx="4" class="clippaper"/><rect x="${w/2-28}" y="-7" width="56" height="18" rx="5" class="clipclip"/><text x="20" y="38" class="f13 b">${title}</text><path d="M20 48H${w-20}" class="sep"/>${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function book({x=0,y=0,w=160,h=96,title='CoreDNS',sub='10.96.0.10',an='',v={},extra=''}={}){
+  let g=`<rect x="7" y="7" width="${w}" height="${h}" rx="8" style="fill:var(--note)"/><rect width="${w}" height="${h}" rx="8" class="inkf"/><path d="M18 6V${h-6}" style="stroke:var(--paper);stroke-opacity:.3;stroke-width:3"/><text x="30" y="${h/2-3}" class="f17 b inv">${title}</text>${sub?`<text x="30" y="${h/2+19}" class="m f12 inv" opacity=".78">${sub}</text>`:''}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function letterG(label=''){const w=Math.round(label.length*7.2+16);
+  return `<rect x="-14" y="-10" width="28" height="20" rx="3" class="paper"/><path d="M-14 -9L0 2L14 -9" class="paperfold"/>${label?`<rect x="${-w/2}" y="-40" width="${w}" height="22" rx="6" class="lbl"/><text x="0" y="-25" text-anchor="middle" class="m f12 b lbltxt">${label}</text>`:''}`}
+const sendL=(x1,y1,x2,y2,{d=0,dur=.8,label=''}={})=>`<g transform="translate(${x1} ${y1})"><g class="travel" ${S({d,dur,tx:x2-x1,ty:y2-y1})}>${letterG(label)}</g></g>`;
+const svcChip=(x,y,name,{w=170,an='pop',d=0}={})=>G(`<rect width="${w}" height="44" rx="12" class="deskbody"/><path d="M13 30a10 10 0 0 1 20 0Z" style="fill:var(--client)"/><rect x="10" y="29" width="26" height="4" rx="2" class="inkf"/><text x="44" y="28" class="f14 b">${name}</text>`,{x,y,an,d});
+const shieldP=`<path d="M0 -17L14 -11V0C14 9 7 15 0 18C-7 15 -14 9 -14 0V-11Z" class="inkf"/><path d="M-6 0l4 4 8-8" style="fill:none;stroke:var(--paper);stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round"/>`;
+const shield=(x,y,{s=1,an='pop',d=0}={})=>`<g transform="translate(${x} ${y}) scale(${s})"><g class="${an}" ${S({d})}>${shieldP}</g></g>`;
+const pill=(x,y,txt,{c='ok',an='pop',d=0}={})=>{const w=Math.round(txt.length*7.6+30);return G(`<rect width="${w}" height="24" rx="12" class="pill" style="stroke:var(--${c})"/><circle cx="13" cy="12" r="4.5" style="fill:var(--${c})"/><text x="23" y="16.5" class="f13 b">${txt}</text>`,{x,y,an,d})};
+const chipT=(t,w)=>`<rect x="${-w/2}" y="-12" width="${w}" height="24" rx="12" class="lbl"/><text x="0" y="5" text-anchor="middle" class="m f12 b lbltxt">${t}</text>`;
+const flyChip=(x1,y1,x2,y2,t,{d=0,dur=.8}={})=>`<g transform="translate(${x1} ${y1})"><g class="travel" ${S({d,dur,tx:x2-x1,ty:y2-y1})}>${chipT(t,Math.round(t.length*7.2+22))}</g></g>`;
+// ---------- Day 11 helpers ----------
+function ticket({x=0,y=0,w=170,h=96,title='PVC',lines=[],an='',v={},extra='',k='client'}={}){
+  const n=9,m=h/2;
+  const d=`M10 0H${w-10}Q${w} 0 ${w} 10V${m-n}A${n} ${n} 0 0 0 ${w} ${m+n}V${h-10}Q${w} ${h} ${w-10} ${h}H10Q0 ${h} 0 ${h-10}V${m+n}A${n} ${n} 0 0 0 0 ${m-n}V10Q0 0 10 0Z`;
+  let g=`<path d="${d}" class="paper"/><path d="M10 1H${w-10}Q${w-1} 1 ${w-1} 10V12H1V10Q1 1 10 1Z" style="fill:var(--${k})"/><text x="14" y="${m-9}" class="m f13 b">${title}</text><path d="M${n+5} ${m}H${w-n-5}" class="sep" style="stroke-dasharray:4 4"/>${lines.map((l,i)=>`<text x="14" y="${m+22+i*18}" class="m f12">${l}</text>`).join('')}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function pad({x=0,y=0,w=120,h=86,title='emptyDir',lines=[],an='',v={},extra=''}={}){
+  let rings='';for(let i=14;i<=w-20;i+=22)rings+=`<rect x="${i}" y="-6" width="6" height="14" rx="3" class="inkf"/>`;
+  let g=`<rect width="${w}" height="${h}" rx="8" style="fill:var(--note)"/>${rings}<text x="12" y="28" class="m f12 b lbltxt">${title}</text>${lines.map((l,i)=>`<text x="12" y="${50+i*18}" class="m f12 lbltxt">${l}</text>`).join('')}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function rack({x=0,y=0,w=110,h=90,label='backing storage',an='',v={}}={}){
+  const sh=(h-20)/3;let g=`<rect width="${w}" height="${h}" rx="10" style="fill:var(--ink-2)"/>`;
+  for(let i=0;i<3;i++){const yy=10+i*sh;g+=`<rect x="10" y="${yy}" width="${w-20}" height="${sh-6}" rx="4" fill="#fff" fill-opacity=".16"/><circle cx="${w-22}" cy="${yy+(sh-6)/2}" r="3.5" class="okf"/>`}
+  if(label)g+=`<text x="${w/2}" y="${h+18}" text-anchor="middle" class="f12 mut">${label}</text>`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function menuCard({x=0,y=0,w=200,h=150,title='StorageClass',rows='',an='',v={}}={}){
+  let g=`<rect width="${w}" height="${h}" rx="12" class="panel"/><path d="M12 0H${w-12}Q${w} 0 ${w} 12V32H0V12Q0 0 12 0Z" class="inkf"/><text x="14" y="21" class="f14 b inv">${title}</text>${rows}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+const HAT=w=>`<path d="M${w/2-36} -2Q${w/2-46} -20 ${w/2-28} -24Q${w/2-20} -40 ${w/2} -32Q${w/2+18} -42 ${w/2+28} -24Q${w/2+46} -20 ${w/2+36} -2Z" style="fill:#fff;stroke:var(--ink);stroke-width:2;stroke-linejoin:round"/>`;
+const nodeBox=(x,y,w,h,label,o={})=>G(`<rect width="${w}" height="${h}" rx="14" class="nodebox"/><text x="12" y="22" class="f13 b">${label}</text>`,{x,y,...o});
+const jersey=n=>`<circle cx="16" cy="16" r="12" class="stop"/><text x="16" y="21" text-anchor="middle" class="f13 b">${n}</text>`;
+const fileI=`<path d="M0 3Q0 0 3 0H12L18 6V21Q18 24 15 24H3Q0 24 0 21Z" class="paper"/><path d="M12 0.5V6H17.5" class="paperfold"/>`;
+const fileChip=(x,y,name,{an='fade',d=0,o,c=''}={})=>G(`${fileI}<text x="26" y="17" class="m f13 ${c}">${name}</text>`,{x,y,an:o!=null?'inout':an,d,o});
+const flyFile=(x1,y1,x2,y2,name='',{d=0,dur=.9}={})=>`<g transform="translate(${x1} ${y1})"><g class="travel" ${S({d,dur,tx:x2-x1,ty:y2-y1})}>${fileI}${name?`<text x="24" y="16" class="m f12 b">${name}</text>`:''}</g></g>`;
+const PENCIL=`<path d="M-7 7L-6 2L4 -8L8 -4L-2 6Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.8;stroke-linejoin:round"/>`;
+const EYE=`<path d="M-10 0Q0 -8 10 0Q0 8 -10 0Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.8"/><circle r="3" class="inkf"/>`;
+const LOCK=`<path d="M-6 -2V-7A6 6 0 0 1 6 -7V-2" style="fill:none;stroke:var(--ink);stroke-width:2.5"/><rect x="-9" y="-3" width="18" height="15" rx="3" class="inkf"/>`;
+const TRASH=`<rect x="-6" y="0" width="72" height="10" rx="3" class="inkf"/><rect x="22" y="-6" width="16" height="8" rx="2" class="inkf"/><path d="M2 14H58L54 76H6Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:2.5;stroke-linejoin:round"/><path d="M20 26V64M30 26V64M40 26V64" style="stroke:var(--ink-2);stroke-width:2.5"/>`;
+const sym=(g,x,y,{d=0,an='pop',s=1}={})=>`<g transform="translate(${x} ${y}) scale(${s})"><g class="${an}" ${S({d})}>${g}</g></g>`;
+const STAIRS=`<rect x="0" y="34" width="15" height="14" rx="3" style="fill:var(--web)"/><rect x="16" y="23" width="15" height="25" rx="3" style="fill:var(--teal)"/><rect x="32" y="12" width="15" height="36" rx="3" style="fill:var(--db)"/><rect x="48" y="1" width="15" height="47" rx="3" style="fill:var(--vol)"/>`;
+const term=(x,y,w,h,L,{fs=12,lh=24,top=26,d=0}={})=>G(`<rect width="${w}" height="${h}" rx="12" class="codebg"/>`+L.map(([t,c,dd],i)=>T(16,top+i*lh,t.replace(/ /g,'\u00A0'),{c:`m f${fs} ${c}`,d:dd})).join(''),{x,y,an:'fade',d});
+const chipsRow=(x,y,arr,{maxX=380,d=0,k='line'}={})=>{let s='',cx=x,cy=y;arr.forEach((t,i)=>{const w=Math.round(t.length*6.9+22);if(cx+w>maxX){cx=x;cy+=36}s+=G(`<rect width="${w}" height="28" rx="14" class="pill" style="stroke:var(--${k})"/><text x="${w/2}" y="19" text-anchor="middle" class="f13">${t}</text>`,{x:cx,y:cy,an:'pop',d:d+i*.15});cx+=w+8});return s};
+// ---------- Day 12 helpers ----------
+const LOCKW=`<path d="M-6 -2V-7A6 6 0 0 1 6 -7V-2" style="fill:none;stroke:#fff;stroke-width:2.5"/><rect x="-9" y="-3" width="18" height="15" rx="3" fill="#fff"/>`;
+function cfgCard({x=0,y=0,w=240,kind='cm',name='inference-config',rows=[],rh=24,an='',v={},extra=''}={}){
+  const k=kind==='cm'?'teal':'db',h=46+rows.length*rh;
+  let g=`<rect width="${w}" height="${h}" rx="12" class="panel"/><path d="M12 0H${w-12}Q${w} 0 ${w} 12V34H0V12Q0 0 12 0Z" style="fill:var(--${k})"/>${kind==='sec'?`<g transform="translate(${w-20} 18) scale(.75)">${LOCKW}</g>`:''}<text x="14" y="22" class="f13 b wht">${kind==='cm'?'ConfigMap':'Secret'}: ${name}</text>`;
+  rows.forEach(([kk,vv],i)=>{g+=`<text x="14" y="${58+i*rh}" class="m f12"><tspan class="b">${kk}</tspan><tspan class="mut">: </tspan>${vv}</text>`});
+  g+=extra;if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+const polaroid=(x,y,lines,{w=170,an='pop',d=0,o,label='photo at start'}={})=>{const h=40+lines.length*22+28;return G(`<rect width="${w}" height="${h}" rx="4" style="fill:#fff;stroke:var(--ink);stroke-width:2"/><rect x="10" y="10" width="${w-20}" height="${h-44}" rx="2" style="fill:#1F2449"/>${lines.map((l,i)=>`<text x="20" y="${36+i*22}" class="m f13 b" style="fill:#FFE38A">${l}</text>`).join('')}<text x="${w/2}" y="${h-12}" text-anchor="middle" class="f12" style="fill:#18203F">${label}</text>`,{x,y,an:an?(o!=null?'popout':an):'',d,o})};
+const liveWin=(x,y,w,h,title,o={})=>G(`<rect width="${w}" height="${h}" rx="10" class="panel"/><path d="M10 0H${w-10}Q${w} 0 ${w} 10V26H0V10Q0 0 10 0Z" class="codebg"/><circle cx="14" cy="13" r="4" class="badf"/><circle cx="28" cy="13" r="4" class="warnf"/><circle cx="42" cy="13" r="4" class="okf"/><text x="56" y="18" class="m f11 mut">${title}</text>`,{x,y,...o});
+const DISGUISE=`<circle cx="-15" cy="0" r="11" style="fill:var(--surface);fill-opacity:.2;stroke:var(--ink);stroke-width:3"/><circle cx="15" cy="0" r="11" style="fill:var(--surface);fill-opacity:.2;stroke:var(--ink);stroke-width:3"/><path d="M-4 0Q0 -4 4 0M-26 -2L-34 -6M26 -2L34 -6" style="fill:none;stroke:var(--ink);stroke-width:3;stroke-linecap:round"/><path d="M-22 20Q-11 12 0 18Q11 12 22 20Q11 26 0 22Q-11 26 -22 20Z" class="inkf"/>`;
+const room=(x,y,w,h,name,o={})=>{const tw=Math.round((11+name.length)*8.1+30);return G(`<rect width="${w}" height="${h}" rx="16" class="nodebox"/><path d="M16 0H${tw}V30H0V16Q0 0 16 0Z" class="inkf"/><text x="14" y="20" class="f13 b inv">namespace: ${name}</text>`,{x,y,...o})};
+const BOLT=`<path d="M8 0L0 18H8L4 34L20 12H11L16 0Z" style="fill:var(--warn);stroke:var(--ink);stroke-width:1.5;stroke-linejoin:round"/>`;
+const pillT=(x,y,t,{k='line',an='pop',d=0,o,c='f13'}={})=>{const w=Math.round(t.length*6.9+28);return G(`<rect width="${w}" height="32" rx="16" class="pill" style="stroke:var(--${k})"/><text x="14" y="21" class="${c}">${t}</text>`,{x,y,an:o!=null?'popout':an,d,o})};
+const valX=k=>14+(k.length+2)*7.2;
+// ---------- Day 13 helpers ----------
+function nodeCard({x=0,y=0,w=200,h=150,name='node',k='ink',an='',v={},extra=''}={}){
+  const head=k==='ink'?'class="inkf"':`style="fill:var(--${k})"`,tc=k==='ink'?'class="f13 b inv"':(k==='client'?'class="f13 b" style="fill:var(--on-client)"':'class="f13 b wht"');
+  let g=`<rect width="${w}" height="${h}" rx="14" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><path d="M14 0H${w-14}Q${w} 0 ${w} 14V30H0V14Q0 0 14 0Z" ${head}/><text x="14" y="21" ${tc}>${name}</text>${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function signRaw(t){const w=Math.round(t.length*7.2+24);let st='';for(let i=4;i<w-12;i+=12)st+=`M${i} 12L${i+8} 0`;return `<rect width="${w}" height="44" rx="6" style="fill:var(--surface);stroke:var(--ink);stroke-width:2"/><path d="M6 1H${w-6}Q${w-1} 1 ${w-1} 6V12H1V6Q1 1 6 1Z" style="fill:var(--warn)"/><path d="${st}" style="stroke:var(--ink);stroke-width:2.5"/><text x="12" y="33" class="m f12 b">${t}</text>`}
+const sign=(x,y,t,{an='pop',d=0,o}={})=>G(signRaw(t),{x,y,an:o!=null?'popout':an,d,o});
+function badgeRaw(t,k='ok'){const w=Math.round(t.length*6.6+44);return `<rect width="${w}" height="34" rx="8" style="fill:var(--surface);stroke:var(--${k});stroke-width:2.5"/><rect width="14" height="34" rx="6" style="fill:var(--${k})"/><circle cx="7" cy="9" r="2.5" style="fill:var(--surface)"/><text x="24" y="22" class="m f11 b">${t}</text>`}
+const badge=(x,y,t,{k='ok',an='pop',d=0,o}={})=>G(badgeRaw(t,k),{x,y,an:o!=null?'popout':an,d,o});
+function pizza(cx,cy,r,frac,{d=0}={}){let wedge;
+  if(frac>=1)wedge=`<circle cx="${cx}" cy="${cy}" r="${r-4}" style="fill:var(--warn)"/><circle cx="${cx-12}" cy="${cy-10}" r="5" class="badf"/><circle cx="${cx+14}" cy="${cy-4}" r="5" class="badf"/><circle cx="${cx-2}" cy="${cy+14}" r="5" class="badf"/>`;
+  else{const a=-Math.PI/2+frac*2*Math.PI,x2=cx+(r-4)*Math.cos(a),y2=cy+(r-4)*Math.sin(a),lg=frac>.5?1:0;wedge=`<path d="M${cx} ${cy}L${cx} ${cy-r+4}A${r-4} ${r-4} 0 ${lg} 1 ${x2.toFixed(1)} ${y2.toFixed(1)}Z" style="fill:var(--warn);stroke:var(--client-ink);stroke-width:2;stroke-linejoin:round"/>`}
+  return G(`<circle cx="${cx}" cy="${cy}" r="${r}" style="fill:none;stroke:var(--line);stroke-width:2;stroke-dasharray:5 5"/>${wedge}${frac>=1?`<circle cx="${cx}" cy="${cy}" r="${r-2}" style="fill:none;stroke:var(--client-ink);stroke-width:4"/>`:''}`,{an:'pop',d});}
+const BALLOON=`<ellipse cx="0" cy="0" rx="24" ry="30" style="fill:var(--vol)"/><ellipse cx="-8" cy="-10" rx="6" ry="9" fill="#fff" fill-opacity=".35"/><path d="M-4 29L4 29L0 35Z" style="fill:var(--vol)"/><path d="M0 35Q8 48 0 60" style="fill:none;stroke:var(--ink-2);stroke-width:2"/>`;
+const FUNNEL=`<path d="M0 0H60L38 26V46L22 54V26Z" style="fill:var(--teal)"/>`;
+const MAG=`<circle cx="20" cy="20" r="15" style="fill:var(--surface);stroke:var(--ink);stroke-width:5"/><path d="M31 31L46 46" style="stroke:var(--ink);stroke-width:7;stroke-linecap:round"/>`;
+const TARGET=`<circle r="16" style="fill:none;stroke:var(--web);stroke-width:4"/><circle r="8" style="fill:none;stroke:var(--web);stroke-width:4"/><circle r="3" style="fill:var(--web)"/>`;
+const miniPod=(x,y,k='web')=>`<g transform="translate(${x} ${y})"><rect width="32" height="24" rx="8" style="fill:var(--${k})"/><circle cx="11" cy="12" r="3" fill="#fff"/><circle cx="21" cy="12" r="3" fill="#fff"/></g>`;
+// ---------- Day 14 helpers ----------
+const ptick=(x,y,ok,{d=0,r=8}={})=>`<circle cx="${x}" cy="${y}" r="${r}" class="pop" style="fill:var(--${ok?'ok':'bad'});--d:${d}s"/>`;
+const CLOCK=`<circle r="10" class="warnf"/><path d="M0 -6V0L4 3" style="fill:none;stroke:#fff;stroke-width:2;stroke-linecap:round"/>`;
+const ptag=(x,y,name,k,{d=0,an='pop'}={})=>G(`<rect width="${Math.round(name.length*8.2+24)}" height="26" rx="13" style="fill:var(--${k})"/><text x="12" y="18" class="f13 b wht">${name}</text>`,{x,y,an,d});
+const spill=(x,y,txt,k='ok',{d=0,o,an}={})=>{const w=Math.round(txt.length*7.6+30);return G(`<rect width="${w}" height="24" rx="12" class="pill" style="stroke:var(--${k})"/><circle cx="13" cy="12" r="4.5" style="fill:var(--${k})"/><text x="23" y="16.5" class="f13 b">${txt}</text>`,{x,y,an:an||(o!=null?'inout':'pop'),d,o})};
+const pbox=(x,y,w,h,k,t,q,d)=>G(`<rect width="${w}" height="${h}" rx="14" class="panel" style="stroke:var(--${k});stroke-width:3"/><rect x="14" y="14" width="${Math.round(t.length*8.6+24)}" height="26" rx="13" style="fill:var(--${k})"/><text x="26" y="32" class="f14 b wht">${t}</text><text x="16" y="66" class="f14">${q}</text>`,{x,y,an:'pop',d});
+// ---------- Day 15 helpers ----------
+const crowd=(x,y,n,cols,{first=0,d0=.6,d1=1.8,gap=16,k='ink-2'}={})=>{let s='';for(let i=0;i<n;i++){const cx=x+(i%cols)*gap,cy=y+Math.floor(i/cols)*gap,d=i<first?d0:d1+(i-first)*.012;s+=`<circle cx="${cx}" cy="${cy}" r="5.5" class="pop" style="fill:var(--${k});--d:${d.toFixed(2)}s"/>`}return s};
+const meterCard=(x,y,w,h,title,val,frac,k,cap,{d=0,extra=''}={})=>G(`<rect width="${w}" height="${h}" rx="14" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><text x="16" y="30" class="f13 b mut">${title}</text>${val?`<text x="16" y="84" class="f30 b" style="fill:var(--${k})">${val}</text>`:''}<rect x="16" y="108" width="${w-32}" height="14" rx="7" style="fill:var(--line)"/><rect x="16" y="108" width="${Math.round((w-32)*frac)}" height="14" rx="7" class="grow-x" style="fill:var(--${k});--d:${d+.3}s"/><text x="16" y="150" class="f12">${cap}</text>${extra}`,{x,y,an:'pop',d});
+// ---------- Day 16 helpers ----------
+function house({x=0,y=0,w=150,h=140,name='inference-dev',k='teal',an='',v={},extra='',solar=false}={}){
+  const rh=Math.round(h*.38),bh=h-rh;
+  let g=`<path d="M${w/2} 0L${w} ${rh}H0Z" style="fill:var(--${k})"/>${solar?`<path d="M${w*.56} ${rh*.32}L${w*.86} ${rh*.82}L${w*.74} ${rh*.82}L${w*.48} ${rh*.42}Z" class="inkf" opacity=".75"/>`:''}<rect x="${w*.08}" y="${rh}" width="${w*.84}" height="${bh-24}" style="fill:var(--surface);stroke:var(--ink);stroke-width:2.5"/><rect x="${w/2-12}" y="${h-24-34}" width="24" height="34" rx="3" style="fill:var(--${k});fill-opacity:.6"/><rect x="${w*.18}" y="${rh+14}" width="22" height="18" rx="3" style="fill:var(--note)"/><rect x="${w*.82-22}" y="${rh+14}" width="22" height="18" rx="3" style="fill:var(--note)"/><rect y="${h-22}" width="${w}" height="22" rx="6" class="inkf"/><text x="${w/2}" y="${h-7}" text-anchor="middle" class="m f11 b inv">${name}</text>${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function blueprint({x=0,y=0,w=160,h=110,title='inference-chart',lines=[],an='',v={}}={}){
+  let grid='';for(let i=12;i<w;i+=16)grid+=`M${i} 0V${h}`;for(let j=12;j<h;j+=16)grid+=`M0 ${j}H${w}`;
+  let g=`<rect width="${w}" height="${h}" rx="8" style="fill:var(--web)"/><path d="${grid}" style="stroke:#fff;stroke-opacity:.14;stroke-width:1"/><path d="M${w-50} ${h-12}V${h-34}L${w-32} ${h-50}L${w-14} ${h-34}V${h-12}Z" style="fill:none;stroke:#fff;stroke-width:2;stroke-opacity:.75"/><text x="12" y="22" class="m f12 b wht">${title}</text>${lines.map((l,i)=>`<text x="12" y="${42+i*17}" class="m f11 wht">${l}</text>`).join('')}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function gears({x=0,y=0,w=150,h=120,label='helm render',an='',v={},d=0}={}){
+  const gear=(cx,cy,r,dd)=>{let t='';for(let i=0;i<8;i++)t+=`<rect x="${(cx-3.5).toFixed(1)}" y="${(cy-r-6).toFixed(1)}" width="7" height="10" rx="2" transform="rotate(${i*45} ${cx} ${cy})"/>`;return `<g class="spin" style="--d:${dd}s"><g style="fill:var(--ink-2)">${t}<circle cx="${cx}" cy="${cy}" r="${r}"/></g><circle cx="${cx}" cy="${cy}" r="${(r*.4).toFixed(1)}" style="fill:var(--surface)"/></g>`};
+  let g=`<rect width="${w}" height="${h}" rx="14" class="panel" style="stroke:var(--db);stroke-width:3"/>${gear(w*.36,h*.42,18,d)}${gear(w*.66,h*.58,13,d)}<text x="${w/2}" y="${h-12}" text-anchor="middle" class="m f12 b dbc">${label}</text>`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function docPaper({x=0,y=0,w=130,h=150,title='',lines=[],an='',v={},extra=''}={}){
+  let g=`<path d="M0 8Q0 0 8 0H${w-22}L${w} 22V${h-8}Q${w} ${h} ${w-8} ${h}H8Q0 ${h} 0 ${h-8}Z" class="paper"/><path d="M${w-22} 1V22H${w-1}" class="paperfold"/>${title?`<text x="12" y="22" class="m f11 b">${title}</text>`:''}${lines.map((l,i)=>`<text x="12" y="${46+i*18}" class="m f11">${l}</text>`).join('')}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+const PARCEL=w=>`<rect width="${w}" height="80" rx="6" style="fill:var(--warn);fill-opacity:.35;stroke:var(--ink);stroke-width:2.5"/><rect x="${w/2-9}" width="18" height="80" style="fill:var(--warn)"/><path d="M0 22H${w}" style="stroke:var(--ink);stroke-width:2"/>`;
+const bx2=(x,y,w,h,a,b,k,d)=>G(`<rect width="${w}" height="${h}" rx="12" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><text x="${w/2}" y="${b?h/2-3:h/2+5}" text-anchor="middle" class="f14 b">${a}</text>${b?`<text x="${w/2}" y="${h/2+15}" text-anchor="middle" class="f11 mut">${b}</text>`:''}`,{x,y,an:'pop',d});
+// ---------- Day 17 helpers ----------
+function idCard({x=0,y=0,w=150,h=80,name='model-sa',sub='ServiceAccount',k='teal',an='',v={}}={}){
+  const m=h/2+10;
+  let g=`<rect x="${w/2-14}" y="-10" width="28" height="16" rx="5" class="inkf"/><rect width="${w}" height="${h}" rx="10" style="fill:var(--surface);stroke:var(--${k});stroke-width:3"/><path d="M0 10Q0 0 10 0H${w-10}Q${w} 0 ${w} 10V18H0Z" style="fill:var(--${k})"/><circle cx="26" cy="${m}" r="14" style="fill:var(--${k});fill-opacity:.22"/><circle cx="26" cy="${m-4}" r="5" style="fill:var(--${k})"/><path d="M17 ${m+11}Q26 ${m+1} 35 ${m+11}Z" style="fill:var(--${k})"/><text x="48" y="${m-1}" class="m f12 b">${name}</text><text x="48" y="${m+15}" class="f11 mut">${sub}</text>`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function rdoor(x,y,label,{k='web',d=0,open=null,deny=null,w=64,h=96}={}){
+  let s=G(`<rect width="${w}" height="${h}" rx="4" style="fill:var(--line);stroke:var(--ink);stroke-width:2.5"/><rect x="6" y="6" width="${w-12}" height="${h-6}" rx="3" style="fill:var(--${k});fill-opacity:.55"/><circle cx="${w-14}" cy="${h/2+6}" r="3.5" class="inkf"/>${label?`<text x="${w/2}" y="${h+18}" text-anchor="middle" class="f12 b">${label}</text>`:''}`,{x,y,an:'pop',d});
+  s+=`<circle cx="${x+w/2}" cy="${y-10}" r="6" class="${open!=null?'inout':'pop'}" style="fill:var(--bad);--d:${d}s${open!=null?`;--o:${open}s`:''}"/>`;
+  if(open!=null)s+=G(`<rect x="6" y="6" width="${w-12}" height="${h-6}" rx="3" class="inkf" opacity=".85"/><path d="M6 6L${Math.round(w*.32)} 14V${h-4}L6 ${h}Z" style="fill:var(--${k})"/><circle cx="${w/2}" cy="-10" r="6" style="fill:var(--ok)"/>`,{x,y,an:'fade',d:open});
+  if(deny!=null)s+=icon('no',x+w/2,y+h/2,{r:13,d:deny});
+  return s;
+}
+const keyI=(x,y,{s=1,d=0,o,an='pop',k='warn'}={})=>G(`<g transform="scale(${s})"><circle cx="12" cy="15" r="10" style="fill:none;stroke:var(--${k});stroke-width:6"/><rect x="21" y="12" width="40" height="7" rx="3" style="fill:var(--${k})"/><rect x="47" y="18" width="6" height="9" rx="2" style="fill:var(--${k})"/><rect x="55" y="18" width="6" height="12" rx="2" style="fill:var(--${k})"/></g>`,{x,y,an:o!=null?'inout':an,d,o});
+const bindBand=(x,y,w,h,a,b,{d=0,k='vol'}={})=>G(`<rect width="${w}" height="${h}" rx="${h/2}" style="fill:var(--${k});fill-opacity:.18;stroke:var(--${k});stroke-width:3"/><g transform="translate(14 ${h/2-8})" style="fill:none;stroke:var(--${k});stroke-width:3"><rect width="16" height="10" rx="5"/><rect x="10" y="6" width="16" height="10" rx="5"/></g><text x="${w/2+14}" y="${b?h/2-2:h/2+5}" text-anchor="middle" class="f13 b">${a}</text>${b?`<text x="${w/2+14}" y="${h/2+14}" text-anchor="middle" class="f11 mut">${b}</text>`:''}`,{x,y,an:'pop',d});
+const mchip=(x,y,t,k,{d=0,o}={})=>{const w=Math.round(t.length*7.2+20);return G(`<rect width="${w}" height="24" rx="12" style="fill:var(--${k});fill-opacity:.18;stroke:var(--${k});stroke-width:2"/><text x="${w/2}" y="17" text-anchor="middle" class="m f12 b">${t}</text>`,{x,y,an:o!=null?'inout':'pop',d,o})};
+const hlr=(x,y,w,h,k,d)=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="4" class="fade" style="fill:var(--${k});fill-opacity:.22;stroke:var(--${k});stroke-width:1.5;--d:${d}s"/>`;
+// ---------- Day 18 helpers ----------
+function alarmClock(x,y,{s=1,an='pop',d=0,ring=null,k='warn'}={}){
+  const face=`<circle cx="9" cy="10" r="8" style="fill:var(--${k})"/><circle cx="51" cy="10" r="8" style="fill:var(--${k})"/><path d="M14 58L8 66M46 58L52 66" style="stroke:var(--ink);stroke-width:4;stroke-linecap:round"/><circle cx="30" cy="36" r="26" style="fill:var(--surface);stroke:var(--ink);stroke-width:4"/><path d="M30 20V36L41 42" style="fill:none;stroke:var(--ink);stroke-width:3.5;stroke-linecap:round"/><circle cx="30" cy="36" r="3" class="inkf"/>`;
+  const inner=ring!=null?`<g class="ringy" style="--d:${ring}s">${face}</g>`:face;
+  return G(`<g transform="scale(${s})">${inner}</g>`,{x,y,an,d});
+}
+function clipb({x=0,y=0,w=90,h=100,title='Job',k='db',an='pop',v={},extra=''}={}){
+  let g=`<rect width="${w}" height="${h}" rx="8" style="fill:var(--surface);stroke:var(--${k});stroke-width:3"/><rect x="${w/2-18}" y="-8" width="36" height="16" rx="5" style="fill:var(--${k})"/><text x="${w/2}" y="30" text-anchor="middle" class="f13 b">${title}</text><path d="M14 46H${w-14}M14 62H${w-14}M14 78H${w-30}" style="stroke:var(--line);stroke-width:4;stroke-linecap:round"/>${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+const gbar=(x,y,w,h,k,d,label='',{dur=.8,lc='wht',op=1}={})=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="5" class="grow-x" style="fill:var(--${k});fill-opacity:${op};--d:${d}s;--dur:${dur}s"/>`+(label?T(x+8,y+h/2+4.5,label,{c:`f12 b ${lc}`,d:d+dur*.6}):'');
+const vline=(x,y1,y2,k,d,dash=true)=>`<path d="M${x} ${y1}V${y2}" class="fade" style="stroke:var(--${k});stroke-width:2.5;${dash?'stroke-dasharray:6 5;':''}--d:${d}s"/>`;
+// ---------- Day 19 helpers ----------
+const evCard=(x,y,w,h,lines,{d=0,k='warn',an='pop',rot=0}={})=>G(`<g transform="rotate(${rot} ${w/2} ${h/2})"><rect width="${w}" height="${h}" rx="6" style="fill:var(--note);stroke:var(--ink);stroke-width:1.5"/><circle cx="${w/2}" cy="8" r="6" style="fill:var(--${k});stroke:var(--ink);stroke-width:1.5"/>${lines.map(([t,c],i)=>`<text x="14" y="${34+i*20}" class="${c||'f12'} lbltxt">${t}</text>`).join('')}</g>`,{x,y,an,d});
+const chip=(x,y,w,t,k,{d=0,o,mono=false,h=30}={})=>G(`<rect width="${w}" height="${h}" rx="${h/2}" style="fill:var(--${k});fill-opacity:.16;stroke:var(--${k});stroke-width:2"/><text x="${w/2}" y="${h/2+4.5}" text-anchor="middle" class="${mono?'m ':''}f12 b">${t}</text>`,{x,y,an:o!=null?'inout':'pop',d,o});
+const stepsChain=(items,y,{x0=20,gap=14,d0=0,step=.4,h=34}={})=>{let s='',x=x0;items.forEach(([t,w,k],i)=>{s+=chip(x,y,w,t,k,{d:d0+i*step,h});if(i<items.length-1)s+=arrow({x1:x+w+2,y1:y+h/2,x2:x+w+gap-2,y2:y+h/2},{d:d0+i*step+.2,dur:.15,c:'var(--ink-2)',w:2});x+=w+gap});return s};
+// ---------- Day 21 helpers ----------
+const cgrid=(x,y,cols,rows,cell,gap,k,{d0=0,step=.01,op=1,an='pop',rnd=false}={})=>{let s='';for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){const i=r*cols+c,d=d0+(rnd?((i*37)%97)/97*step*cols*rows:i*step);s+=`<rect x="${x+c*(cell+gap)}" y="${y+r*(cell+gap)}" width="${cell}" height="${cell}" rx="${Math.max(2,cell/5)}" class="${an}" style="fill:var(--${k});fill-opacity:${op};--d:${d.toFixed(2)}s"/>`}return s};
+const progRing=(cx,cy,r,frac,k,d,{w=12}={})=>{const a=-Math.PI/2+frac*2*Math.PI,x=cx+r*Math.cos(a),y=cy+r*Math.sin(a),big=frac>.5?1:0;return `<circle cx="${cx}" cy="${cy}" r="${r}" class="fade" style="fill:none;stroke:var(--line);stroke-width:${w};--d:${d}s"/><path d="M${cx} ${cy-r}A${r} ${r} 0 ${big} 1 ${x.toFixed(1)} ${y.toFixed(1)}" pathLength="1" class="aline draw" style="stroke:var(--${k});stroke-width:${w};stroke-linecap:round;--d:${d}s;--dur:1.2s"/>`};
+const hbar=(x,y,w,h,k,d,{dur=.8,op=1,label='',lc='wht'}={})=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="4" class="grow-x" style="fill:var(--${k});fill-opacity:${op};--d:${d}s;--dur:${dur}s"/>`+(label?T(x+8,y+h/2+4.5,label,{c:`f12 b ${lc}`,d:d+dur*.6}):'');
+const vbar=(x,base,w,h,k,d,{op=1}={})=>`<rect x="${x}" y="${base-h}" width="${w}" height="${h}" rx="3" class="up" style="fill:var(--${k});fill-opacity:${op};--d:${d}s"/>`;
+const zbox=(x,y,w,h,a,b,{k='ink',d=0,inv=false,an='pop',o}={})=>G(inv?`<rect width="${w}" height="${h}" rx="10" class="inkf"/><text x="${w/2}" y="${b?h/2-2:h/2+5}" text-anchor="middle" class="f13 b inv">${a}</text>${b?`<text x="${w/2}" y="${h/2+15}" text-anchor="middle" class="m f11 inv" opacity=".8">${b}</text>`:''}`:`<rect width="${w}" height="${h}" rx="10" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><text x="${w/2}" y="${b?h/2-2:h/2+5}" text-anchor="middle" class="f13 b">${a}</text>${b?`<text x="${w/2}" y="${h/2+15}" text-anchor="middle" class="m f11 mut">${b}</text>`:''}`,{x,y,an:o!=null?'inout':an,d,o});
+// ---------- Day 22 helpers ----------
+const STK=[['Application','Python / C++ / model serving','ink'],['Framework','PyTorch / TensorFlow','vol'],['CUDA runtime + libraries','libcudart.so · cuBLAS · cuDNN · NCCL','teal'],['CUDA Driver API','libcuda.so','db'],['NVIDIA host driver','user-space + kernel modules','web'],['Physical GPU','','ok']];
+const stackL=(x,y,w,L,{h=44,gap=10,d0=0,step=.2,rev=false,an='pop'}={})=>L.map(([n,sub,k],i)=>{const yy=y+i*(h+gap),d=d0+(rev?(L.length-1-i):i)*step;return G(`<rect width="${w}" height="${h}" rx="10" style="fill:var(--${k})"/><text x="16" y="${sub?h/2-2:h/2+5}" class="f14 b wht">${n}</text>${sub?`<text x="16" y="${h/2+15}" class="m f11 wht" opacity=".88">${sub}</text>`:''}`,{x,y:yy,an,d})}).join('');
+const vtag=(x,y,w,h,k,d,inner)=>G(`<path d="M24 0H${w-8}Q${w} 0 ${w} 8V${h-8}Q${w} ${h} ${w-8} ${h}H24L0 ${h/2}Z" style="fill:var(--surface);stroke:var(--${k});stroke-width:3;stroke-linejoin:round"/><circle cx="22" cy="${h/2}" r="6" style="fill:var(--paper);stroke:var(--${k});stroke-width:2.5"/>${inner}`,{x,y,an:'pop',d});
+// ---------- Day 23 helpers ----------
+const halfGauge=(cx,cy,r,frac,k,d,{w=12}={})=>{const a=Math.PI+Math.max(.001,Math.min(1,frac))*Math.PI,x=cx+r*Math.cos(a),y=cy+r*Math.sin(a);return `<path d="M${cx-r} ${cy}A${r} ${r} 0 0 1 ${cx+r} ${cy}" class="fade" style="fill:none;stroke:var(--line);stroke-width:${w};stroke-linecap:round;--d:${d}s"/><path d="M${cx-r} ${cy}A${r} ${r} 0 0 1 ${x.toFixed(1)} ${y.toFixed(1)}" pathLength="1" class="aline draw" style="stroke:var(--${k});stroke-width:${w};stroke-linecap:round;--d:${d}s;--dur:1.2s"/>`};
+const thermo=(x,y,frac,k,d)=>G(`<rect x="8" y="0" width="16" height="80" rx="8" style="fill:var(--surface);stroke:var(--ink);stroke-width:2.5"/><circle cx="16" cy="92" r="14" style="fill:var(--${k});stroke:var(--ink);stroke-width:2.5"/>`,{x,y,an:'pop',d})+`<rect x="${x+12}" y="${y+80-70*frac}" width="8" height="${70*frac+12}" rx="4" class="up" style="fill:var(--${k});--d:${d+.3}s"/>`;
+const lineP=(pts,k,d,{w=3.5,dash=false,dur=2}={})=>`<path d="M${pts.map(p=>p.join(' ')).join('L')}" pathLength="1" class="aline draw" style="stroke:var(--${k});stroke-width:${w};${dash?'stroke-dasharray:1 1;':''}--d:${d}s;--dur:${dur}s"/>`;
+// ---------- Day 24 helpers ----------
+const vramBar=(x,y,w,h,segs,{d0=0,step=.3,total=null,lab=true}={})=>{const tot=total||segs.reduce((a,s)=>a+s[0],0);let cx=x,s='';segs.forEach(([v,k,l,hat],i)=>{const sw=Math.round(v/tot*w),d=d0+i*step;s+=`<rect x="${cx}" y="${y}" width="${Math.max(sw,1)}" height="${h}" rx="3" class="grow-x" style="fill:var(--${k});fill-opacity:${hat?.25:1};${hat?`stroke:var(--${k});stroke-width:2;stroke-dasharray:5 4;`:''}--d:${d}s;--dur:.5s"/>`;if(lab&&l&&sw>l.length*6.6+12)s+=T(cx+sw/2,y+h/2+4,l,{c:`f11 b ${hat||k==='line'?'':'wht'}`,a:'middle',d:d+.3});cx+=sw});return s};
+const brk=(x1,x2,y,label,k,d,{up=false,c='f12 b'}={})=>{const t=up?-8:8;return `<path d="M${x1} ${y}V${y+t}H${x2}V${y}" class="fade" style="fill:none;stroke:var(--${k});stroke-width:2.5;--d:${d}s"/>`+T((x1+x2)/2,y+(up?-14:24),label,{c:`${c}`,a:'middle',d})};
+const lot=(x,y,slots,{w=40,h=56,gap=6,d0=0,step=.08}={})=>slots.split('').map((ch,i)=>{const sx=x+i*(w+gap),d=d0+i*step;let g=`<rect x="${sx}" y="${y}" width="${w}" height="${h}" rx="5" class="fade" style="fill:none;stroke:var(--line);stroke-width:2;stroke-dasharray:4 3;--d:${d0}s"/>`;if(ch==='L')g+=G(`<rect x="4" y="8" width="${w-8}" height="${h-16}" rx="8" style="fill:var(--teal)"/><rect x="9" y="14" width="${w-18}" height="10" rx="3" style="fill:#fff;opacity:.55"/>`,{x:sx,y,an:'drop',d});if(ch==='C')g+=G(`<path d="M${w/2} 12L${w/2+10} ${h-12}H${w/2-10}Z" style="fill:var(--db)"/><rect x="${w/2-13}" y="${h-14}" width="26" height="5" rx="2" style="fill:var(--db)"/>`,{x:sx,y,an:'pop',d});if(ch==='X')g+=G(`<rect x="4" y="8" width="${w-8}" height="${h-16}" rx="6" style="fill:var(--ink-2)"/>`,{x:sx,y,an:'pop',d});return g}).join('');
+// ---------- Day 25 helpers ----------
+const laneL=(x,y,t,d,{w=680,c='f12 b'}={})=>T(x,y+18,t,{c,d})+`<path d="M${x+60} ${y+28}H${x+60+w}" class="fade" style="stroke:var(--line);stroke-width:1.5;--d:${d}s"/>`;
+const blk=(x,y,w,k,d,label='',{h=28,op=1,dash=false,lc='wht',dur=.4}={})=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="5" class="grow-x" style="fill:var(--${k});fill-opacity:${op};${dash?`stroke:var(--${k});stroke-width:2;stroke-dasharray:5 4;`:''}--d:${d}s;--dur:${dur}s"/>`+(label?T(x+w/2,y+h/2+4.5,label,{c:`f11 b ${lc}`,a:'middle',d:d+dur*.7}):'');
+const tkt=(x,y,t,k,d,{an='drop'}={})=>G(`<path d="M0 0H44V46L38 52L32 46L26 52L20 46L14 52L8 46L2 52L0 50Z" style="fill:var(--surface);stroke:var(--${k});stroke-width:2.5"/><text x="22" y="30" text-anchor="middle" class="m f15 b" style="fill:var(--${k})">${t}</text>`,{x,y,an,d});
+// ---------- Day 26 helpers ----------
+const lockI=(x,y,{d=0,k='bad',s=1,an='pop',o}={})=>G(`<g transform="scale(${s})"><path d="M6 14V9A8 8 0 0 1 22 9V14" style="fill:none;stroke:var(--${k});stroke-width:3.5"/><rect x="1" y="14" width="26" height="20" rx="4" style="fill:var(--${k})"/><circle cx="14" cy="23" r="3" style="fill:#fff"/></g>`,{x,y,an:o!=null?'inout':an,d,o});
+const gpuChip=(x,y,w,h,label,{d=0,k='ok',an='pop'}={})=>G(`<rect width="${w}" height="${h}" rx="8" style="fill:var(--${k})"/><rect x="8" y="8" width="${w-16}" height="${h-16}" rx="4" style="fill:none;stroke:#fff;stroke-width:1.5;opacity:.6"/>`+[0,1,2,3].map(i=>`<path d="M${10+i*(w-20)/3} ${h}V${h+5}M${10+i*(w-20)/3} -5V0" style="stroke:var(--${k});stroke-width:2"/>`).join('')+`<text x="${w/2}" y="${h/2+5}" text-anchor="middle" class="f12 b wht">${label}</text>`,{x,y,an,d});
+const nbox=(x,y,w,h,lines,k,d,{an='pop',fill=.12,first='f13 b',rest='f12',lh=19,top=26}={})=>G(`<rect width="${w}" height="${h}" rx="12" style="fill:var(--${k});fill-opacity:${fill};stroke:var(--${k});stroke-width:2"/>`+lines.map((l,i)=>`<text x="14" y="${top+i*lh}" class="${i===0?first:rest}">${l}</text>`).join(''),{x,y,an,d});
+// ---------- Day 58 visuals 0-10 ----------
+const loopPk=(x1,y1,x2,y2,{d=0,dur=1.2,c='var(--web)',r=6}={})=>`<circle cx="${x1}" cy="${y1}" r="${r}" class="travel" style="fill:${c};--d:${d}s;--dur:${dur}s;--tx:${x2-x1}px;--ty:${y2-y1}px;--n:infinite"/>`;
+const pnl=(x,y,w,h,title,{k,d=0,an='fade',sub}={})=>G(`<rect width="${w}" height="${h}" rx="16" class="panel"${k?` style="stroke:var(--${k});stroke-width:2.5"`:''}/>${title?`<text x="18" y="30" class="f13 b">${title}</text>`:''}${sub?`<text x="18" y="48" class="f11 mut">${sub}</text>`:''}`,{x,y,an,d});
+const TC=(x,y,t,k,{c='',a,d=0}={})=>`<text x="${x}" y="${y}"${a?` text-anchor="${a}"`:''} class="${c} fade" style="fill:var(--${k});--d:${d}s">${t}</text>`;
+const solid=(x,y,w,h,k,a,b,d,{an='pop',fs='f14'}={})=>G(`<rect width="${w}" height="${h}" rx="12" style="fill:var(--${k})"/><text x="14" y="${b?26:h/2+5}" class="${fs} b wht">${a}</text>${b?`<text x="14" y="${h-14}" class="f12 wht">${b}</text>`:''}`,{x,y,an,d});
+const lines=(x,y,L,{lh=20,d=0,c='f12',step=0}={})=>L.map((t,i)=>T(x,y+i*lh,t,{c:Array.isArray(c)?c[i]:c,d:d+i*step})).join('');
+const dial=(x,y,r,frac,k,d,lab)=>{const a=Math.PI*(1-frac),nx=(r-8)*Math.cos(a),ny=-(r-8)*Math.sin(a);return G(`<path d="M${-r} 0A${r} ${r} 0 0 1 ${r} 0" style="fill:none;stroke:var(--line);stroke-width:10"/><path d="M${-r} 0A${r} ${r} 0 0 1 ${r} 0" pathLength="100" style="fill:none;stroke:var(--${k});stroke-width:10;stroke-dasharray:${Math.round(frac*100)} 100"/><path d="M0 0L${nx.toFixed(1)} ${ny.toFixed(1)}" style="stroke:var(--ink);stroke-width:3;stroke-linecap:round"/><circle r="5" class="inkf"/>${lab?`<text y="24" text-anchor="middle" class="f12 b">${lab}</text>`:''}`,{x,y,an:'pop',d})};
+const miniPodK=(x,y,{k='teal',an='pop',d=0,o,s=.62}={})=>pod({x,y,k,s,an:o!=null?'popout':an,v:o!=null?{d,o}:{d}});
+
+function V0(){
+  let s='';
+  [['Pods','CPU + memory','web'],['kubelet','node statistics','teal'],['Metrics Server','metrics.k8s.io','db'],['HPA','replica decisions','warn']].forEach(([a,b,k],i)=>{const x=16+i*198;s+=solid(x,20,172,80,k,a,b,.2+i*.35,{fs:'f15'});if(i<3)s+=arrow({x1:x+174,y1:60,x2:x+194,y2:60},{d:.4+i*.35,dur:.15,c:'var(--ink-2)',w:2.5})});
+  s+=arrow({poly:[[700,104],[700,140],[102,140],[102,106]]},{d:1.6,dur:.8,c:'var(--warn)',w:2.5})+T(400,132,'more or fewer replicas',{c:'f12 b warnc',a:'middle',d:2.2});
+  s+=pnl(16,164,768,320,'One lab, start to finish: the php-apache Deployment',{d:2.0});
+  const X=[190,330,470,610];
+  s+=miniPodK(X[0]-52,238,{k:'teal',d:2.3,s:1});
+  [1,2,3].forEach(i=>{s+=miniPodK(X[i]-52,238,{k:'teal',d:3.6+i*.15,o:6.4,s:1})});
+  s+=T(400,358,'idle: 1 replica',{c:'f17 b',a:'middle',an:'inout',d:2.4,o:3.4});
+  s+=T(400,358,'traffic: 170% of request → 4 replicas',{c:'f17 b warnc',a:'middle',an:'inout',d:3.5,o:6.3});
+  s+=T(400,358,'traffic gone: back to 1',{c:'f17 b okc',a:'middle',d:6.5});
+  s+=`<path d="M60 430H740" class="axis fade" style="--d:2.2s"/>`;
+  [['idle','1',2.4],['loaded','4',3.6],['stabilized','4',5.0],['quiet','1',6.5]].forEach(([a,b,d],i)=>{const x=130+i*180;s+=`<circle cx="${x}" cy="430" r="8" class="pop" style="fill:var(--${b==='4'?'warn':'teal'});--d:${d}s"/>`+T(x,458,a,{c:'f12 b',a:'middle',d})+T(x,414,`${b} pod${b==='1'?'':'s'}`,{c:'m f12 b',a:'middle',d})});
+  return svg(s,'The Day 58 story: Pods use CPU and memory, the kubelet gathers node statistics, Metrics Server serves them through the metrics.k8s.io API, and the HPA makes replica decisions that change the number of Pods. In the lab, the php-apache Deployment sat idle at 1 replica, reached 170% of its CPU request under traffic and scaled to 4 replicas, stayed at 4 while stabilizing, and went back to 1 once the traffic was gone.');
+}
+
+function V1(){
+  let s=G(`<rect width="768" height="64" rx="16" class="inkf"/><circle cx="36" cy="30" r="14" style="fill:none;stroke:var(--paper);stroke-width:4"/><path d="M46 40L56 50" style="stroke:var(--paper);stroke-width:5;stroke-linecap:round"/><text x="78" y="28" class="f15 b inv">Users say inference got slow.</text><text x="78" y="49" class="f13 inv">A latency metric tells you what happened. Which layer tells you why?</text>`,{x:16,y:10,an:'up',d:.1});
+  const C=[['Application','web',['Is latency rising?','Errors? Queue length?'],16,92],['Kubernetes','teal',['CPU or memory high?','Healthy, ready replicas?'],280,92],['Node','db',['CPU or memory pressure?','Scheduling constraints?'],544,92],['Accelerator','vol',['GPU utilization? VRAM?','GPU health?'],280,240]];
+  C.forEach(([t,k,L,x,y],i)=>{const d=.5+i*.4,hl=i===1;s+=G(`<rect width="240" height="128" rx="16" class="panel" style="stroke:var(--${k});stroke-width:${hl?4:2.5}"/><rect width="240" height="36" rx="16" style="fill:var(--${k})"/><rect y="20" width="240" height="16" style="fill:var(--${k})"/><text x="16" y="24" class="f15 b wht">${t}</text>${hl?'<text x="226" y="24" text-anchor="end" class="f12 b wht">today</text>':''}`+L.map((l,j)=>`<text x="16" y="${68+j*24}" class="f13">${l}</text>`).join(''),{x,y,an:'up',d})});
+  s+=arrow({x1:258,y1:156,x2:276,y2:156},{d:.9,dur:.15,c:'var(--ink-2)',w:2})+arrow({x1:522,y1:156,x2:540,y2:156},{d:1.3,dur:.15,c:'var(--ink-2)',w:2})+arrow({x1:400,y1:222,x2:400,y2:236},{d:1.7,dur:.15,c:'var(--ink-2)',w:2});
+  s+=pnl(16,384,768,100,'Where each layer gets covered',{d:2.2});
+  [['Today','Kubernetes CPU, memory and HPA','teal',true],['Day 57','Prometheus history','db'],['Day 59','GPU telemetry with DCGM','vol']].forEach(([a,b,k,hl],i)=>{const x=36+[0,292,512][i],w=[284,212,228][i];s+=G(`<rect width="${w}" height="38" rx="19" style="fill:var(--${k});fill-opacity:${hl?.9:.14};stroke:var(--${k});stroke-width:2"/><text x="14" y="24" class="f13 b${hl?' wht':''}">${a}</text><text x="${a.length*8+22}" y="24" class="f12${hl?' wht':''}">${b}</text>`,{x,y:428,an:'pop',d:2.4+i*.2})});
+  return svg(s,'Users say inference got slow. A latency metric tells you what happened, but which layer tells you why? Four layers ask different questions. Application: is latency rising, are there errors, how long is the queue? Kubernetes, today’s focus: is CPU or memory high, and are there enough healthy, ready replicas? Node: is there CPU or memory pressure, or a scheduling constraint? Accelerator: GPU utilization, VRAM and GPU health. Today covers Kubernetes CPU, memory and the HPA; Day 57 covered Prometheus history; Day 59 covers GPU telemetry with DCGM.');
+}
+
+function V2(){
+  const S=[['Containers and Pods','real CPU time and memory, measured by the runtime (cgroups)','web'],['kubelet + cAdvisor','the node agent summarizes per-container usage','teal'],['Metrics Server','collects usage and caches only the recent values','db'],['API aggregation layer','serves it all as metrics.k8s.io/v1beta1','ink-2']];
+  let s='';
+  S.forEach(([a,b,k],i)=>{const y=12+i*78,d=.2+i*.4;s+=G(`<rect width="452" height="62" rx="12" style="fill:var(--${k});fill-opacity:.12;stroke:var(--${k});stroke-width:2.5"/><circle cx="26" cy="31" r="13" style="fill:var(--${k})"/><text x="26" y="36" text-anchor="middle" class="f13 b wht">${i+1}</text><text x="50" y="27" class="f14 b">${a}</text><text x="50" y="47" class="f12">${b}</text>`,{x:16,y,an:'up',d});if(i<3)s+=loopPk(80,y+64,80,y+76,{d:d+.6,dur:.9,c:`var(--${k})`,r:5})});
+  s+=solid(560,96,224,64,'ink','kubectl top','for humans: a quick look',1.9);
+  s+=solid(560,196,224,64,'warn','HPA controller','for machines: replica math',2.2);
+  s+=arrow({x1:470,y1:266,c1:[520,266],c2:[510,128],x2:556,y2:128},{d:1.8,dur:.5,c:'var(--ink-2)'})+arrow({x1:470,y1:270,c1:[520,270],c2:[520,228],x2:556,y2:228},{d:2.1,dur:.5,c:'var(--ink-2)'});
+  s+=T(672,82,'two readers, one pipeline',{c:'f12 b',a:'middle',d:1.8});
+  s+=pnl(16,330,768,154,'A speedometer, not a trip log',{k:'db',d:2.6});
+  s+=dial(100,436,52,.38,'db',2.8,'');
+  s+=lines(186,384,['Metrics Server answers “how much CPU and memory right now?”','so Kubernetes can make scaling decisions. It isn’t a history,','a log store, or a replacement for Prometheus.'],{lh:24,d:3.0,step:.15,c:['f13 b','f13','f13']});
+  s+=T(186,462,'Never point long-term dashboards at it.',{c:'f13 b badc',d:3.5});
+  return svg(s,'The resource metrics pipeline in four hops. One: containers and Pods use real CPU time and memory, measured by the runtime through cgroups. Two: the kubelet and cAdvisor summarize per-container usage on each node. Three: Metrics Server collects that usage and caches only the recent values. Four: the API aggregation layer serves it as metrics.k8s.io/v1beta1. Two readers use the same pipeline: kubectl top for humans and the HPA controller for replica math. Metrics Server is a speedometer, not a trip log: it answers how much CPU and memory right now so Kubernetes can scale, and isn’t a history, a log store, or a replacement for Prometheus; never point long-term dashboards at it.');
+}
+
+function V3(){
+  let s='';
+  [['kubelet / cAdvisor','container CPU, memory','teal'],['kube-state-metrics','replicas, phases, restarts','web'],['app + DCGM exporters','latency, requests, GPU','vol']].forEach(([a,b,k],i)=>{const x=16+i*264;s+=G(`<rect width="240" height="62" rx="12" style="fill:var(--${k});fill-opacity:.12;stroke:var(--${k});stroke-width:2.5"/><text x="14" y="27" class="f14 b">${a}</text><text x="14" y="48" class="f12">${b}</text>`,{x,y:12,an:'up',d:.2+i*.25});s+=arrow({x1:x+120,y1:76,x2:x+120,y2:104},{d:.9+i*.1,dur:.2,c:`var(--${k})`})});
+  s+=solid(16,108,768,46,'db','Prometheus','',1.2,{fs:'f15'})+T(770,137,'scrapes endpoints, stores time series',{c:'f13 wht',a:'end',d:1.4});
+  s+=arrow({x1:400,y1:156,x2:400,y2:172},{d:1.5,dur:.15,c:'var(--db)'});
+  s+=solid(16,176,768,46,'ink-2','Grafana + alerting','',1.6,{fs:'f15'})+T(770,205,'dashboards, trends, thresholds, incidents',{c:'f13 wht',a:'end',d:1.8});
+  s+=pnl(16,238,768,246,'Complements, not substitutes',{d:2.0});
+  const R=[['Metrics Server','recent CPU and memory usage','kubectl top pods -A','db'],['kube-state-metrics','the state of Kubernetes objects','desired vs available replicas','web'],['Prometheus','how a metric changed over hours or days','a CPU or restart time series','db'],['DCGM exporter','what the NVIDIA GPU is doing','GPU utilization, framebuffer','vol']];
+  s+=T(40,294,'component',{c:'f11 b mut',d:2.1})+T(222,294,'designed to answer',{c:'f11 b mut',d:2.1})+T(530,294,'example',{c:'f11 b mut',d:2.1});
+  R.forEach(([a,b,c,k],i)=>{const y=326+i*40,d=2.3+i*.25;s+=`<rect x="30" y="${y-24}" width="740" height="36" rx="8" class="fade" style="fill:var(--${k});fill-opacity:.07;--d:${d}s"/>`+T(40,y,a,{c:'f13 b',d})+T(222,y,b,{c:'f13',d})+T(530,y,c,{c:i===0?'m f12':'f12',d})});
+  return svg(s,'A separate history pipeline: kubelet and cAdvisor provide container CPU and memory, kube-state-metrics provides replicas, Pod phases and restarts, and application and DCGM exporters provide latency, requests and GPU data. Prometheus scrapes these endpoints and stores time series, and Grafana with alerting builds dashboards, trends, thresholds and incident analysis. They are complements, not substitutes: Metrics Server answers recent CPU and memory usage, as in kubectl top pods -A; kube-state-metrics answers the state of Kubernetes objects, such as desired versus available replicas; Prometheus answers how a metric changed over hours or days; and the DCGM exporter answers what the NVIDIA GPU is doing, such as utilization and framebuffer memory.');
+}
+
+function V4(){
+  const wedge=(cx,cy,r,f0,f1,k,d,op=1)=>{const a0=2*Math.PI*f0-Math.PI/2,a1=2*Math.PI*f1-Math.PI/2,large=f1-f0>.5?1:0;return `<path d="M${cx} ${cy}L${(cx+r*Math.cos(a0)).toFixed(1)} ${(cy+r*Math.sin(a0)).toFixed(1)}A${r} ${r} 0 ${large} 1 ${(cx+r*Math.cos(a1)).toFixed(1)} ${(cy+r*Math.sin(a1)).toFixed(1)}Z" class="pop" style="fill:var(--${k});fill-opacity:${op};stroke:var(--surface);stroke-width:2;--d:${d}s"/>`};
+  let s=pnl(16,12,320,472,'One core, sliced like a pizza',{d:.1});
+  s+=`<circle cx="176" cy="210" r="118" class="pop" style="fill:var(--client);fill-opacity:.25;stroke:var(--client);stroke-width:3;--d:.2s"/>`;
+  for(let i=0;i<10;i++){const a=2*Math.PI*i/10-Math.PI/2;s+=`<path d="M176 210L${(176+118*Math.cos(a)).toFixed(1)} ${(210+118*Math.sin(a)).toFixed(1)}" class="fade" style="stroke:var(--client);stroke-width:1.5;--d:.4s"/>`}
+  s+=wedge(176,210,118,0,.5,'teal',1.0,.85)+wedge(176,210,118,.5,.6,'warn',1.6,.9);
+  s+=T(232,214,'500m',{c:'m f15 b wht',a:'middle',d:1.2})+T(150,292,'100m',{c:'m f13 b wht',a:'middle',d:1.8});
+  s+=lines(36,372,['each of the ten slices is 100m','the whole pizza = 1 core = 1000m'],{lh:22,d:2.0,c:['f13','f13 b']});
+  s+=T(36,440,'teal: half a core · orange: a tenth',{c:'f12 mut',d:2.2});
+  s+=pnl(352,12,432,190,'',{k:'db',d:.6});
+  s+=T(568,74,'1 core = 1000m = 10⁹ n',{c:'m f22 b',a:'middle',d:.8});
+  s+=lines(380,118,['m = millicore: a thousandth of a core','n = nanocore: a billionth of a core','You set m in manifests; the raw API reports n.'],{lh:24,d:1.0,step:.2,c:['f13','f13','f13 b']});
+  s+=pnl(352,216,432,268,'Practice conversions',{d:2.2});
+  [['100m','0.1 core','teal'],['500m','0.5 core','teal'],['138413582n','0.138 core ≈ 138.4m','db']].forEach(([a,b,k],i)=>{const y=286+i*54,d=2.4+i*.35;s+=G(`<rect width="168" height="40" rx="10" class="codebg"/><text x="84" y="26" text-anchor="middle" class="m f14 b">${a}</text>`,{x:372,y:y-26,an:'pop',d})+arrow({x1:546,y1:y-6,x2:572,y2:y-6},{d:d+.15,dur:.15,c:'var(--ink-2)',w:2})+TC(580,y,b,k,{c:'m f14 b',d:d+.25})});
+  s+=T(372,450,'138413582n was the lab node’s measured baseline.',{c:'f12 mut',d:3.6});
+  return svg(s,'CPU units: one core is like a pizza cut into ten slices of 100 millicores each; half the pizza is 500m and one slice is 100m; the whole pizza is 1 core, or 1000m. 1 core = 1000m = 10⁹ n: m is a millicore, a thousandth of a core, and n is a nanocore, a billionth of a core. You set m in manifests, and the raw API reports n. Conversions: 100m is 0.1 core, 500m is 0.5 core, and 138413582n is 0.138 core, about 138.4m, which was the lab node’s measured baseline.');
+}
+
+function V5(){
+  const X=m=>80+m*1.28;
+  let s=pnl(16,12,768,236,'The lab’s busy-loop Pod: request 100m, limit 500m',{d:.1});
+  s+=`<rect x="${X(0)}" y="112" width="${X(100)-X(0)}" height="56" class="grow-x" style="fill:var(--teal);fill-opacity:.25;--d:.4s"/><rect x="${X(100)}" y="112" width="${X(500)-X(100)}" height="56" class="grow-x" style="fill:var(--web);fill-opacity:.12;--d:.7s;--dur:1s"/>`;
+  s+=`<path d="M70 176H${X(500)+30}" class="axis fade" style="--d:.2s"/>`+[0,100,200,300,400,500].map(m=>T(X(m),198,`${m}m`,{c:'m f12 mut',a:'middle',d:.2})).join('');
+  s+=`<path d="M${X(100)} 100V176" class="fade" style="stroke:var(--teal);stroke-width:4;--d:1.0s"/>`+T(X(100),92,'request 100m',{c:'f13 b tealc',a:'middle',d:1.0});
+  s+=`<path d="M${X(500)} 100V176" class="fade" style="stroke:var(--bad);stroke-width:4;--d:1.4s"/>`+T(X(500),92,'limit 500m',{c:'f13 b badc',a:'middle',d:1.4});
+  s+=`<rect x="${X(0)}" y="128" width="${X(495)-X(0)}" height="24" rx="12" class="grow-x" style="fill:var(--warn);--d:1.8s;--dur:1.6s"/>`+T(X(250),145,'actual busy-loop usage ≈ 500m',{c:'f13 b wht',a:'middle',d:3.0});
+  s+=T(X(50),230,'reserved',{c:'f12 tealc b',a:'middle',d:3.2})+T(X(300),230,'usage above the request is allowed',{c:'f12 b',a:'middle',d:3.2});
+  s+=pnl(16,262,376,222,'A restaurant analogy',{d:3.4});
+  [['request','the table you booked: used to place you','teal'],['limit','the most the kitchen will serve you','bad'],['usage','what you actually eat','warn']].forEach(([a,b,k],i)=>{const y=330+i*52,d=3.6+i*.25;s+=G(`<rect width="86" height="32" rx="16" style="fill:var(--${k})"/><text x="43" y="21" text-anchor="middle" class="f13 b wht">${a}</text>`,{x:36,y:y-21,an:'pop',d})+T(134,y,b,{c:'f12',d})});
+  s+=pnl(408,262,376,222,'What happens at the limit',{d:4.2});
+  s+=lines(428,322,['CPU: work near the limit gets throttled','(slowed down), not killed.'],{lh:20,d:4.4,c:['f13 b','f13']});
+  s+=lines(428,384,['Memory: going past the limit risks the','container being killed (OOM).'],{lh:20,d:4.7,c:['f13 b','f13']});
+  s+=T(428,452,'A request is not a ceiling.',{c:'f14 b',d:5.0});
+  return svg(s,'Requests, limits and usage for the lab’s busy-loop Pod, which requested 100m CPU with a 500m limit. On a scale from 0 to 500m, the first 100m is reserved by the request; usage above the request is allowed; the limit sits at 500m; and actual busy-loop usage was about 500m. As a restaurant analogy: the request is the table you booked, used to place you; the limit is the most the kitchen will serve you; usage is what you actually eat. At the limit, CPU work gets throttled, slowed down rather than killed, while going past a memory limit risks the container being killed for running out of memory. A request is not a ceiling.');
+}
+
+function V6(){
+  let s=G(`<rect width="768" height="78" rx="16" class="inkf"/><text x="384" y="34" text-anchor="middle" class="f13 b inv">CPU utilization for the HPA</text><text x="384" y="62" text-anchor="middle" class="m f17 b inv">measured usage ÷ CPU request × 100%</text>`,{x:16,y:12,an:'up',d:.1});
+  s+=pnl(16,104,376,282,'Against the request (100m)',{k:'teal',d:.6});
+  for(let i=0;i<5;i++){const x=40+i*68;s+=G(`<rect width="58" height="120" rx="8" style="fill:none;stroke:var(--teal);stroke-width:2.5"/><rect y="0" width="58" height="120" rx="8" class="up" style="fill:var(--teal);fill-opacity:.8;--d:${(1.0+i*.25).toFixed(2)}s"/><text x="29" y="68" text-anchor="middle" class="m f13 b wht">100m</text>`,{x,y:150,an:'pop',d:.8})}
+  s+=T(204,310,'≈ 500%',{c:'m f30 b tealc',a:'middle',d:2.4})+T(204,346,'five times the booking',{c:'f13',a:'middle',d:2.5});
+  s+=pnl(408,104,376,282,'Against the limit (500m)',{k:'bad',d:1.2});
+  s+=G(`<rect width="160" height="120" rx="8" style="fill:none;stroke:var(--bad);stroke-width:2.5"/><rect width="160" height="120" rx="8" class="up" style="fill:var(--warn);fill-opacity:.85;--d:1.9s"/><text x="80" y="68" text-anchor="middle" class="m f13 b wht">500m</text>`,{x:516,y:150,an:'pop',d:1.4});
+  s+=T(596,310,'≈ 100%',{c:'m f30 b badc',a:'middle',d:2.6})+T(596,346,'exactly at the cap',{c:'f13',a:'middle',d:2.7});
+  s+=pnl(16,400,768,84,'',{d:3.0});
+  s+=T(36,432,'Raw API: 499985184n = 499.985m → 499.985m ÷ 100m = 499.985% of the request (measured).',{c:'f13 b',d:3.2});
+  s+=T(36,460,'Same consumption, two denominators. 500% is legal: five times the request, not five times the limit.',{c:'f13',d:3.4});
+  return svg(s,'CPU utilization for the HPA is measured usage divided by the CPU request, times 100%. The busy loop’s roughly 500m of usage is about five times its 100m request, or about 500%, but about 100% of its 500m limit, exactly at the cap. The raw API reported 499985184n, which is 499.985m, and 499.985m ÷ 100m = 499.985% of the request, as measured. Same consumption, two denominators: 500% is legal, meaning five times the request, not five times the limit.');
+}
+
+function V7(){
+  let s='';
+  const C=[['0Mi isn’t zero','teal'],['0% isn’t idle','warn'],['Usage is a rate over a window','db']];
+  C.forEach(([t,k],i)=>{const x=16+i*259;s+=G(`<rect width="246" height="472" rx="16" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><text x="123" y="34" text-anchor="middle" class="f14 b">${t}</text>`,{x,y:12,an:'up',d:.2+i*1.1})});
+  s+=G(`<rect width="190" height="40" rx="10" class="codebg"/><text x="95" y="26" text-anchor="middle" class="m f14 b">raw: 432Ki</text>`,{x:44,y:70,an:'pop',d:.5});
+  s+=T(139,140,'432 ÷ 1024 = 0.422 MiB',{c:'m f13 b tealc',a:'middle',d:.8});
+  s+=`<path d="M64 166H214L164 222H114Z" class="pop" style="fill:var(--teal);fill-opacity:.2;stroke:var(--teal);stroke-width:2;--d:1.0s"/>`+T(139,192,'rounding',{c:'f12 b',a:'middle',d:1.1});
+  s+=G(`<rect width="190" height="40" rx="10" class="codebg"/><text x="95" y="26" text-anchor="middle" class="m f14 b">kubectl top: 0Mi</text>`,{x:44,y:236,an:'pop',d:1.2});
+  s+=lines(36,326,['The busy-loop Pod used','a tiny bit of memory; the','display just rounded it.','Zero shown ≠ zero used.'],{lh:22,d:1.4,c:['f13','f13','f13','f13 b']});
+  s+=G(`<rect width="190" height="190" rx="10" style="fill:none;stroke:var(--warn);stroke-width:2.5"/><rect x="10" y="166" width="6" height="18" rx="2" class="pop" style="fill:var(--warn);--d:1.8s"/><path d="M22 175H60" style="stroke:var(--warn);stroke-width:2"/><text x="66" y="180" class="m f12 b warnc">139m in use</text>`,{x:303,y:62,an:'pop',d:1.5});
+  s+=T(398,120,'node allocatable',{c:'f13 b warnc',a:'middle',d:1.6})+T(398,140,'(a big denominator)',{c:'f12',a:'middle',d:1.6});
+  s+=T(398,278,'kubectl top: “0%”',{c:'m f13 b',a:'middle',d:2.0});
+  s+=lines(295,316,['kubectl top nodes divides','by node allocatable CPU,','then rounds. 139m is real','work.'],{lh:22,d:2.2,c:'f13'});
+  s+=T(295,420,'--show-capacity changes',{c:'m f12 b',d:2.4})+T(295,440,'the denominator.',{c:'f12 b',d:2.4});
+  s+=`<path d="M560 160H760" class="axis fade" style="--d:2.6s"/>`+`<rect x="580" y="110" width="160" height="50" rx="8" class="grow-x" style="fill:var(--db);fill-opacity:.2;stroke:var(--db);stroke-width:2;--d:2.8s"/>`+TC(660,140,'≈ 60 s window','db',{c:'f13 b',a:'middle',d:3.0});
+  s+=term(554,186,214,100,[['"timestamp":','mut',3.2],['  "04:39:40Z"','',3.2],['"window": "1m0.005s"','b',3.4]],{fs:12,lh:24,top:28,d:3.1});
+  s+=lines(554,322,['CPU usage is averaged','over a time window, so','two reads a moment apart','can differ slightly.'],{lh:22,d:3.6,c:'f13'});
+  s+=T(554,420,'all values measured in the lab',{c:'f11 mut',d:3.8});
+  return svg(s,'Read the small print. 0Mi isn’t zero: the busy-loop Pod’s raw memory was 432Ki, which is 432 ÷ 1024 = 0.422 MiB, and kubectl top rounded it to 0Mi; zero shown doesn’t mean zero used. 0% isn’t idle: kubectl top nodes divides by node allocatable CPU, a big denominator, and rounds, so the node’s 139m showed as 0% even though 139m is real work; --show-capacity changes the denominator. Usage is a rate over a window: the API response carried a timestamp of 04:39:40Z and a window of 1m0.005s, so CPU usage is averaged over about 60 seconds and two reads a moment apart can differ slightly. All values were measured in the lab.');
+}
+
+function V8(){
+  const S=[['Symptom','kubectl top → “Metrics API not available”','bad',''],['Check the addon','disabled → minikube addons enable metrics-server','web','fixed the install, not the problem'],['Pod Pending, Node &lt;none&gt;','APIService: False (MissingEndpoints)','bad',''],['Read the Pod’s Events','FailedScheduling: 1 node(s) had untolerated taint(s)','bad','taint: dedicated=gpu:NoSchedule'],['Single-node lab fix','kubectl taint nodes gpu-lab dedicated=gpu:NoSchedule-','ok','']];
+  let s='';
+  S.forEach(([a,b,k,c],i)=>{const y=12+i*94,d=.3+i*.6;s+=G(`<rect width="520" height="80" rx="12" style="fill:var(--${k});fill-opacity:.1;stroke:var(--${k});stroke-width:2.5"/><circle cx="28" cy="40" r="15" style="fill:var(--${k})"/><text x="28" y="45" text-anchor="middle" class="f13 b wht">${i+1}</text><text x="56" y="${c?28:34}" class="f14 b">${a}</text><text x="56" y="${c?50:58}" class="m f11 b">${b}</text>${c?`<text x="56" y="70" class="f12 mut">${c}</text>`:''}`,{x:16,y,an:'up',d});if(i<4)s+=arrow({x1:44,y1:y+82,x2:44,y2:y+92},{d:d+.4,dur:.1,c:'var(--ink-2)',w:2})});
+  s+=pnl(552,12,232,472,'Evidence, not guesses',{k:'db',d:3.4});
+  s+=lines(570,70,['The Pod asked for only','100m CPU and 200Mi','memory.'],{lh:22,d:3.6,c:['f13','m f13 b','f13']});
+  s+=lines(570,160,['So the node wasn’t full:','a scheduling policy','blocked the Pod.'],{lh:22,d:3.9,c:['f13','f13 b','f13 b']});
+  s+=lines(570,250,['Lesson: start at the','stage that fails, and','read its own error,','instead of changing','unrelated settings.'],{lh:22,d:4.2,c:'f13'});
+  s+=icon('warn',590,440,{d:4.5,r:13})+T(612,445,'Pending = not yet placed',{c:'f12 b',d:4.5});
+  return svg(s,'Case study one: the Metrics Server Pod couldn’t schedule. Step 1, the symptom: kubectl top returned Metrics API not available. Step 2, check the addon: it was disabled, so minikube addons enable metrics-server, which fixed the install but not the problem. Step 3: the Pod stayed Pending with Node <none>, and the APIService reported False (MissingEndpoints). Step 4, read the Pod’s Events: FailedScheduling, 1 node had untolerated taints, the taint being dedicated=gpu:NoSchedule. Step 5, the single-node lab fix: kubectl taint nodes gpu-lab dedicated=gpu:NoSchedule- removes the taint. Evidence, not guesses: the Pod asked for only 100m CPU and 200Mi of memory, so the node wasn’t full; a scheduling policy blocked it. Start at the stage that fails and read its own error instead of changing unrelated settings.');
+}
+
+function V9(){
+  let s=pnl(16,12,768,268,'A taint is a “GPU work only” sign on the door',{d:.1});
+  s+=G(`<rect width="300" height="190" rx="14" style="fill:var(--ink-2);fill-opacity:.08;stroke:var(--ink-2);stroke-width:2.5"/><text x="16" y="28" class="f14 b">node gpu-lab</text><text x="16" y="48" class="f12 mut">the only node in the cluster</text><rect x="-8" y="70" width="16" height="90" style="fill:var(--surface)"/><path d="M0 70V160" style="stroke:var(--ink-2);stroke-width:2;stroke-dasharray:5 4"/>`,{x:464,y:62,an:'pop',d:.3});
+  s+=G(`<rect width="220" height="46" rx="8" style="fill:var(--note);stroke:var(--ink);stroke-width:1.5"/><text x="110" y="20" text-anchor="middle" class="f12 b lbltxt">GPU WORK ONLY</text><text x="110" y="38" text-anchor="middle" class="m f11 lbltxt">dedicated=gpu:NoSchedule</text>`,{x:232,y:52,an:'stamp',d:.7});
+  s+=pod({x:300,y:150,k:'db',mood:'happy',m2:'sad',t2:1.8,an:'pop',v:{d:1.0},s:.8});
+  s+=T(342,228,'metrics-server',{c:'m f11 b',a:'middle',d:1.1})+T(342,246,'no toleration → Pending',{c:'f12 b badc',a:'middle',d:1.8});
+  s+=icon('no',420,150,{d:1.8,r:12});
+  s+=pod({x:560,y:150,k:'vol',mood:'happy',an:'pop',v:{d:2.2},s:.8});
+  s+=T(602,228,'GPU workload',{c:'f11 b',a:'middle',d:2.3})+T(602,246,'has a toleration: allowed',{c:'f12 b okc',a:'middle',d:2.3});
+  s+=G(`<rect width="190" height="120" rx="12" class="panel"/>`,{x:40,y:62,an:'fade',d:2.5});
+  s+=lines(56,92,['A taint repels Pods','unless they carry a','matching toleration','(a pass for the sign).'],{lh:22,d:2.6,c:['f13 b','f13','f13','f13']});
+  s+=pnl(16,294,376,190,'Single-node lab: take the sign down',{k:'ok',d:3.0});
+  s+=lines(36,346,['System Pods need somewhere to run, and','there’s only one node. Removing the taint','let Metrics Server schedule.'],{lh:22,d:3.2,c:'f13'});
+  s+=T(36,436,'The GPU, the device plugin and',{c:'f12 b',d:3.4})+T(36,456,'nvidia.com/gpu requests all stay.',{c:'f12 b',d:3.4});
+  s+=pnl(408,294,376,190,'Production fleet: keep the sign',{k:'warn',d:3.6});
+  s+=lines(428,346,['Removing GPU-node isolation lets non-GPU','Pods eat CPU and memory meant for GPU','services. Prefer:'],{lh:22,d:3.8,c:'f13'});
+  s+=lines(428,422,['• separate system nodes, or','• a careful toleration and placement policy'],{lh:22,d:4.0,c:'f13 b'});
+  return svg(s,'A taint is a GPU-work-only sign on the door. The node gpu-lab, the only node in the cluster, carried dedicated=gpu:NoSchedule. The metrics-server Pod had no toleration, so it stayed Pending; a GPU workload with a matching toleration, a pass for the sign, is allowed in. In a single-node lab, taking the sign down is reasonable: system Pods need somewhere to run, and removing the taint let Metrics Server schedule, while the GPU, the device plugin and nvidia.com/gpu requests all stay. In a production fleet, keep the sign: removing GPU-node isolation lets non-GPU Pods eat CPU and memory meant for GPU services, so prefer separate system nodes or a careful toleration and placement policy.');
+}
+
+function V10(){
+  const X=t=>80+t*9.7;
+  let s=pnl(16,12,768,222,'Running 1/1, yet kubectl top still failed (UTC, Nov 12, measured)',{d:.1});
+  s+=`<path d="M60 150H${X(66)+40}" class="axis fade" style="--d:.2s"/>`;
+  s+=`<rect x="${X(1)}" y="140" width="${X(51)-X(1)}" height="20" rx="4" class="grow-x" style="fill:var(--warn);fill-opacity:.35;--d:1.2s;--dur:1.2s"/>`+T((X(1)+X(51))/2,128,'readiness probe: “no metrics to serve” (now and then)',{c:'f12 b warnc',a:'middle',d:1.8});
+  [[0,'ink',.4],[1,'ink',.8],[66,'ok',2.4]].forEach(([t,k,d])=>{s+=`<circle cx="${X(t)}" cy="150" r="7" class="pop" style="fill:var(--${k});--d:${d}s"/>`});
+  s+=T(70,182,'04:15:39–40',{c:'m f12 b',d:.6})+T(70,202,'certificate, then HTTPS on :4443',{c:'f12',d:.8});
+  s+=T(X(66)+8,182,'04:16:45',{c:'m f12 b',a:'end',d:2.4})+T(X(66)+8,202,'APIService Available=True',{c:'f12 b okc',a:'end',d:2.4});
+  s+=T(X(66),118,'“all checks passed”',{c:'f12 b okc',a:'end',d:2.6});
+  s+=T(400,226,'≈ 66 seconds of warm-up. No TLS patch or reinstall was needed.',{c:'f12 b',a:'middle',d:2.8});
+  s+=pnl(16,248,768,236,'Check three layers, in order',{d:3.0});
+  const L=[['Pod',['Running 1/1'],['kubectl get pods','-n kube-system'],'teal'],['Service + endpoints',['10.109.103.150:443','→ 10.244.0.44:4443'],['kubectl describe svc','metrics-server -n kube-system'],'web'],['API + data',['Available=True','kubectl top works'],['kubectl describe apiservice','v1beta1.metrics.k8s.io'],'ok']];
+  L.forEach(([a,b,c,k],i)=>{const x=36+i*250,d=3.2+i*.4;s+=G(`<rect width="230" height="128" rx="12" style="fill:var(--${k});fill-opacity:.1;stroke:var(--${k});stroke-width:2.5"/><text x="14" y="28" class="f14 b">${i+1}. ${a}</text>`+b.map((t,j)=>`<text x="14" y="${54+j*18}" class="m f11 b">${t}</text>`).join('')+c.map((t,j)=>`<text x="14" y="${96+j*16}" class="m f11 mut">${t}</text>`).join(''),{x,y:290,an:'up',d});if(i<2)s+=arrow({x1:x+232,y1:354,x2:x+246,y2:354},{d:d+.2,dur:.1,c:'var(--ink-2)',w:2})});
+  s+=T(36,452,'Lab-only conveniences: --kubelet-insecure-tls and InsecureSkipTLSVerify. Use real certificates in production.',{c:'f12 warnc b',d:4.6});
+  return svg(s,'Case study two: Metrics Server was Running 1/1, yet kubectl top still failed. The measured startup timeline, in UTC on November 12: at 04:15:39 the serving certificate was made; at 04:15:40 HTTPS began on port 4443; until about 04:16:30 the readiness probe now and then reported no metrics to serve; and at 04:16:45 the APIService became Available=True with all checks passed. That was about 66 seconds of warm-up, and no TLS patch or reinstall was needed. Check three layers in order: the Pod (Running 1/1, via kubectl get pods -n kube-system), the Service and endpoints (10.109.103.150:443 forwarding to 10.244.0.44:4443, via kubectl describe svc metrics-server), and the API and data (APIService Available=True, via kubectl describe apiservice). --kubelet-insecure-tls and InsecureSkipTLSVerify were lab-only conveniences; use real certificates in production.');
+}
+
+// ---------- Day 58 visuals 11-21 ----------
+function V11(){
+  const J=[['{',''],['  "kind": "NodeMetricsList",',''],['  "apiVersion": "metrics.k8s.io/v1beta1",','mut'],['  "items": [{',''],['    "metadata": {"name": "gpu-lab"},',''],['    "timestamp": "2026-11-12T04:25:31Z",',''],['    "window": "1m0.121s",','b'],['    "usage": {',''],['      "cpu": "138413582n",','b tealc'],['      "memory": "1523716Ki"','b tealc'],['    }',''],['  }]',''],['}','']];
+  let s=term(16,12,420,348,J.map(([t,c],i)=>[t,c,.2+i*.06]),{fs:12,lh:24,top:32,d:.1});
+  const A=[[1,'the type of result','ink-2'],[4,'which node was measured','ink-2'],[5,'when the sample applies','web'],[6,'averaged over about 60 s','db'],[8,'≈ 138.4m of CPU','teal'],[9,'1523716 ÷ 1024 ≈ 1488 MiB','teal']];
+  A.forEach(([i,t,k],j)=>{const y=12+32+i*24-4,d=1.2+j*.3;s+=`<path d="M440 ${y}H470" class="fade" style="stroke:var(--${k});stroke-width:2;--d:${d}s"/><circle cx="440" cy="${y}" r="3.5" class="pop" style="fill:var(--${k});--d:${d}s"/>`+TC(478,y+5,t,k,{c:'f13 b',d})});
+  s+=pnl(16,374,768,110,'',{k:'teal',d:3.2});
+  s+=T(36,410,'kubectl top nodes showed 139m and 1488Mi: the same reading, rounded for humans.',{c:'f13 b',d:3.4});
+  s+=T(36,436,'The raw API keeps full precision, a timestamp, and the window the CPU rate was averaged over.',{c:'f13',d:3.6});
+  s+=T(36,464,'Measured in the lab; unrelated node labels are omitted for readability.',{c:'f11 mut',d:3.8});
+  return svg(s,'Reading the raw Metrics API JSON for the lab node: kind NodeMetricsList is the type of result; apiVersion metrics.k8s.io/v1beta1; metadata name gpu-lab is which node was measured; timestamp 2026-11-12T04:25:31Z is when the sample applies; window 1m0.121s means the CPU rate was averaged over about 60 seconds; cpu 138413582n is about 138.4m of CPU; and memory 1523716Ki ÷ 1024 is about 1488 MiB. kubectl top nodes showed 139m and 1488Mi, the same reading rounded for humans; the raw API keeps full precision, a timestamp and the averaging window. Measured in the lab, with unrelated node labels omitted.');
+}
+
+function V12(){
+  const X=m=>40+m*.32;
+  let s=pnl(16,12,376,226,'A busy loop on a leash',{k:'warn',d:.1,sub:'busybox “while true” · request 100m · limit 500m'});
+  s+=`<path d="M36 170H${X(1000)+4}" class="axis fade" style="--d:.2s"/>`+[0,500,1000].map(m=>T(X(m),190,`${m}m`,{c:'m f11 mut',a:'middle',d:.2})).join('');
+  s+=`<rect x="${X(0)}" y="88" width="${X(1000)-X(0)}" height="26" rx="13" class="grow-x" style="fill:none;stroke:var(--ink-2);stroke-width:2;stroke-dasharray:6 4;--d:.4s;--dur:1s"/>`+T(X(1000)-6,82,'wants a whole core',{c:'f12 mut b',a:'end',d:.9});
+  s+=`<rect x="${X(0)}" y="126" width="${X(500)-X(0)}" height="26" rx="13" class="grow-x" style="fill:var(--warn);--d:1.2s;--dur:1s"/>`+T(X(250),144,'held near 500m',{c:'f12 b wht',a:'middle',d:2.0});
+  s+=`<path d="M${X(500)} 80V164" class="fade" style="stroke:var(--bad);stroke-width:4;--d:1.8s"/>`+T(X(500)+6,216,'limit',{c:'f12 b badc',a:'middle',d:1.8});
+  s+=pnl(408,12,376,226,'Measured readings',{d:2.2});
+  [['kubectl top pod','501m CPU · 0Mi'],['raw Metrics API','499985184n · 432Ki'],['Pod status','Running 1/1']].forEach(([a,b],i)=>{const y=70+i*52,d=2.4+i*.3;s+=T(428,y,a,{c:'f12 mut',d})+T(428,y+22,b,{c:'m f15 b',d})});
+  s+=pnl(16,252,376,232,'Node CPU (measured snapshots)',{d:3.2});
+  const K=.22,base=440;[['baseline',139,'teal'],['with load',612,'warn']].forEach(([a,v,k],i)=>{const x=90+i*150,d=3.4+i*.4;s+=vbar(x,base,80,v*K,k,d)+T(x+40,base-v*K-8,`${v}m`,{c:'m f15 b',a:'middle',d:d+.3})+T(x+40,base+20,a,{c:'f12',a:'middle',d})});
+  s+=`<path d="M48 ${base}H360" class="axis fade" style="--d:3.3s"/>`;
+  s+=`<path d="M190 ${base-139*K}H330M330 ${base-139*K}V${base-612*K}" class="fade" style="fill:none;stroke:var(--db);stroke-width:2;stroke-dasharray:5 4;--d:4.2s"/>`+TC(338,base-80,'+473m','db',{c:'m f13 b',d:4.3});
+  s+=pnl(408,252,376,232,'Why not exactly 500?',{k:'db',d:4.4});
+  s+=lines(428,300,['501m on a 500m limit isn’t proof the','limit failed: sampling, rounding and','runtime accounting all nudge it.'],{lh:20,d:4.6,c:['f12 b','f12','f12']});
+  s+=lines(428,378,['+473m, not +500m: the readings were','separate snapshots, with background','activity, not one synchronized sample.'],{lh:20,d:4.9,c:['f12 b','f12','f12']});
+  s+=T(428,456,'Throttling analysis needs cgroup or Prometheus data.',{c:'f11 mut',d:5.2});
+  return svg(s,'A busy loop on a leash: a busybox while-true loop with a 100m request and a 500m limit wants a whole core, 1000m, but the limit holds it near 500m. Measured readings: kubectl top pod showed 501m CPU and 0Mi; the raw Metrics API showed 499985184n and 432Ki; the Pod was Running 1/1. Node CPU snapshots went from a 139m baseline to 612m with load, a 473m difference. Why not exactly 500? 501m on a 500m limit isn’t proof the limit failed, because sampling, rounding and runtime accounting nudge it; and the 473m rise rather than 500m reflects separate snapshots with background activity, not one synchronized sample. Throttling analysis needs cgroup or Prometheus data.');
+}
+
+function V13(){
+  let s=G(`<rect width="768" height="90" rx="16" class="inkf"/><text x="384" y="38" text-anchor="middle" class="m f22 b inv">desired = ⌈ current × observed ÷ target ⌉</text><text x="384" y="70" text-anchor="middle" class="f13 inv">Like a thermostat: compare the reading with the setpoint, then adjust. ⌈ ⌉ rounds up.</text>`,{x:16,y:12,an:'up',d:.1});
+  s+=pnl(16,116,768,198,'Worked example from the lab',{k:'warn',d:.6});
+  [['1 replica using 340m','on a 200m request',.8],['340 ÷ 200 = 170%','observed utilization',1.4],['⌈ 1 × 170 ÷ 50 ⌉','= ⌈ 3.4 ⌉ = 4',2.0]].forEach(([a,b,d],i)=>{const x=36+i*186;s+=G(`<rect width="170" height="70" rx="12" style="fill:var(--warn);fill-opacity:${i===2?.9:.14};stroke:var(--warn);stroke-width:2"/><text x="85" y="30" text-anchor="middle" class="m f13 b${i===2?' wht':''}">${a}</text><text x="85" y="52" text-anchor="middle" class="${i===2?'m f14 b wht':'f12'}">${b}</text>`,{x,y:160,an:'pop',d});if(i<2)s+=arrow({x1:x+172,y1:195,x2:x+184,y2:195},{d:d+.3,dur:.1,c:'var(--warn)',w:2})});
+  [0,1,2,3].forEach(i=>{s+=miniPodK(600+(i%2)*80,150+Math.floor(i/2)*72,{k:'teal',d:2.6+i*.2,s:.6})});
+  s+=T(36,296,'target 50%',{c:'f12 b',d:2.2})+T(130,296,'Real HPA also weighs tolerance, readiness, missing metrics, min/max, policies and stabilization.',{c:'f12 mut',d:2.4});
+  const C=[['Traffic rises','app CPU climbs','web'],['Metrics Server','exposes usage','db'],['HPA controller','usage ÷ request vs 50%','warn'],['Scale subresource','sets the replica count','teal'],['ReplicaSet','creates the new Pods','ok']];
+  C.forEach(([a,b,k],i)=>{const x=16+i*157,d=3.2+i*.3;s+=G(`<rect width="140" height="70" rx="12" style="fill:var(--${k});fill-opacity:.12;stroke:var(--${k});stroke-width:2.5"/><text x="70" y="30" text-anchor="middle" class="f13 b">${a}</text><text x="70" y="52" text-anchor="middle" class="f11">${b}</text>`,{x,y:330,an:'up',d});if(i<4)s+=arrow({x1:x+142,y1:365,x2:x+155,y2:365},{d:d+.2,dur:.1,c:'var(--ink-2)',w:2})});
+  s+=G(`<rect width="768" height="56" rx="14" style="fill:var(--db);fill-opacity:.1"/><text x="384" y="35" text-anchor="middle" class="f14 b">Metrics Server only reports. The HPA decides, and the ReplicaSet creates the Pods.</text>`,{x:16,y:420,an:'up',d:4.8});
+  return svg(s,'How the HPA decides: desired replicas = the ceiling of current replicas × observed utilization ÷ target, like a thermostat comparing the reading with the setpoint. Worked example from the lab: 1 replica using 340m on a 200m request is 340 ÷ 200 = 170% observed utilization; with a 50% target, the ceiling of 1 × 170 ÷ 50 is the ceiling of 3.4, which is 4 replicas. Real HPA also weighs tolerance, readiness, missing metrics, min and max, policies and stabilization. The chain: traffic rises and app CPU climbs; Metrics Server exposes usage; the HPA controller compares usage ÷ request with 50%; the scale subresource sets the Deployment’s replicas; and the ReplicaSet creates the new Pods. Metrics Server only reports; the HPA decides, and the ReplicaSet creates the Pods.');
+}
+
+function V14(){
+  let s=G(`<rect width="768" height="332" rx="16" style="fill:none;stroke:var(--ink-2);stroke-width:2;stroke-dasharray:8 6"/><text x="18" y="28" class="m f13 b mut">namespace day58</text>`,{x:16,y:12,an:'fade',d:.1});
+  s+=G(`<rect width="160" height="86" rx="12" style="fill:var(--client)"/><text x="14" y="28" class="f14 b" style="fill:var(--on-client)">load-generator</text><text x="14" y="50" class="m f11" style="fill:var(--on-client)">busybox:1.36</text><text x="14" y="70" class="m f11" style="fill:var(--on-client)">wget, forever</text>`,{x:36,y:184,an:'pop',d:.4});
+  s+=G(`<rect width="150" height="86" rx="12" style="fill:var(--web)"/><text x="14" y="28" class="f14 b wht">Service</text><text x="14" y="50" class="m f11 wht">php-apache</text><text x="14" y="70" class="m f11 wht">port 80</text>`,{x:236,y:184,an:'pop',d:.7});
+  s+=arrow({x1:198,y1:227,x2:232,y2:227},{d:.9,dur:.15,c:'var(--client)'})+loopPk(200,227,232,227,{d:1.0,dur:.7,c:'var(--client)',r:4});
+  s+=G(`<rect width="350" height="140" rx="14" style="fill:var(--teal);fill-opacity:.12;stroke:var(--teal);stroke-width:2.5"/><text x="16" y="28" class="f14 b">Deployment php-apache</text><text x="16" y="50" class="m f11">registry.k8s.io/hpa-example</text><text x="16" y="84" class="m f13 b tealc">request 200m</text><text x="16" y="108" class="m f13 b badc">limit 500m</text>`,{x:418,y:170,an:'pop',d:1.1});
+  s+=pod({x:640,y:236,k:'teal',an:'pop',v:{d:1.4},s:.6});
+  s+=arrow({x1:388,y1:240,x2:414,y2:240},{d:1.3,dur:.15,c:'var(--web)'});
+  s+=G(`<rect width="350" height="96" rx="14" style="fill:var(--warn)"/><text x="16" y="28" class="f14 b wht">HorizontalPodAutoscaler</text><text x="16" y="54" class="m f13 b wht">min 1 · max 4</text><text x="16" y="78" class="m f13 b wht">CPU averageUtilization: 50</text>`,{x:418,y:52,an:'pop',d:1.8});
+  s+=arrow({x1:593,y1:150,x2:593,y2:166},{d:2.1,dur:.15,c:'var(--warn)'})+T(604,162,'scales',{c:'f11 b warnc',d:2.1});
+  s+=pnl(16,358,768,126,'Why these numbers?',{d:2.6});
+  [['max 4','caps resource use on one small lab node'],['50% of a 200m request','= 100m of CPU per replica before scaling out'],['its own namespace','so cleanup can’t touch system workloads']].forEach(([a,b],i)=>{const y=410+i*26,d=2.8+i*.25;s+=T(36,y,a,{c:'m f13 b',d})+T(260,y,b,{c:'f13',d})});
+  return svg(s,'The HPA lab setup in namespace day58: a load-generator Pod running busybox:1.36 calls wget forever against the php-apache Service on port 80, which routes to the php-apache Deployment using the registry.k8s.io/hpa-example image with a 200m CPU request and a 500m limit. A HorizontalPodAutoscaler with min 1, max 4 and a CPU averageUtilization target of 50 scales the Deployment. Why these numbers? Max 4 caps resource use on one small lab node; 50% of a 200m request is 100m of CPU per replica before scaling out; and its own namespace means cleanup can’t touch system workloads.');
+}
+
+function V15(){
+  let s=term(16,12,768,150,[['$ kubectl describe hpa php-apache -n day58','mut',.2],['resource cpu on pods (as a percentage of request):  170% (340m) / 50%','b',.6],['Deployment pods:  4 current / 4 desired','b',1.0],['Normal  SuccessfulRescale  New size: 4','b okc',1.4]],{fs:12,lh:28,top:34,d:.1});
+  s+=pnl(16,176,768,170,'1 → 4 replicas (confirmed)',{k:'teal',d:1.8});
+  s+=miniPodK(60,220,{k:'teal',d:2.0,s:.9});
+  s+=arrow({x1:170,y1:254,x2:236,y2:254},{d:2.4,dur:.3,c:'var(--warn)',w:3})+T(203,240,'170%',{c:'m f13 b warnc',a:'middle',d:2.4});
+  [0,1,2,3].forEach(i=>{s+=miniPodK(256+i*104,220,{k:'teal',d:2.8+i*.2,s:.9})});
+  s+=T(36,326,'kubectl top pods sampled one application Pod at 340m.',{c:'f12',d:3.6});
+  s+=T(764,306,'ScalingLimited: TooManyReplicas was seen while scaling up',{c:'f12 b warnc',a:'end',d:3.8});
+  s+=pnl(16,360,768,124,'Before the success, warnings',{k:'warn',d:4.0});
+  s+=T(36,410,'FailedGetResourceMetric: did not receive metrics for targeted pods (pods might be unready)',{c:'m f11 b warnc',d:4.2});
+  s+=T(36,430,'FailedComputeMetricsReplicas: invalid metrics …',{c:'m f11 b warnc',d:4.3});
+  s+=T(36,464,'New Pods may not have a CPU sample yet. A warning that later clears is evidence to read, not a permanent failure.',{c:'f12 b',d:4.6});
+  return svg(s,'Scaling up, confirmed in the lab: kubectl describe hpa php-apache reported CPU on pods at 170% (340m) of request against a 50% target, Deployment pods at 4 current and 4 desired, and a SuccessfulRescale event with new size 4. The Deployment went from 1 replica to 4; kubectl top pods sampled one application Pod at 340m; and ScalingLimited: TooManyReplicas was seen while scaling up. Before the success came warnings: FailedGetResourceMetric, did not receive metrics for targeted pods because they might be unready, and FailedComputeMetricsReplicas, invalid metrics. New Pods may not have a CPU sample yet; a warning that later clears is evidence to read, not a permanent failure.');
+}
+
+function V16(){
+  let s=G(`<rect width="250" height="44" rx="12" class="codebg"/><text x="14" y="28" class="m f12 b">kubectl delete pod load-generator</text>`,{x:16,y:12,an:'pop',d:.2})+icon('no',286,34,{d:.5,r:12});
+  s+=G(`<rect width="200" height="44" rx="12" style="fill:var(--warn);fill-opacity:.14;stroke:var(--warn);stroke-width:2"/><text x="14" y="28" class="m f13 b">get hpa: 78% / 50%</text>`,{x:320,y:12,an:'pop',d:.8});
+  s+=G(`<rect width="246" height="44" rx="12" style="fill:var(--warn);fill-opacity:.14;stroke:var(--warn);stroke-width:2"/><text x="14" y="28" class="m f13 b">later: 40% (80m) / 50%</text>`,{x:538,y:12,an:'pop',d:1.2});
+  s+=T(400,82,'still 4 current / 4 desired · condition: ScaleDownStabilized',{c:'f13 b',a:'middle',d:1.6});
+  s+=pnl(16,100,376,186,'Reason 1: the math says 4',{k:'teal',d:1.9});
+  s+=T(204,170,'⌈ 4 × 40 ÷ 50 ⌉',{c:'m f22 b',a:'middle',d:2.1})+T(204,210,'= ⌈ 3.2 ⌉ = 4',{c:'m f22 b tealc',a:'middle',d:2.4});
+  s+=T(204,262,'50% isn’t a “drop below and shrink” line',{c:'f12',a:'middle',d:2.6});
+  s+=pnl(408,100,376,186,'Reason 2: a 300-second memory',{k:'db',d:2.8});
+  s+=alarmClock(440,150,{s:.9,d:3.0,k:'db'});
+  s+=lines(520,154,['For scale-down, the HPA uses','the highest recommendation','from the last 300 s (default).'],{lh:22,d:3.1,c:'f13'});
+  s+=T(428,262,'like a manager who waits 5 minutes before',{c:'f12 mut',d:3.3})+T(428,278,'sending staff home after a quiet moment',{c:'f12 mut',d:3.3});
+  s+=pnl(16,300,768,184,'Recommendations inside the window (illustrative)',{d:3.6});
+  const X=i=>70+i*64;[4,4,4,3,2,1,1,1,1,1,1].forEach((v,i)=>{s+=`<circle cx="${X(i)}" cy="${450-v*20}" r="7" class="pop" style="fill:var(--${v===4?'warn':'teal'});--d:${(3.8+i*.1).toFixed(2)}s"/>`+T(X(i),468,String(v),{c:'m f11',a:'middle',d:3.8+i*.1})});
+  s+=G(`<rect x="${X(0)-18}" y="340" width="${X(5)-X(0)+36}" height="136" rx="10" style="fill:var(--db);fill-opacity:.1;stroke:var(--db);stroke-width:2"/>`,{an:'move',d:5.0,dur:2.5,tx:Math.round(X(5)-X(0))}).replace(/^/,'<g class="fade" style="--d:4.6s">')+'</g>';
+  s+=`<text x="${X(2)}" y="358" text-anchor="middle" class="f12 b inout" style="fill:var(--db);--d:4.7s;--o:5.3s">max in window → keep 4</text>`+TC(X(8),358,'once the 4s age out → 1','db',{c:'f12 b',a:'middle',d:7.4});
+  return svg(s,'Why the HPA didn’t scale down right away. After kubectl delete pod load-generator, one get hpa snapshot showed 78% against a 50% target, and a later describe showed 40% (80m) against 50%, still 4 current and 4 desired, with the condition ScaleDownStabilized. Reason 1, the math says 4: the ceiling of 4 × 40 ÷ 50 is the ceiling of 3.2, which is 4, so 50% isn’t a drop-below-and-shrink line. Reason 2, a 300-second memory: for scale-down, the HPA uses the highest recommendation from the last 300 seconds by default, like a manager who waits 5 minutes before sending staff home after a quiet moment. In an illustrative series of recommendations, 4, 4, 4, 3, 2, then 1s, the window keeps the maximum, 4, until the higher values age out.');
+}
+
+function V17(){
+  const X=['Idle','Loaded','Stabilized','Quiet'],V=[1,4,4,1],px=i=>90+i*100,py=v=>270-v*48;
+  let s=pnl(16,12,420,296,'Replicas by stage (confirmed)',{k:'teal',d:.1,sub:'stages, not equal time steps'});
+  [1,2,3,4].forEach(v=>{s+=`<path d="M60 ${py(v)}H420" class="fade" style="stroke:var(--line);stroke-width:1;--d:.2s"/>`+T(52,py(v)+4,String(v),{c:'m f11 mut',a:'end',d:.2})});
+  s+=lineP(V.map((v,i)=>[px(i),py(v)]),'teal',.4,{w:3.5,dur:1.4});
+  V.forEach((v,i)=>{s+=`<circle cx="${px(i)}" cy="${py(v)}" r="7" class="pop" style="fill:var(--teal);--d:${(.5+i*.35).toFixed(2)}s"/>`+T(px(i),292,X[i],{c:'f12 b',a:'middle',d:.5+i*.35})});
+  s+=term(452,12,332,296,[['$ kubectl describe hpa','mut',1.6],['cpu: 0% (1m) / 50%','b',1.9],['pods: 1 current / 1 desired','b',2.2],['','',0],['SuccessfulRescale','b okc',2.5],['New size: 1','b okc',2.5],['reason: All metrics','',2.7],['below target','',2.7],['','',0],['app pod: Running 1/1','',3.0]],{fs:12,lh:26,top:34,d:1.5});
+  s+=pnl(16,322,768,162,'Reading the final conditions',{d:3.2});
+  [['AbleToScale=True','ReadyForNewScale: no change needed now','ok'],['ScalingActive=True','ValidMetricFound: CPU metrics are flowing','ok'],['ScalingLimited=True','TooFewReplicas: not an error; min is 1','teal']].forEach(([a,b,k],i)=>{const y=374+i*28,d=3.4+i*.3;s+=icon(k==='ok'?'yes':'kept',46,y-5,{d,r:10})+T(66,y,a,{c:'m f13 b',d})+T(296,y,b,{c:'f13',d})});
+  s+=T(36,468,'“0%” was about 1m: 1m ÷ 200m = 0.5%, rounded down. Low, not absolute zero.',{c:'f12 b',d:4.4});
+  return svg(s,'Back to one, confirmed in the lab: replicas by stage, which are stages rather than equal time steps, went Idle 1, Loaded 4, Stabilized 4, Quiet 1. The final kubectl describe hpa showed CPU at 0% (1m) against 50%, pods at 1 current and 1 desired, a SuccessfulRescale event with new size 1 because all metrics were below target, and the application Pod Running 1/1. The final conditions: AbleToScale=True, ReadyForNewScale, meaning no change is needed now; ScalingActive=True, ValidMetricFound, meaning CPU metrics are flowing; ScalingLimited=True, TooFewReplicas, which is not an error because the minimum is 1. The 0% was about 1m: 1m ÷ 200m = 0.5%, rounded down, low but not absolute zero.');
+}
+
+function V18(){
+  const R=[['Metrics API not available','addons list; Deployment; APIService','missing, stopped or unregistered addon'],['Metrics Server Pending','describe pod Events; node taints','scheduling policy or reservations block it'],['MissingEndpoints','Pod readiness; Service selector; EndpointSlice','the Service has no ready target'],['FailedDiscoveryCheck','APIService condition; logs; endpoint ports','aggregation path not usable yet'],['kubectl top empty or failing','raw metrics.k8s.io query; kubelet reachability','collection vs API availability'],['HPA target &lt;unknown&gt;','CPU requests; Pod readiness; HPA events','no metrics yet for new or unready Pods'],['HPA not scaling down','utilization; 300 s window; min/max','stabilization, or a real need for replicas']];
+  let s=G(`<rect width="768" height="40" rx="12" class="inkf"/><text x="384" y="26" text-anchor="middle" class="f14 b inv">Trace the metric from the workload to the decision-maker, and find the failing hop.</text>`,{x:16,y:10,an:'up',d:.1});
+  s+=`<path d="M44 74V454" class="fade" style="stroke:var(--ink-2);stroke-width:3;--d:.3s"/>`;
+  s+=T(76,72,'symptom',{c:'f11 b mut',d:.3})+T(330,72,'check first · what it usually means',{c:'f11 b mut',d:.3});
+  R.forEach(([a,b,c],i)=>{const y=100+i*56,d=.5+i*.3,k=['bad','bad','warn','warn','db','teal','teal'][i];s+=`<circle cx="44" cy="${y+4}" r="10" class="pop" style="fill:var(--${k});stroke:var(--surface);stroke-width:3;--d:${d}s"/>`+T(76,y+8,a,{c:'m f12 b',d})+T(330,y,b,{c:'f12 b',d})+T(330,y+18,c,{c:'f12 mut',d})+`<path d="M70 ${y+30}H780" class="fade" style="stroke:var(--line);stroke-width:1;--d:${d}s"/>`});
+  return svg(s,'A troubleshooting playbook: trace the metric from the workload to the decision-maker, and find the failing hop. Metrics API not available: check the addons list, the Deployment and the APIService; it usually means a missing, stopped or unregistered addon. Metrics Server Pending: check the Pod’s Events and node taints; scheduling policy or reservations block it. MissingEndpoints: check Pod readiness, the Service selector and the EndpointSlice; the Service has no ready target. FailedDiscoveryCheck: check the APIService condition, logs and endpoint ports; the aggregation path isn’t usable yet. kubectl top empty or failing: query the raw metrics.k8s.io API and check kubelet reachability, to separate collection from API availability. HPA target <unknown>: check CPU requests, Pod readiness and HPA events; there are no metrics yet for new or unready Pods. HPA not scaling down: check utilization, the 300-second window and min and max; it’s stabilization or a real need for the replicas.');
+}
+
+function V19(){
+  let s=pnl(16,12,376,254,'This lab: one Minikube node',{k:'teal',d:.1});
+  s+=G(`<rect width="336" height="120" rx="12" style="fill:var(--ink-2);fill-opacity:.08;stroke:var(--ink-2);stroke-width:2"/><text x="12" y="20" class="f11 b mut">gpu-lab</text>`,{x:36,y:52,an:'pop',d:.3});
+  [['teal',0],['db',1],['vol',2],['web',3]].forEach(([k,i])=>{s+=miniPodK(52+i*80,88,{k,d:.5+i*.12,s:.55})});
+  s+=lines(36,200,['system, GPU and test Pods share one node','taint removed · insecure TLS · Metrics Server only'],{lh:22,d:1.0,c:['f12 b','f12']});
+  s+=pnl(408,12,376,254,'A production GPU platform',{k:'db',d:1.3});
+  [['system','web',0],['GPU','vol',1],['GPU','vol',2]].forEach(([n,k,i])=>{const x=428+i*116;s+=G(`<rect width="104" height="120" rx="12" style="fill:var(--${k});fill-opacity:.1;stroke:var(--${k});stroke-width:2"/><text x="10" y="20" class="f11 b">${n} node</text>`,{x,y:52,an:'pop',d:1.5+i*.15});if(i)s+=lockI(x+70,60,{d:1.9,k:'vol',s:.6})});
+  s+=lines(428,200,['taints kept on GPU nodes · real certificates','Prometheus, Grafana, kube-state-metrics, DCGM'],{lh:22,d:2.1,c:['f12 b','f12']});
+  s+=pnl(16,280,768,204,'Report only what you verified',{d:2.6});
+  [['yes','Metrics API healthy: Available=True, kubectl top and raw JSON'],['yes','Busy loop ≈ 500m; node CPU 139m → 612m'],['yes','HPA scaled 1 → 4 → 1, with both SuccessfulRescale events'],['warn','Namespace day58 deleted? No output confirms it yet.']].forEach(([ic,t],i)=>{const y=334+i*28,d=2.8+i*.3;s+=icon(ic,46,y-5,{d,r:11})+T(68,y,t,{c:ic==='warn'?'f13 b warnc':'f13',d})});
+  s+=G(`<rect width="420" height="34" rx="10" class="codebg"/><text x="14" y="22" class="m f12">kubectl get namespace day58  →  expect NotFound</text>`,{x:68,y:440,an:'pop',d:4.2});
+  s+=T(500,462,'then write “cleanup verified”',{c:'f12 b',d:4.4});
+  return svg(s,'Lab versus production, and honest reporting. This lab used one Minikube node, gpu-lab, where system, GPU and test Pods share one node, with the taint removed, insecure TLS flags and Metrics Server only. A production GPU platform separates system nodes from GPU nodes, keeps taints on GPU nodes, uses real certificates, and adds Prometheus, Grafana, kube-state-metrics and DCGM. Report only what you verified: the Metrics API was healthy, with Available=True, kubectl top and raw JSON; the busy loop ran at about 500m and node CPU went from 139m to 612m; the HPA scaled 1 to 4 to 1 with both SuccessfulRescale events. But no output yet confirms the day58 namespace was deleted: run kubectl get namespace day58, expect NotFound, and only then write cleanup verified.');
+}
+
+const miniSvg=(inner,vb)=>`<svg viewBox="${vb}" aria-hidden="true">${inner}</svg>`;
+function V20(){
+  const PL=`${['--web','--teal','--db','--warn'].map((c,i)=>`<rect x="${i*16}" y="6" width="12" height="16" rx="3" style="fill:var(${c})"/>`).join('')}`;
+  const RQ=`<path d="M0 24H60" style="stroke:var(--ink-2);stroke-width:2"/><rect x="0" y="8" width="12" height="12" style="fill:var(--teal)"/><rect x="0" y="12" width="58" height="6" rx="3" style="fill:var(--warn)"/><path d="M58 2V26" style="stroke:var(--bad);stroke-width:3"/>`;
+  const RD=`<text x="0" y="20" class="m f15 b">0Mi</text><text x="34" y="20" class="f15 b">≠</text><text x="46" y="20" class="m f15 b">0</text>`;
+  const LY=`${[0,1,2].map(i=>`<rect x="${i*21}" y="6" width="17" height="16" rx="3" style="fill:var(${['--bad','--warn','--ok'][i]})"/>`).join('')}`;
+  const HP=`<text x="0" y="20" class="m f15 b">1</text><path d="M12 14H22" style="stroke:var(--ink);stroke-width:2"/><text x="25" y="20" class="m f15 b warnc">4</text><path d="M37 14H47" style="stroke:var(--ink);stroke-width:2"/><text x="50" y="20" class="m f15 b tealc">1</text>`;
+  const TR=`<circle cx="6" cy="14" r="5" style="fill:var(--web)"/><path d="M11 14H50" style="stroke:var(--ink-2);stroke-width:2;stroke-dasharray:4 3"/><circle cx="54" cy="14" r="7" style="fill:var(--ok)"/><path d="M50 14l3 3 5-6" style="fill:none;stroke:#fff;stroke-width:2"/>`;
+  const items=[[miniSvg(PL,'-2 0 64 28'),'<b>Metrics flow in hops:</b> runtime → kubelet → Metrics Server → metrics.k8s.io → kubectl top and HPA. Recent values, not history.'],
+    [miniSvg(RQ,'-2 0 64 28'),'<b>Requests reserve, limits cap, usage is measured.</b> HPA’s CPU % divides by the request: ~500m on 100m ≈ 500%.'],
+    [miniSvg(RD,'0 0 64 28'),'<b>Read the small print.</b> 0Mi was 432Ki; a node’s “0%” was 139m against a big allocatable denominator.'],
+    [miniSvg(LY,'-2 0 64 28'),'<b>Three separate failures:</b> addon disabled, Pod Pending on a taint, and an API still warming up. Check each layer.'],
+    [miniSvg(HP,'0 0 64 28'),'<b>HPA rounds up the ratio:</b> 170% vs 50% gave 4 replicas; 40% at 4 still gives 4, and scale-down waits 300 s.'],
+    [miniSvg(TR,'-2 0 64 28'),'<b>Trace the hop that fails, and report only what you verified,</b> including the cleanup.']];
+  return `<ul class="take">${items.map(([ic,t],i)=>`<li class="up" style="--d:${.3+i*.3}s">${ic}<div>${t}</div></li>`).join('')}</ul>`;
+}
+function V21(){
+  const Q=[['teal','A Pod requests 150m CPU and uses 450m. What’s its utilization relative to the request?','300%: 450 ÷ 150 × 100. Legal, as long as the limit and the node allow it.'],
+    ['warn','A node shows 0% CPU in kubectl top but 139m of usage. Is that a contradiction?','No. The percentage divides by node allocatable CPU and rounds; 139m is still real work.'],
+    ['db','Four replicas at 40% CPU, with a 50% target. What does the simplified formula give?','4: ⌈4 × 40 ÷ 50⌉ = ⌈3.2⌉ = 4. The HPA can rationally stay at four.'],
+    ['ok','What separates ScaleDownStabilized from TooFewReplicas?','Stabilized: recent higher recommendations are being kept. TooFewReplicas: the calculation fell below the configured minimum.']];
+  return `<div class="quiz"><div class="cards">${Q.map(([k,q,a],i)=>`<button class="card up" style="--k:var(--${k});--d:${.3+i*.15}s" aria-pressed="false"><span class="card-inner"><span class="face front"><small>Question ${i+1}</small><span class="q">${q}</span><em>Tap to flip</em></span><span class="face back" aria-hidden="true"><small>Answer</small><span class="q">${a}</span></span></span></button>`).join('')}</div><button class="again up" style="--d:1s" data-action="restart">Watch again from the start</button></div>`;
+}
+
+// ---------- Scenes ----------
+const CH=['Intro','The big picture','Two pipelines','Resource math','Fixing the Metrics API','Measuring CPU','How HPA decides','Scaling 1 → 4 → 1','Troubleshooting','Wrap-up'];
+const P=(t,d)=>`<p class="up" style="--d:${d}s">${t}</p>`;
+const R=(t,d)=>`<p class="rule up" style="--d:${d}s"><span>${t}</span></p>`;
+const SC=[
+ {ch:0,dur:10,title:'Kubernetes Resource Metrics',vis:V0(),copy:`<p class="course up" style="--d:.05s">AI Infrastructure &amp; ML Systems, Day 58</p><h1 class="long up" style="--d:.15s">Kubernetes Resource Metrics</h1><p class="lede up" style="--d:.3s">From raw CPU counters to automatic scaling decisions.</p><button class="start up" style="--d:.45s" data-action="start"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15l12-7.5z"/></svg>Start the explainer</button><p class="hint up" style="--d:.6s">About 4 minutes. Use ← → or swipe to go at your own pace.</p><p class="hint rotate-hint up" style="--d:.7s">Tip: turn your phone sideways for bigger diagrams.</p>`},
+ {ch:1,dur:11.5,title:'Which layer explains “slow”?',vis:V1(),body:P('Latency says what happened; the layers below say why.',.2)+R('Today: Kubernetes CPU, memory and HPA.',.35)},
+ {ch:2,dur:12.5,title:'The resource metrics pipeline',vis:V2(),body:P('Usage hops from the container to the kubelet, Metrics Server, and the metrics API.',.2)+R('Recent values for decisions, not history.',.35)},
+ {ch:2,dur:12,title:'A separate pipeline for history',vis:V3(),body:P('Prometheus and Grafana store trends; Metrics Server feeds autoscaling.',.2)+R('Complements, not substitutes.',.35)},
+ {ch:3,dur:11.5,title:'CPU comes in slices',vis:V4(),body:P('One core is 1000 millicores, or a billion nanocores.',.2)+R('You write m; the raw API reports n.',.35)},
+ {ch:3,dur:12.5,title:'Request, limit, usage',vis:V5(),body:P('The request books a table, the limit caps the order, and usage is what you eat.',.2)+R('A request isn’t a ceiling.',.35)},
+ {ch:3,dur:11.5,title:'Pick the right denominator',vis:V6(),body:P('The same 500m is 500% of the request and 100% of the limit.',.2)+R('HPA CPU targets divide by the request.',.35)},
+ {ch:3,dur:12,title:'Read the small print',vis:V7(),body:P('Rounded displays and big denominators can hide real usage.',.2)+R('0Mi and 0% don’t mean zero.',.35)},
+ {ch:4,dur:12.5,title:'Case I: a Pod stuck in Pending',vis:V8(),body:P('Installing the addon wasn’t enough; the scheduler refused to place the Pod.',.2)+R('Read the failing stage’s own error.',.35)},
+ {ch:4,dur:12,title:'A “GPU work only” sign',vis:V9(),body:P('A taint repels Pods without a matching toleration.',.2)+R('Fine to remove in a one-node lab, not across a GPU fleet.',.35)},
+ {ch:4,dur:12.5,title:'Case II: Running isn’t Available',vis:V10(),body:P('The Pod ran, but the metrics API needed about a minute to warm up.',.2)+R('Check the Pod, the Service, then the API.',.35)},
+ {ch:5,dur:12,title:'Read the raw JSON',vis:V11(),body:P('Every value carries a timestamp and the window it was averaged over.',.2)+R('kubectl top is the same data, rounded.',.35)},
+ {ch:5,dur:12.5,title:'A busy loop on a leash',vis:V12(),body:P('The loop wanted a whole core; the 500m limit held it near 500m.',.2)+R('Node CPU: 139m → 612m.',.35)},
+ {ch:6,dur:12.5,title:'The HPA formula',vis:V13(),body:P('Observed ÷ target, times current replicas, rounded up.',.2)+R('170% against 50% means 4 replicas.',.35)},
+ {ch:6,dur:11.5,title:'The HPA lab setup',vis:V14(),body:P('A web app, a load generator, and an autoscaler between 1 and 4 replicas.',.2)+R('50% of 200m is 100m per replica.',.35)},
+ {ch:7,dur:12,title:'Scaling up: 1 → 4',vis:V15(),body:P('Under load, one Pod hit 340m, or 170% of its request.',.2)+R('Early warnings can clear on their own.',.35)},
+ {ch:7,dur:12.5,title:'Why not scale down at once?',vis:V16(),body:P('At 40%, the formula still says 4, and the HPA remembers the last 300 seconds.',.2)+R('Stabilization is a feature.',.35)},
+ {ch:7,dur:12,title:'Back to one',vis:V17(),body:P('Once all metrics fell below target, the HPA returned to its minimum.',.2)+R('TooFewReplicas isn’t an error here.',.35)},
+ {ch:8,dur:12.5,title:'A troubleshooting playbook',vis:V18(),body:P('Each symptom points at one hop in the path.',.2)+R('Find the hop that fails.',.35)},
+ {ch:8,dur:12,title:'Lab vs production',vis:V19(),body:P('One small node versus a fleet with protected GPU nodes.',.2)+R('Report only what you verified.',.35)},
+ {ch:9,dur:12,title:'What to remember',vis:V20(),body:P('Six ideas carry the whole lesson.',.2)+P('Next, check yourself with four quick questions.',.35)},
+ {ch:9,dur:10,title:'Check yourself',vis:V21(),body:P('Answer in your head first, then tap a card to flip it.',.2)+P('Next: Day 59, GPU telemetry with DCGM.',.35)}
+];
+// ---------- Player ----------
+const stage=document.getElementById('stage'),track=document.getElementById('track'),chap=document.getElementById('chap'),count=document.getElementById('count'),live=document.getElementById('live');
+const btnPrev=document.getElementById('prev'),btnNext=document.getElementById('next'),btnPlay=document.getElementById('play'),btnReplay=document.getElementById('replay');
+const strip=s=>s.replace(/<[^>]+>/g,'').replace(/&amp;/g,'&');
+const els=[],fills=[],segs=[];
+SC.forEach((s,i)=>{
+  const sec=document.createElement('section');sec.className='scene';
+  sec.setAttribute('aria-label',`Scene ${i+1} of ${SC.length}: ${strip(s.title)}`);
+  sec.innerHTML=`<div class="copy">${s.copy||`<h2 class="up" style="--d:.05s">${s.title}</h2>${s.body}`}</div><div class="vis">${s.vis}</div>`;
+  stage.appendChild(sec);els.push(sec);
+  const b=document.createElement('button');b.className='seg'+(i>0&&SC[i-1].ch!==s.ch?' chstart':'');
+  b.setAttribute('aria-label',`Go to scene ${i+1}: ${strip(s.title)}`);b.innerHTML='<i><b></b></i>';
+  b.addEventListener('click',()=>go(i));track.appendChild(b);segs.push(b);fills.push(b.querySelector('b'));
+});
+const ICON_PLAY='<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',ICON_PAUSE='<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6.5" y="5" width="4" height="14" rx="1"/><rect x="13.5" y="5" width="4" height="14" rx="1"/></svg>';
+let cur=-1,auto=false,t0=performance.now(),onTimer=null;
+function setAuto(v){
+  auto=v;btnPlay.innerHTML=v?ICON_PAUSE:ICON_PLAY;btnPlay.setAttribute('aria-label',v?'Pause auto-play':'Start auto-play');btnPlay.setAttribute('aria-pressed',String(v));
+  if(v&&cur>=0){const dur=SC[cur].dur*1000,el=performance.now()-t0;if(el>dur-1200)t0=performance.now()-(dur-1200)}
+}
+function go(i,{replay=false}={}){
+  i=Math.max(0,Math.min(SC.length-1,i));
+  if(i===cur&&!replay)return;
+  const prev=cur;
+  els.forEach((el,j)=>{el.classList.toggle('active',j===i);el.classList.toggle('past',j<i);
+    if(j===i){el.inert=false;el.removeAttribute('aria-hidden')}else{el.inert=true;el.setAttribute('aria-hidden','true')}});
+  if(prev>=0&&prev!==i){const p=prev;setTimeout(()=>{if(cur!==p)els[p].classList.remove('on')},750)}
+  const el=els[i];el.classList.remove('on');void el.getBoundingClientRect();
+  clearTimeout(onTimer);const delay=(prev===i)?40:260;
+  onTimer=setTimeout(()=>{el.classList.add('on');t0=performance.now()},delay);
+  t0=performance.now()+delay;cur=i;el.scrollTop=0;
+  const s=SC[i];
+  chap.innerHTML=s.ch===0?'<b>Intro</b>':`Chapter ${s.ch} of ${CH.length-1}: <b>${CH[s.ch]}</b>`;
+  count.textContent=`${i+1} / ${SC.length}`;
+  live.textContent=`Scene ${i+1} of ${SC.length}: ${strip(s.title)}`;
+  btnPrev.disabled=i===0;btnNext.disabled=i===SC.length-1;
+  fills.forEach((f,j)=>{f.style.width=j<i?'100%':'0%'});
+  segs.forEach((b,j)=>{if(j===i)b.setAttribute('aria-current','step');else b.removeAttribute('aria-current')});
+}
+function tick(now){
+  if(cur>=0){const dur=SC[cur].dur*1000,el=Math.max(0,now-t0);fills[cur].style.width=(Math.min(1,el/dur)*100).toFixed(2)+'%';
+    if(auto&&el>=dur){if(cur<SC.length-1)go(cur+1);else setAuto(false)}}
+  requestAnimationFrame(tick);
+}
+btnPrev.addEventListener('click',()=>go(cur-1));
+btnNext.addEventListener('click',()=>go(cur+1));
+btnPlay.addEventListener('click',()=>{if(!auto&&cur===SC.length-1){go(0)}setAuto(!auto);if(auto&&cur===0)go(1)});
+btnReplay.addEventListener('click',()=>go(cur,{replay:true}));
+stage.addEventListener('click',e=>{
+  const a=e.target.closest('[data-action]');
+  if(a){if(a.dataset.action==='start'){setAuto(true);go(1)}else if(a.dataset.action==='restart'){setAuto(true);go(1)}return}
+  const c=e.target.closest('.card');
+  if(c){const f=c.classList.toggle('flipped');c.setAttribute('aria-pressed',String(f));c.querySelector('.front').setAttribute('aria-hidden',String(f));c.querySelector('.back').setAttribute('aria-hidden',String(!f))}
+});
+document.addEventListener('keydown',e=>{
+  if(e.altKey||e.ctrlKey||e.metaKey)return;
+  const onBtn=e.target.closest&&e.target.closest('button');
+  if(e.key==='ArrowRight'||e.key==='PageDown'){e.preventDefault();go(cur+1)}
+  else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();go(cur-1)}
+  else if(e.key===' '&&!onBtn){e.preventDefault();btnPlay.click()}
+  else if(e.key==='r'||e.key==='R'){go(cur,{replay:true})}
+  else if(e.key==='Home'){go(0)}else if(e.key==='End'){go(SC.length-1)}
+});
+let sx=null,sy=null;
+stage.addEventListener('touchstart',e=>{const t=e.touches[0];sx=t.clientX;sy=t.clientY},{passive:true});
+stage.addEventListener('touchend',e=>{if(sx==null)return;const t=e.changedTouches[0],dx=t.clientX-sx,dy=t.clientY-sy;if(Math.abs(dx)>55&&Math.abs(dx)>Math.abs(dy)*1.4)go(cur+(dx<0?1:-1));sx=null},{passive:true});
+setAuto(false);go(0);requestAnimationFrame(tick);
+</script>
+</body>
+</html>
