@@ -1,0 +1,4 @@
+run,concurrency,requests,successful,throughput_req_s,mean_client_ms,p95_client_ms,p99_client_ms
+Concurrency 1,1,20,20,8.398,118.977,120.975,131.029
+Concurrency 2,2,20,20,15.326,130.116,140.749,143.883
+Concurrency 5,5,20,20,36.918,134.736,150.807,150.869

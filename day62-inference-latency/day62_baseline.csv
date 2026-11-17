@@ -1,0 +1,11 @@
+request,status,latency_ms,prompt_tokens,completion_tokens,finish_reason
+1,200,131.313,39,32,length
+2,200,119.952,39,32,length
+3,200,117.948,39,32,length
+4,200,119.78,39,32,length
+5,200,118.306,39,32,length
+6,200,122.393,39,32,length
+7,200,121.646,39,32,length
+8,200,117.449,39,32,length
+9,200,118.144,39,32,length
+10,200,121.0,39,32,length
