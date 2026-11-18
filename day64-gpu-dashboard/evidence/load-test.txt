@@ -1,0 +1,16 @@
+Day 64 vLLM load test (2026-11-18)
+Model: Qwen/Qwen2.5-0.5B-Instruct
+GPU: NVIDIA GeForce RTX 3070 Laptop GPU (8 GiB)
+Workers: 2
+Configured generation limit: max_tokens=96
+Duration target: 90 seconds
+
+Completed requests: 236
+Elapsed seconds: 90.62
+Requests/sec: 2.60
+Output tokens/sec: 250.01
+Mean client latency: 0.7679s
+P95 client latency: 1.0478s
+
+Source: values transcribed from the user's day64_load.py terminal output.
+This is a single two-worker run; not a capacity sweep or maximum throughput claim.

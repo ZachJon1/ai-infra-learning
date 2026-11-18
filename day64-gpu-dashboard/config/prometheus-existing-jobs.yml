@@ -1,0 +1,16 @@
+# Evidence: the user's active Prometheus config already contained these jobs.
+# Keep the existing prometheus.yml; this is a reference snippet, not a replacement.
+# Prometheus and Grafana are in Docker network=host on this machine.
+scrape_configs:
+  - job_name: prometheus
+    scrape_interval: 15s
+    static_configs:
+      - targets: ['127.0.0.1:9090']
+  - job_name: vllm
+    scrape_interval: 15s
+    static_configs:
+      - targets: ['127.0.0.1:8000']
+  - job_name: dcgm-exporter
+    scrape_interval: 15s
+    static_configs:
+      - targets: ['127.0.0.1:9400']
