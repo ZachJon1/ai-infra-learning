@@ -1,0 +1,29 @@
+// Day 66: tail local test logs and optionally captured vLLM output.
+// No Docker socket or privileged host mounts are needed for this first lab.
+loki.source.file "aiinfra" {
+  targets = [
+    {
+      __path__    = "/var/log/ai-infra/lab.log",
+      job         = "ai-infra",
+      app         = "day66-demo",
+      environment = "lab",
+    },
+    {
+      __path__    = "/var/log/ai-infra/vllm.log",
+      job         = "ai-infra",
+      app         = "vllm",
+      environment = "lab",
+    },
+  ]
+  forward_to = [loki.write.local.receiver]
+  file_match {
+    enabled     = true
+    sync_period = "5s"
+  }
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

@@ -1,0 +1,47 @@
+// Day 66 Docker add-on: keep the original synthetic-file source and also
+// collect real vLLM container stdout/stderr through Docker discovery.
+// Socket access is powerful even when mounted :ro. Trusted local lab only.
+
+loki.source.file "aiinfra" {
+  targets = [
+    {
+      __path__    = "/var/log/ai-infra/lab.log",
+      job         = "ai-infra",
+      app         = "day66-demo",
+      environment = "lab",
+    },
+  ]
+  forward_to = [loki.write.local.receiver]
+  file_match {
+    enabled     = true
+    sync_period = "5s"
+  }
+}
+
+discovery.docker "local" {
+  host = "unix:///var/run/docker.sock"
+  refresh_interval = "5s"
+}
+
+discovery.relabel "vllm_only" {
+  targets = discovery.docker.local.targets
+
+  rule {
+    action        = "keep"
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/day66-vllm"
+  }
+}
+
+loki.source.docker "vllm" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.vllm_only.output
+  labels     = { app = "vllm", job = "ai-infra", environment = "lab", source = "docker" }
+  forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

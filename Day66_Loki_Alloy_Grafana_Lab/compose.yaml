@@ -1,0 +1,48 @@
+name: day66-loki
+services:
+  loki:
+    image: grafana/loki:3.7.10
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./loki-config.yaml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki
+    ports:
+      - "127.0.0.1:13100:3100"
+    restart: unless-stopped
+
+  alloy:
+    image: grafana/alloy:v1.22.0
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./config.alloy:/etc/alloy/config.alloy:ro
+      - ./logs:/var/log/ai-infra:ro
+      - alloy-data:/var/lib/alloy/data
+    ports:
+      - "127.0.0.1:12346:12345"
+    depends_on:
+      - loki
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:13.3.0
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Create a .env file with a random admin password}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "127.0.0.1:13000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./provisioning/datasources/loki.yaml:/etc/grafana/provisioning/datasources/loki.yaml:ro
+    depends_on:
+      - loki
+    restart: unless-stopped
+
+volumes:
+  loki-data:
+  alloy-data:
+  grafana-data:

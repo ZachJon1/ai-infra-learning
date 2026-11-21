@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 570" role="img" aria-labelledby="title desc">
+<title id="title">Dockerized vLLM inference and central logging architecture</title>
+<desc id="desc">Client traffic reaches Docker vLLM and NVIDIA GPU. Docker logs are read by Grafana Alloy through the Docker API and forwarded to Loki. Grafana queries Loki. Prometheus and DCGM are existing parallel metrics services, not proven connected to the new Grafana instance.</desc>
+<defs><marker id="arr" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#64748b"/></marker><style>text{font-family:Arial,Helvetica,sans-serif;fill:#14253d}.lbl{font-size:21px;font-weight:bold}.small{font-size:15px}.hint{font-size:14px;fill:#64748b}.panel{fill:#f7faff;stroke:#d8e2f0;stroke-width:2}.blue{fill:#edf5ff;stroke:#3974bf;stroke-width:2}.amber{fill:#fff5e3;stroke:#c98628;stroke-width:2}.violet{fill:#f4eeff;stroke:#8557b7;stroke-width:2}.green{fill:#ecf9f1;stroke:#31a26b;stroke-width:2}.gray{fill:#f1f5f9;stroke:#94a3b8;stroke-width:2}.edge{fill:none;stroke:#64748b;stroke-width:3;marker-end:url(#arr)}.dash{stroke-dasharray:8 7}</style></defs>
+<rect width="1100" height="570" rx="20" fill="#ffffff"/>
+<text x="34" y="43" style="font-size:27px;font-weight:bold">DAY 66  /  AI INFRASTRUCTURE LOGGING</text>
+<text x="34" y="71" class="hint">Verified single-host deployment  |  Docker + Grafana Alloy + Loki + Grafana</text>
+<rect x="25" y="95" width="1050" height="360" rx="16" class="panel"/>
+<rect x="45" y="126" width="150" height="86" rx="12" class="gray"/>
+<text x="120" y="158" text-anchor="middle" class="lbl">Client</text><text x="120" y="182" text-anchor="middle" class="small">HTTP :8000</text>
+<rect x="256" y="126" width="212" height="86" rx="12" class="blue"/>
+<text x="362" y="153" text-anchor="middle" class="lbl">vLLM container</text><text x="362" y="178" text-anchor="middle" class="small">Qwen2.5-0.5B</text><text x="362" y="196" text-anchor="middle" class="hint">NVIDIA GPU enabled</text>
+<rect x="525" y="126" width="200" height="86" rx="12" class="amber"/>
+<text x="625" y="157" text-anchor="middle" class="lbl">Docker logs</text><text x="625" y="181" text-anchor="middle" class="small">stdout / stderr</text>
+<path d="M195 169 H252" class="edge"/><path d="M468 169 H521" class="edge"/>
+<rect x="526" y="289" width="198" height="92" rx="12" class="amber"/>
+<text x="625" y="318" text-anchor="middle" class="lbl">Grafana Alloy</text><text x="625" y="341" text-anchor="middle" class="small">discovery.docker</text><text x="625" y="360" text-anchor="middle" class="hint">loki.source.docker</text>
+<path d="M625 212 V285" class="edge"/>
+<rect x="783" y="289" width="254" height="92" rx="12" class="violet"/>
+<text x="910" y="317" text-anchor="middle" class="lbl">Grafana Loki</text><text x="910" y="341" text-anchor="middle" class="small">Label index + log chunks</text><text x="910" y="360" text-anchor="middle" class="hint">localhost:13100</text>
+<path d="M724 334 H779" class="edge"/>
+<rect x="783" y="126" width="254" height="86" rx="12" class="green"/>
+<text x="910" y="158" text-anchor="middle" class="lbl">Grafana Explore</text><text x="910" y="183" text-anchor="middle" class="small">LogQL / localhost:13000</text>
+<path d="M910 289 V216" class="edge"/><text x="926" y="256" class="hint">query</text>
+<rect x="43" y="291" width="415" height="91" rx="12" class="gray"/>
+<text x="250" y="321" text-anchor="middle" class="lbl">Existing monitoring track</text>
+<text x="250" y="347" text-anchor="middle" class="small">Prometheus  +  DCGM GPU exporter</text>
+<text x="250" y="368" text-anchor="middle" class="hint">Not yet validated as integrated here</text>
+<path d="M362 212 V287" class="edge dash"/>
+<rect x="25" y="475" width="1050" height="67" rx="12" fill="#fff7ed" stroke="#fdba74"/>
+<text x="48" y="500" style="font-size:17px;font-weight:bold;fill:#9a3412">LAB SECURITY BOUNDARY</text>
+<text x="48" y="523" class="small">Loki has no authentication; Docker socket access is privileged. Loopback-only demo, not multi-tenant production.</text>
+</svg>
