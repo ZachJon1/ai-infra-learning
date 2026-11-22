@@ -1,0 +1,13 @@
+experiment,run,client_ms,queue_ms,prefill_ms,decode_ms,engine_e2e_ms,injected_delay_ms,note
+simulated,1,201,,,,,,Jaeger root span; no GPU
+simulated,2,512,,,,,,Jaeger root span; no GPU
+simulated,3,301,,,,,,Jaeger root span; no GPU
+real_initial,1,1341.577,0.068,57.718,123.785,182.773,,Jaeger engine details and client span; other time unassigned
+real_repeat,1,183,,,,,,client HTTP request
+real_repeat,2,165,,,,,,client HTTP request
+real_repeat,3,162,,,,,,client HTTP request
+real_repeat,4,166,,,,,,client HTTP request
+real_repeat,5,175,,,,,,client HTTP request
+breakfix_baseline,1,257,,,,,0,full workflow
+breakfix_fault,1,907,,,,,600,full workflow
+breakfix_baseline,2,237,,,,,0,full workflow

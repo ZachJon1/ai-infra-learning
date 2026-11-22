@@ -1,0 +1,51 @@
+# Day 66 add-on. Use together with the original compose.yaml, never alone.
+services:
+  vllm:
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.11.0}
+    container_name: day66-vllm
+    init: true
+    command:
+      - --model
+      - Qwen/Qwen2.5-0.5B-Instruct
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --dtype
+      - float16
+      - --max-model-len
+      - "2048"
+      - --gpu-memory-utilization
+      - "0.65"
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
+    shm_size: "1gb"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
+      start_period: 180s
+      interval: 20s
+      timeout: 10s
+      retries: 10
+    restart: unless-stopped
+    stop_grace_period: 45s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  alloy:
+    # Local trusted-machine lab only: Docker socket grants powerful host control.
+    # In production use an access-restricted socket proxy or Kubernetes-native collection.
+    volumes:
+      - ./config.docker.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro

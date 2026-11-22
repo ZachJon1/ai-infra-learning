@@ -1,0 +1,32 @@
+# Add as an override to the EXISTING Day 66 project.
+# Paths and GPU reservations come from the two pre-existing compose files.
+services:
+  vllm:
+    image: day67-vllm-otel:v0.11.0
+    environment:
+      OTEL_SERVICE_NAME: ai-infra-vllm
+      OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: grpc
+      OTEL_EXPORTER_OTLP_TRACES_INSECURE: 'true'
+    command:
+      - --model
+      - Qwen/Qwen2.5-0.5B-Instruct
+      - --host
+      - 0.0.0.0
+      - --port
+      - '8000'
+      - --dtype
+      - float16
+      - --max-model-len
+      - '2048'
+      - --gpu-memory-utilization
+      - '0.65'
+      - --otlp-traces-endpoint
+      - grpc://otel-collector:4317
+    networks:
+      - default
+      - tracing
+
+networks:
+  tracing:
+    external: true
+    name: day67-distributed-tracing_default
