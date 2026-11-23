@@ -1,0 +1,1000 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Centralized logging, explained</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=JetBrains+Mono:wght@400;600;700&display=swap">
+<style>
+:root{
+  --paper:#EEF2FA;--surface:#FFFFFF;--ink:#18203F;--ink-2:#525B82;--line:#CBD3EA;--code:#E2E7F5;
+  --web:#2F6BFF;--db:#7A4CF5;--client:#F5A524;--client-ink:#A35F00;--vol:#E94A89;--teal:#0E9FAE;
+  --ok:#0F9D65;--bad:#E0433F;--warn:#D98200;--net:rgba(47,107,255,.06);--on-client:#2A1C00;
+  --note:#FFE38A;--note-ink:#3B2E00;--hl:rgba(245,165,36,.42);
+  --sans:"Bricolage Grotesque",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  color-scheme:light;box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --paper:#151936;--surface:#1F2449;--ink:#ECEEFF;--ink-2:#A8AFD6;--line:#363E70;--code:#262C5A;
+  --web:#5C8DFF;--db:#9E80FF;--client:#FFBE3B;--client-ink:#FFCB5C;--vol:#FF6FA4;--teal:#29C3D2;
+  --ok:#33D08E;--bad:#FF6A6A;--warn:#FFB340;--net:rgba(92,141,255,.09);--note:#EBCF63;--note-ink:#2A2000;--hl:rgba(255,190,59,.30);color-scheme:dark}}
+:root[data-theme="dark"]{
+  --paper:#151936;--surface:#1F2449;--ink:#ECEEFF;--ink-2:#A8AFD6;--line:#363E70;--code:#262C5A;
+  --web:#5C8DFF;--db:#9E80FF;--client:#FFBE3B;--client-ink:#FFCB5C;--vol:#FF6FA4;--teal:#29C3D2;
+  --ok:#33D08E;--bad:#FF6A6A;--warn:#FFB340;--net:rgba(92,141,255,.09);--note:#EBCF63;--note-ink:#2A2000;--hl:rgba(255,190,59,.30);color-scheme:dark}
+*,*::before,*::after{box-sizing:inherit}
+html{height:100%;scroll-padding-top:env(safe-area-inset-top,0px);background:var(--paper)}
+body{height:100%;margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;overflow:hidden}
+.app{height:100%;display:grid;grid-template-rows:auto minmax(0,1fr) auto;padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
+.top{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px clamp(16px,3vw,44px) 4px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px;letter-spacing:-.01em}
+.brand svg{width:30px;height:22px}
+.where{font-size:15px;color:var(--ink-2);text-align:right}
+.where b{color:var(--ink);font-weight:650}
+.stage{position:relative;overflow:hidden}
+.scene{position:absolute;inset:0;display:grid;grid-template-columns:minmax(260px,.78fr) minmax(0,1.75fr);gap:clamp(16px,3.2vw,56px);align-items:center;padding:6px clamp(16px,3vw,44px) 10px;opacity:0;visibility:hidden;transform:translateX(48px);transition:opacity .45s ease,transform .6s cubic-bezier(.2,.8,.2,1),visibility 0s linear .6s}
+.scene.past{transform:translateX(-48px)}
+.scene.active{opacity:1;visibility:visible;transform:none;transition:opacity .55s ease .12s,transform .7s cubic-bezier(.2,.8,.2,1) .12s,visibility 0s}
+.copy{max-width:40ch;align-self:center;min-width:0}
+.copy h1{font-size:clamp(46px,6.6vw,98px);line-height:.95;letter-spacing:-.035em;margin:.08em 0 .25em;font-weight:800;font-variation-settings:"opsz" 96}
+.copy h2{font-size:clamp(26px,3.2vw,48px);line-height:1.04;letter-spacing:-.028em;margin:0 0 .45em;font-weight:760;font-variation-settings:"opsz" 96;text-wrap:balance}
+.copy p{font-size:clamp(15.5px,1.25vw,19px);line-height:1.45;color:var(--ink-2);margin:0 0 .75em;text-wrap:pretty}
+.copy p strong{color:var(--ink)}
+.copy code,.vis code{font-family:var(--mono);font-size:.84em;background:var(--code);color:var(--ink);padding:.06em .36em;border-radius:6px}
+.copy .rule{color:var(--ink);font-weight:680}
+.copy .rule span{background:linear-gradient(transparent 58%,var(--hl) 58%,var(--hl) 92%,transparent 92%);-webkit-box-decoration-break:clone;box-decoration-break:clone}
+.copy pre{font-family:var(--mono);font-size:13.5px;line-height:1.55;background:var(--code);color:var(--ink);padding:10px 12px;border-radius:10px;margin:0 0 .8em;overflow-x:auto;white-space:pre}
+.copy pre.yaml{font-size:12px;line-height:1.5;max-height:min(46vh,430px);overflow:auto}
+.copy .lede{font-size:clamp(18px,1.6vw,23px);color:var(--ink)}
+.copy .course{font-weight:650;color:var(--ink)}
+.copy .hint{font-size:14px}
+.rotate-hint{display:none}
+.start{font:inherit;font-weight:700;font-size:18px;padding:14px 24px 14px 20px;border-radius:999px;border:0;background:var(--ink);color:var(--paper);cursor:pointer;display:inline-flex;gap:10px;align-items:center;margin:.3em 0 1em;transition:background .2s,transform .15s}
+.start:hover{background:var(--web)}
+.start:active{transform:scale(.97)}
+.start svg{width:18px;height:18px}
+.vis{height:100%;min-height:0;min-width:0;display:flex;align-items:center;justify-content:center}
+.vis>svg{width:100%;height:100%;max-height:100%;overflow:visible;font-size:15px}
+.controls{display:flex;align-items:center;gap:10px;padding:8px clamp(16px,3vw,44px) 14px}
+.btn{width:44px;height:44px;border-radius:50%;border:1.5px solid var(--line);background:var(--surface);color:var(--ink);display:grid;place-items:center;cursor:pointer;flex:none;padding:0;transition:transform .15s,background .2s}
+.btn:hover{background:var(--code)}
+.btn:active{transform:scale(.94)}
+.btn:disabled{opacity:.35;cursor:default}
+.btn svg{width:20px;height:20px}
+.btn.play{width:52px;height:52px;background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.btn.play:hover{background:var(--web);border-color:var(--web)}
+:focus-visible{outline:3px solid var(--web);outline-offset:3px}
+.track{flex:1;display:flex;gap:4px;align-items:center;min-width:0}
+.seg{flex:1;height:28px;border:0;background:none;padding:0;cursor:pointer;display:flex;align-items:center;min-width:0}
+.seg.chstart{margin-left:7px}
+.seg i{display:block;width:100%;height:6px;border-radius:3px;background:var(--line);overflow:hidden;position:relative}
+.seg i b{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--ink);border-radius:3px}
+.seg:hover i{background:var(--ink-2)}
+.count{font-family:var(--mono);font-size:13px;color:var(--ink-2);min-width:4.6em;text-align:right}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+/* takeaways + quiz */
+.take{list-style:none;margin:0;padding:0;display:grid;gap:clamp(10px,1.8vh,20px);width:100%;max-width:660px}
+.take li{display:grid;grid-template-columns:64px 1fr;gap:16px;align-items:center;font-size:clamp(15px,1.25vw,19px);line-height:1.4;color:var(--ink-2)}
+.take li b{color:var(--ink)}
+.take svg{width:64px;height:auto;overflow:visible}
+.quiz{width:100%;max-width:740px;display:grid;gap:14px}
+.cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.card{perspective:1000px;border:0;background:none;padding:0;cursor:pointer;min-height:clamp(150px,23vh,210px);font:inherit;text-align:left;color:inherit;border-radius:18px}
+.card-inner{position:relative;display:block;width:100%;height:100%;min-height:inherit;transform-style:preserve-3d;transition:transform .65s cubic-bezier(.3,1.25,.5,1)}
+.card.flipped .card-inner{transform:rotateY(180deg)}
+.face{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;border-radius:18px;padding:16px 18px;display:flex;flex-direction:column;gap:8px}
+.front{background:var(--surface);border:2px solid var(--line);border-top:7px solid var(--k)}
+.back{background:var(--ink);color:var(--paper);transform:rotateY(180deg)}
+.face small{font-size:13px;font-weight:650;color:var(--ink-2)}
+.back small{color:var(--paper);opacity:.7}
+.face .q{font-size:clamp(15px,1.2vw,18px);line-height:1.35;font-weight:620}
+.face em{margin-top:auto;font-style:normal;font-size:13px;color:var(--ink-2)}
+.again{justify-self:start;font:inherit;font-weight:650;font-size:15px;padding:10px 16px;border-radius:999px;border:1.5px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+.again:hover{background:var(--code)}
+/* svg vocabulary */
+.vis text{fill:var(--ink);font-family:var(--sans);white-space:pre}
+.vis .m{font-family:var(--mono)}
+.vis .b{font-weight:700}
+.vis .mut{fill:var(--ink-2)}
+.vis .okc{fill:var(--ok)}.vis .badc{fill:var(--bad)}.vis .warnc{fill:var(--warn)}.vis .webc{fill:var(--web)}.vis .dbc{fill:var(--db)}.vis .clc{fill:var(--client-ink)}.vis .volc{fill:var(--vol)}.vis .tealc{fill:var(--teal)}.vis .wht{fill:#fff}.vis .inv{fill:var(--paper)}
+.f10{font-size:10px}.f11{font-size:11px}.f12{font-size:12px}.f13{font-size:13px}.f14{font-size:14px}.f15{font-size:15px}.f16{font-size:16px}.f17{font-size:17px}.f18{font-size:18px}.f20{font-size:20px}.f22{font-size:22px}.f30{font-size:30px}.f44{font-size:44px}
+.vis .cname{fill:var(--fg);font-size:15px;font-weight:750}
+.vis .csub{fill:var(--fg);font-family:var(--mono);font-size:10.5px;opacity:.85}
+.vis .ridge{stroke:rgba(255,255,255,.2);stroke-width:2;fill:none}
+.vis .capline{stroke:rgba(0,0,0,.14);stroke-width:2}
+.vis .eye{fill:#fff}.vis .pupil{fill:#18203F}
+.vis .mouth,.vis .lid{fill:none;stroke:var(--fg);stroke-width:3;stroke-linecap:round}
+.vis .ghost{fill-opacity:.12;stroke-width:2.5;stroke-dasharray:7 5}
+.vis .ghostf .eye{stroke:var(--fg);stroke-width:2}
+.vis .paper{fill:var(--surface);stroke:var(--ink);stroke-width:2}
+.vis .paperfold{fill:none;stroke:var(--ink);stroke-width:2}
+.vis .panel{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+.vis .codebg{fill:var(--code)}
+.vis .sep{stroke:var(--line);stroke-width:1.5}
+.vis .net{fill:var(--net);stroke:var(--ink-2);stroke-width:2;stroke-dasharray:9 7}
+.vis .hostbox{fill:none;stroke:var(--line);stroke-width:2.5}
+.vis .aline{fill:none;stroke-linecap:round}
+.vis .draw{stroke-dasharray:1 1;stroke-linecap:butt}
+.vis .dashy{stroke-dasharray:6 6}
+.vis .ahead{fill:none;stroke-linecap:round;stroke-linejoin:round}
+.vis .bub{fill:var(--surface);stroke-width:2;stroke-linejoin:round}
+.vis .note rect{fill:var(--note)}
+.vis .note text{fill:var(--note-ink);font-family:var(--mono);font-size:11.5px}
+.vis .hlbox{fill:var(--hl)}
+.vis .hlrow{fill:var(--hl)}
+.vis .badhl{fill:var(--bad);fill-opacity:.12}
+.vis .zz{fill:var(--ink-2);font-weight:800;font-size:15px}
+.vis .trackl{stroke:var(--line);stroke-width:6;stroke-linecap:round}
+.vis .post{fill:var(--ink-2)}
+.vis .okf{fill:var(--ok)}.vis .badf{fill:var(--bad)}.vis .warnf{fill:var(--warn)}.vis .mutf{fill:var(--ink-2)}.vis .inkf{fill:var(--ink)}
+.vis .ring{fill:none;stroke:var(--ink-2);stroke-width:2}
+.vis .axis{stroke:var(--ink-2);stroke-width:2;fill:none}
+.vis .playhead{stroke:var(--ink);stroke-width:2.5}
+.vis .pipe{fill:none;stroke:var(--vol);stroke-width:10;stroke-opacity:.6}
+.vis .spot{fill:none;stroke:var(--bad);stroke-width:2;stroke-dasharray:4 4}
+.vis .steth{fill:none;stroke:var(--ink);stroke-width:4;stroke-linecap:round}
+.vis .stampbox{fill:var(--surface);stroke:var(--bad);stroke-width:3}
+.vis .pill{fill:var(--surface);stroke-width:1.5}
+.vis .rowchip{fill:var(--note)}
+.vis .dim{fill:var(--paper);fill-opacity:.62}
+.vis .armstripe{stroke:var(--ink);stroke-width:12;stroke-dasharray:12 12}
+.vis .outline{fill:none;stroke:var(--ink);stroke-width:2.5}
+.vis .outline-bad{fill:none;stroke:var(--bad);stroke-width:2.5}
+.vis .glass{stroke-width:3;fill-opacity:.08}
+.vis .ic-ok-o{fill:var(--surface);stroke:var(--ok);stroke-width:2.5}
+.vis .ic-ok-s{fill:none;stroke:var(--ok);stroke-width:2.8;stroke-linecap:round;stroke-linejoin:round}
+.vis .ic-w{fill:none;stroke:#fff;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}
+.vis .ic-wf{fill:#fff}
+.vis .caret{fill:var(--ink)}
+.vis .folder{fill:var(--note);stroke:var(--note-ink);stroke-width:1.5}
+/* motion */
+.vis :is(.pop,.popout,.popoof,.drop,.poof,.shake,.wiggle,.pulse,.stamp,.fly,.slide,.bounce,.move,.travel,.press){transform-box:fill-box;transform-origin:center}
+.vis :is(.grow-x,.growshrink,.lift,.typing){transform-box:fill-box;transform-origin:left center}
+.vis .liftr{transform-box:fill-box;transform-origin:right center}
+@keyframes k-fade{from{opacity:0}to{opacity:1}}
+@keyframes k-out{from{opacity:1}to{opacity:0}}
+@keyframes k-up{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+@keyframes k-pop{0%{opacity:0;transform:scale(.45)}60%{opacity:1;transform:scale(1.07)}100%{opacity:1;transform:scale(1)}}
+@keyframes k-poof{0%{opacity:1;transform:scale(1)}35%{opacity:1;transform:scale(1.12)}100%{opacity:0;transform:scale(.15)}}
+@keyframes k-drop{0%{opacity:0;transform:translateY(-140px)}55%{opacity:1;transform:translateY(6px)}75%{transform:translateY(-6px)}100%{opacity:1;transform:none}}
+@keyframes k-draw{from{opacity:1;stroke-dashoffset:1}to{opacity:1;stroke-dashoffset:0}}
+@keyframes k-flow{to{stroke-dashoffset:-24}}
+@keyframes k-travel{0%{opacity:0;transform:translate(0,0)}12%{opacity:1}88%{opacity:1}100%{opacity:0;transform:translate(var(--tx),var(--ty))}}
+@keyframes k-move{from{transform:translate(0,0)}to{transform:translate(var(--tx,0px),var(--ty,0px))}}
+@keyframes k-fly{from{opacity:1;transform:translate(0,0) scale(1)}to{opacity:0;transform:translate(var(--tx),var(--ty)) scale(.35)}}
+@keyframes k-slide{from{opacity:0;transform:translate(var(--dx,0px),var(--dy,0px))}to{opacity:1;transform:none}}
+@keyframes k-shake{0%,100%{transform:translateX(0)}15%,55%{transform:translateX(-7px)}35%,75%{transform:translateX(7px)}}
+@keyframes k-wiggle{0%,100%{transform:rotate(0)}20%,60%{transform:rotate(-5deg)}40%,80%{transform:rotate(5deg)}}
+@keyframes k-float{0%{opacity:0;transform:translate(0,0)}25%{opacity:1}100%{opacity:0;transform:translate(8px,-22px)}}
+@keyframes k-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.2)}}
+@keyframes k-blink{0%,49%{opacity:1}50%,100%{opacity:0}}
+@keyframes k-blip{0%{opacity:0}18%{opacity:1}70%{opacity:1}100%{opacity:0}}
+@keyframes k-growx{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes k-shrinkx{from{transform:scaleX(1)}to{transform:scaleX(0)}}
+@keyframes k-stamp{0%{opacity:0;transform:scale(1.7) rotate(-3deg)}70%{opacity:1;transform:scale(.96) rotate(-3deg)}100%{opacity:1;transform:scale(1) rotate(-3deg)}}
+@keyframes k-lift{from{transform:rotate(0)}to{transform:rotate(-72deg)}}
+@keyframes k-liftr{from{transform:rotate(0)}to{transform:rotate(72deg)}}
+@keyframes k-press{0%{transform:translateY(0)}45%,60%{transform:translateY(var(--ty))}100%{transform:translateY(0)}}
+@keyframes k-bounce{0%{opacity:0;transform:translate(0,0)}10%{opacity:1}60%{opacity:1;transform:translate(var(--tx),var(--ty))}100%{opacity:0;transform:translate(calc(var(--tx) - 70px),calc(var(--ty) + 40px)) rotate(-25deg)}}
+@keyframes k-type{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+.on .fade{animation:k-fade .5s ease var(--d,0s) both}
+.on .out{animation:k-out .35s ease var(--o,0s) forwards}
+.on .inout{animation:k-fade .45s ease var(--d,0s) both,k-out .35s ease var(--o,9s) forwards}
+.on .up{animation:k-up .6s cubic-bezier(.2,.8,.2,1) var(--d,0s) both}
+.on .pop{animation:k-pop .55s cubic-bezier(.3,1.3,.5,1) var(--d,0s) both}
+.on .popout{animation:k-pop .5s cubic-bezier(.3,1.3,.5,1) var(--d,0s) both,k-out .35s ease var(--o,9s) forwards}
+.on .popoof{animation:k-pop .5s cubic-bezier(.3,1.3,.5,1) var(--d,0s) both,k-poof .55s ease-in var(--o,9s) forwards}
+.on .poof{animation:k-poof .55s ease-in var(--o,0s) forwards}
+.on .drop{animation:k-drop .85s ease-out var(--d,0s) both}
+.on .draw{animation:k-draw var(--dur,.7s) ease-in-out var(--d,0s) both}
+.on .drawout{animation:k-draw var(--dur,.7s) ease-in-out var(--d,0s) both,k-out .3s ease var(--o,9s) forwards}
+.on .dashy.fade{animation:k-fade .5s ease var(--d,0s) both,k-flow 1.1s linear var(--d,0s) infinite}
+.on .travel{animation:k-travel var(--dur,.9s) ease-in-out var(--d,0s) var(--n,1) both}
+.on .move{animation:k-move var(--dur,1s) var(--ease,cubic-bezier(.45,0,.25,1)) var(--d,0s) forwards}
+.on .fly{animation:k-fly var(--dur,.7s) cubic-bezier(.5,0,.3,1) var(--d,0s) forwards}
+.on .slide{animation:k-slide .7s cubic-bezier(.2,.8,.2,1) var(--d,0s) both}
+.on .shake{animation:k-shake .5s ease var(--d,0s) 1}
+.on .wiggle{animation:k-wiggle .8s ease var(--d,0s) 1}
+.on .zz{animation:k-float 2.4s ease-out var(--d,0s) infinite both}
+.on .pulse{animation:k-pulse 1.1s ease-in-out var(--d,0s) infinite}
+.on .blink{animation:k-blink 1s steps(1) var(--d,0s) infinite}
+.on .blip{animation:k-blip var(--dur,.9s) ease var(--d,0s) both}
+.on .grow-x{animation:k-growx var(--dur,.9s) var(--ease,cubic-bezier(.2,.8,.2,1)) var(--d,0s) both}
+.on .growshrink{animation:k-growx var(--dur,.9s) cubic-bezier(.2,.8,.2,1) var(--d,0s) both,k-shrinkx .45s ease-in var(--o,9s) forwards}
+.on .stamp{animation:k-stamp .45s cubic-bezier(.3,1.2,.5,1) var(--d,0s) both}
+.on .lift{animation:k-lift .7s cubic-bezier(.3,1.3,.5,1) var(--d,0s) forwards}
+.on .liftr{animation:k-liftr .7s cubic-bezier(.3,1.3,.5,1) var(--d,0s) forwards}
+.on .press{animation:k-press var(--dur,1.2s) ease-in-out var(--d,0s) 1}
+.on .bounce{animation:k-bounce var(--dur,1.4s) ease-in-out var(--d,0s) both}
+.on .typing{animation:k-type var(--dur,1s) var(--d,0s) both}
+.scene:not(.on) :is(.fade,.inout,.up,.pop,.popout,.popoof,.drop,.draw,.drawout,.travel,.slide,.zz,.blip,.stamp,.bounce,.grow-x,.growshrink){opacity:0}
+.scene:not(.on) .typing{transform:scaleX(0)}
+@media (max-width:820px),(max-aspect-ratio:1/1){
+  .scene{grid-template-columns:1fr;grid-template-rows:auto auto;align-items:start;align-content:start;overflow-y:auto;gap:10px;padding-top:4px}
+  .copy{max-width:62ch}
+  .copy h2{font-size:clamp(24px,6.2vw,36px);margin-bottom:.35em}
+  .copy p{font-size:15px;margin-bottom:.5em}
+  .copy pre.yaml{max-height:30vh}
+  .vis{height:auto}
+  .vis>svg{height:auto;max-height:64vh}
+}
+@media (max-width:600px) and (orientation:portrait){.rotate-hint{display:block}.cards{grid-template-columns:1fr}.card{min-height:130px}}
+@media (max-width:480px){.count{display:none}.btn{width:40px;height:40px}.btn.play{width:46px;height:46px}.brand span{font-size:14px}.where{font-size:13px}}
+@media (prefers-reduced-motion:reduce){
+  .scene,.scene.past,.scene.active{transform:none!important}
+  .scene{transition:opacity .25s ease,visibility 0s linear .25s}
+  .scene.active{transition:opacity .25s ease,visibility 0s}
+  .scene.on *{animation-duration:1ms!important;animation-iteration-count:1!important}
+  .card-inner{transition:none}
+}
+
+.vis .podseam{fill:none;stroke:rgba(255,255,255,.32);stroke-width:2.5;stroke-linecap:round}
+.vis .tagb{fill:var(--surface);stroke-width:2}
+.vis .deskbody{fill:var(--surface);stroke:var(--ink);stroke-width:2}
+.vis .clippaper{fill:var(--surface)}
+.vis .clipclip{fill:var(--ink-2)}
+.vis .lbl{fill:var(--note)}
+.vis .lbltxt{fill:var(--note-ink)}
+.vis .nodebox{fill:var(--net);stroke:var(--ink);stroke-width:2.5}
+.vis .door{fill:var(--client);stroke:var(--ink);stroke-width:2}
+.vis .road{fill:none;stroke:var(--line);stroke-width:22;stroke-linecap:round}
+.vis .roadmid{fill:none;stroke:var(--surface);stroke-width:2.5;stroke-dasharray:10 10}
+.vis .rope{fill:none;stroke:var(--bad);stroke-width:7;stroke-linecap:round}
+.vis .stanchion{fill:var(--ink-2)}
+.vis .pipe2{fill:none;stroke:var(--teal);stroke-width:14;stroke-linecap:round;stroke-linejoin:round;stroke-opacity:.28}
+.vis .flow{fill:none;stroke:var(--teal);stroke-width:4;stroke-dasharray:6 10;stroke-linecap:round}
+.vis .stop{fill:var(--surface);stroke:var(--ink-2);stroke-width:2.5}
+.vis .cniband{fill:var(--teal);fill-opacity:.1;stroke:var(--teal);stroke-width:2}
+.vis .valve{fill:var(--surface);stroke:var(--ink);stroke-width:2.5}
+.vis .brk{fill:none;stroke-width:2}
+@keyframes k-flow16{to{stroke-dashoffset:-32}}
+.on .flow.fade{animation:k-fade .5s ease var(--d,0s) both,k-flow16 .9s linear var(--d,0s) infinite}
+.on .flow.inout{animation:k-fade .5s ease var(--d,0s) both,k-out .35s ease var(--o,9s) forwards,k-flow16 .9s linear var(--d,0s) infinite}
+.take{gap:clamp(8px,1.5vh,18px)}
+.take svg{max-height:52px}
+.copy h1.long{font-size:clamp(36px,4.2vw,64px)}
+@keyframes k-unwind{from{stroke-dashoffset:0}to{stroke-dashoffset:1}}
+.on .unwind{animation:k-unwind var(--dur,3s) linear var(--d,0s) both}
+@keyframes k-spin{to{transform:rotate(360deg)}}
+.vis .spin{transform-box:fill-box;transform-origin:center}
+.on .spin{animation:k-spin 2.4s linear var(--d,0s) infinite}
+@keyframes k-ring{0%,100%{transform:rotate(0)}25%{transform:rotate(-12deg)}75%{transform:rotate(12deg)}}
+.vis .ringy{transform-box:fill-box;transform-origin:center}
+.on .ringy{animation:k-ring .22s linear var(--d,0s) 6}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand"><svg viewBox="0 0 30 22" aria-hidden="true"><path d="M2 4H10M2 11H10M2 18H10" stroke="var(--db)" stroke-width="2.5" stroke-linecap="round"/><path d="M11 4L19 11M11 18L19 11M11 11H19" stroke="var(--ink-2)" stroke-width="1.8"/><ellipse cx="24" cy="6" rx="5" ry="2" fill="var(--vol)"/><path d="M19 6V16A5 2 0 0 0 29 16V6" fill="var(--vol)"/></svg><span>Centralized logging, explained</span></div>
+    <div class="where" id="chap"></div>
+  </header>
+  <main class="stage" id="stage"></main>
+  <nav class="controls" aria-label="Explainer controls">
+    <button class="btn" id="prev" aria-label="Previous scene"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
+    <button class="btn play" id="play" aria-label="Start auto-play" aria-pressed="false"></button>
+    <button class="btn" id="next" aria-label="Next scene"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></button>
+    <div class="track" id="track"></div>
+    <span class="count" id="count"></span>
+    <button class="btn" id="replay" aria-label="Replay this scene"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4.5h4.5"/></svg></button>
+  </nav>
+  <div class="sr" aria-live="polite" id="live"></div>
+</div>
+<script>
+const I=n=>'\u00A0'.repeat(n);
+const S=o=>{const p=[];for(const k in o){const v=o[k];if(v==null)continue;const sec=['d','o','dur'].includes(k),px=['tx','ty','dx','dy'].includes(k);p.push(`--${k}:${v}${sec?'s':px?'px':''}`)}return p.length?`style="${p.join(';')}"`:''};
+const G=(inner,o={})=>{const{x,y,an,...v}=o;let g=an?`<g class="${an}" ${S(v)}>${inner}</g>`:inner;if(x!=null||y!=null)g=`<g transform="translate(${x||0} ${y||0})">${g}</g>`;return g};
+const T=(x,y,s,o={})=>{const{c='',a,an='fade',d=0,o:oo}=o;return `<text x="${x}" y="${y}"${a?` text-anchor="${a}"`:''} class="${c} ${an}" ${an?S({d,o:oo}):''}>${s}</text>`};
+const svg=(inner,label)=>`<svg viewBox="0 0 800 500" role="img" aria-label="${label}" xml:space="preserve">${inner}</svg>`;
+let UID=0;
+
+function face(m,w,h){
+  const a=w*.36,b=w*.64,ey=h*.56,mx=w/2,my=h*.75;
+  if(m==='sleepy')return `<path class="lid" d="M${a-7} ${ey}q7 5 14 0M${b-7} ${ey}q7 5 14 0"/><path class="mouth" d="M${mx-5} ${my}h10"/>`;
+  const eyes=`<circle cx="${a}" cy="${ey}" r="8" class="eye"/><circle cx="${a+1}" cy="${ey+1}" r="3.8" class="pupil"/><circle cx="${b}" cy="${ey}" r="8" class="eye"/><circle cx="${b+1}" cy="${ey+1}" r="3.8" class="pupil"/>`;
+  const M={happy:`<path class="mouth" d="M${mx-11} ${my-3}q11 10 22 0"/>`,sad:`<path class="mouth" d="M${mx-10} ${my+4}q10 -9 20 0"/>`,flat:`<path class="mouth" d="M${mx-8} ${my}h16"/>`,worried:`<path class="mouth" d="M${mx-11} ${my+2}q5.5 -5 11 0q5.5 5 11 0"/>`,wow:`<ellipse class="mouth" cx="${mx}" cy="${my}" rx="5" ry="6"/>`};
+  return eyes+(M[m]||M.happy);
+}
+const ZZ=w=>`<text x="${w-26}" y="14" class="zz" style="--d:0s">z</text><text x="${w-14}" y="4" class="zz" style="--d:.8s">z</text><text x="${w-2}" y="-6" class="zz" style="--d:1.6s">Z</text>`;
+
+function crate({x=0,y=0,w=140,h=96,k='web',name='',sub='',mood='happy',m2,t2,m3,t3,an='',v={},s=1,ghost=false,extra=''}={}){
+  const fg=ghost?(k==='client'?'var(--client-ink)':`var(--${k})`):(k==='client'?'var(--on-client)':'#fff');
+  let r='';for(let i=16;i<w-8;i+=16)r+=`M${i} 30V${h-8}`;
+  const seq=[[mood,0]];if(m2)seq.push([m2,t2]);if(m3)seq.push([m3,t3]);
+  let faces='';
+  seq.forEach(([m,t],i)=>{const nx=seq[i+1];let cls='',st={};
+    if(i>0){cls='fade';st.d=t}
+    if(nx){cls=cls?'inout':'out';st.o=nx[1]}
+    faces+=`<g${cls?` class="${cls}" ${S(st)}`:''}>${face(m,w,h)}${m==='sleepy'?ZZ(w):''}</g>`;});
+  const body=ghost?`<rect width="${w}" height="${h}" rx="14" class="ghost" style="stroke:var(--${k});fill:var(--${k})"/>`
+    :`<rect width="${w}" height="${h}" rx="14" style="fill:var(--${k})"/><path d="${r}" class="ridge"/><path d="M8 27H${w-8}" class="capline"/>`;
+  let g=`<g class="${ghost?'ghostf':''}" style="--fg:${fg}">${body}${name?`<text x="12" y="19" class="cname">${name}</text>`:''}${sub?`<text x="${w-10}" y="18" text-anchor="end" class="csub">${sub}</text>`:''}${faces}${extra}</g>`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})${s!==1?` scale(${s})`:''}">${g}</g>`;
+}
+
+function drum({x=0,y=0,w=130,h=110,label='postgres_data',an='',v={},fs=12,ring=.5,extra=''}={}){
+  const rx=w/2,ry=13,ry2=Math.round(h*ring);
+  let g=`<path d="M0 ${ry}V${h-ry}A${rx} ${ry} 0 0 0 ${w} ${h-ry}V${ry}" style="fill:var(--vol)"/><ellipse cx="${rx}" cy="${ry}" rx="${rx}" ry="${ry}" style="fill:var(--vol)"/><ellipse cx="${rx}" cy="${ry}" rx="${rx}" ry="${ry}" fill="#fff" fill-opacity=".28"/><path d="M0 ${ry2}A${rx} ${ry} 0 0 0 ${w} ${ry2}" fill="none" stroke="#fff" stroke-opacity=".35" stroke-width="2"/>${label?`<text x="${rx}" y="${h-12}" text-anchor="middle" class="m b wht" style="font-size:${fs}px">${label}</text>`:''}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+
+function bubPath(W,H,tail,tp){
+  const top=tail==='tl'?`H${tp}L${tp+4} -12L${tp+14} 0H${W-12}`:`H${W-12}`;
+  const bot=tail==='bl'?`H${tp+14}L${tp+4} ${H+12}L${tp} ${H}H12`:`H12`;
+  return `M12 0${top}Q${W} 0 ${W} 12V${H-12}Q${W} ${H} ${W-12} ${H}${bot}Q0 ${H} 0 ${H-12}V12Q0 0 12 0Z`;
+}
+function bubble(x,y,txt,{w,c='var(--ink)',fs=14,mono=true,tail='bl',tp=16,an='pop',d=0,o}={}){
+  const plain=txt.replace(/<[^>]+>/g,'').replace(/&[a-z#0-9]+;/g,'x');
+  const W=w||Math.round(plain.length*fs*(mono?.6:.56)+26),H=fs+18;
+  const inner=`<path d="${bubPath(W,H,tail,tp)}" class="bub" style="stroke:${c}"/><text x="13" y="${(H/2+fs*.36).toFixed(1)}" class="${mono?'m ':''}b" style="fill:${c};font-size:${fs}px">${txt}</text>`;
+  let a=an;if(o!=null)a=an==='pop'?'popout':an==='fade'?'inout':an;
+  return G(inner,{x,y,an:a,d,o});
+}
+
+function arrow(p,{c='var(--ink)',d=0,dur=.7,w=2.5,dash=false}={}){
+  let path,fx,fy;const{x1,y1,x2,y2,q,c1,c2,poly}=p;let ex=x2,ey=y2;
+  if(poly){path='M'+poly.map(pt=>pt.join(' ')).join('L');const n=poly.length;[ex,ey]=poly[n-1];[fx,fy]=poly[n-2]}
+  else if(c1){path=`M${x1} ${y1}C${c1[0]} ${c1[1]} ${c2[0]} ${c2[1]} ${x2} ${y2}`;[fx,fy]=c2}
+  else if(q){path=`M${x1} ${y1}Q${q[0]} ${q[1]} ${x2} ${y2}`;[fx,fy]=q}
+  else{path=`M${x1} ${y1}L${x2} ${y2}`;fx=x1;fy=y1}
+  const ang=Math.atan2(ey-fy,ex-fx),L=12;
+  const h1=[ex+L*Math.cos(ang+2.55),ey+L*Math.sin(ang+2.55)],h2=[ex+L*Math.cos(ang-2.55),ey+L*Math.sin(ang-2.55)];
+  const head=`<path d="M${h1[0].toFixed(1)} ${h1[1].toFixed(1)}L${ex} ${ey}L${h2[0].toFixed(1)} ${h2[1].toFixed(1)}" class="ahead fade" style="stroke:${c};stroke-width:${w};--d:${(d+dur*.8).toFixed(2)}s"/>`;
+  const line=dash?`<path d="${path}" class="aline dashy fade" style="stroke:${c};stroke-width:${w};--d:${d}s"/>`
+    :`<path d="${path}" pathLength="1" class="aline draw" style="stroke:${c};stroke-width:${w};--d:${d}s;--dur:${dur}s"/>`;
+  return `<g>${line}${head}</g>`;
+}
+const packet=(x1,y1,x2,y2,{d=0,dur=.8,c='var(--web)',r=7}={})=>`<circle cx="${x1}" cy="${y1}" r="${r}" class="travel" style="fill:${c};--d:${d}s;--dur:${dur}s;--tx:${x2-x1}px;--ty:${y2-y1}px"/>`;
+
+function icon(t,x,y,{d=0,o,r=14,an='pop'}={}){
+  const s=r/14;
+  const sym={
+    kept:`<circle r="14" class="ic-ok-o"/><path d="M-6 0l4 4 8-8" class="ic-ok-s"/>`,
+    yes:`<circle r="14" class="okf"/><path d="M-6 0l4 4 8-8" class="ic-w"/>`,
+    no:`<circle r="14" class="badf"/><path d="M-5 -5l10 10M5 -5l-10 10" class="ic-w"/>`,
+    stop:`<circle r="14" class="mutf"/><path d="M-3.5 -5v10M3.5 -5v10" class="ic-w"/>`,
+    play:`<circle r="14" class="okf"/><path d="M-3.5 -6L6 0L-3.5 6Z" class="ic-wf"/>`,
+    restart:`<circle r="14" style="fill:var(--web)"/><path d="M6 1.5A6.2 6.2 0 1 1 3.6 -5" class="ic-w"/><path d="M4.5 -9.5L4 -4.6L-0.8 -5.6" class="ic-w"/>`,
+    plus:`<circle r="14" class="okf"/><path d="M0 -6V6M-6 0H6" class="ic-w"/>`,
+    warn:`<circle r="14" class="warnf"/><path d="M0 -6.5V1.5" class="ic-w"/><circle cy="6" r="1.7" class="ic-wf"/>`
+  }[t];
+  const a=o!=null?(an==='pop'?'popout':an):an;
+  return `<g transform="translate(${x} ${y})${s!==1?` scale(${s})`:''}"><g class="${a}" ${S({d,o})}>${sym}</g></g>`;
+}
+function typed(x,y,str,{fs=15,d=0,dur=1,c=''}={}){
+  const id='clip'+(UID++),w=str.length*fs*.6+6;
+  return `<clipPath id="${id}"><rect x="${x-2}" y="${y-fs}" width="${w}" height="${fs*1.5}" class="typing" style="--d:${d}s;--dur:${dur}s;animation-timing-function:steps(${str.length},end)"/></clipPath><text x="${x}" y="${y}" class="m ${c}" clip-path="url(#${id})" style="font-size:${fs}px">${str}</text>`;
+}
+function browser(x,y,w,h,addr,o={}){
+  return G(`<rect width="${w}" height="${h}" rx="10" class="panel"/><path d="M0 22H${w}" class="sep"/><circle cx="12" cy="11" r="3.5" class="badf"/><circle cx="24" cy="11" r="3.5" class="warnf"/><circle cx="36" cy="11" r="3.5" class="okf"/><rect x="8" y="32" width="${w-16}" height="24" rx="6" class="codebg"/><text x="16" y="49" class="m f12">${addr}</text>`,{x,y,...o});
+}
+const glass=(x,y,w,h,k,label,o={})=>G(`<rect width="${w}" height="${h}" rx="16" class="glass" style="stroke:var(--${k});fill:var(--${k})"/><path d="M0 16Q0 0 16 0H${label.length*8.2+30}V28H0Z" style="fill:var(--${k})"/><text x="14" y="19" class="f14 b" style="fill:${k==='client'?'var(--on-client)':'#fff'}">${label}</text>`,{x,y,...o});
+const codeLine=(x,y,s,c='')=>`<text x="${x}" y="${y}" class="m ${c}">${s}</text>`;
+// ---------- Day 10 helpers ----------
+function faceSeq(seq,w,h){let f='';seq.forEach(([m,t],i)=>{const nx=seq[i+1];let cls='',st={};if(i>0){cls='fade';st.d=t}if(nx){cls=cls?'inout':'out';st.o=nx[1]}f+=`<g${cls?` class="${cls}" ${S(st)}`:''}>${face(m,w,h)}${m==='sleepy'?ZZ(w):''}</g>`});return f}
+function pod({x=0,y=0,w=104,h=74,k='web',ip='',mood='happy',m2,t2,m3,t3,an='',v={},s=1,ghost=false,extra='',under=''}={}){
+  const fg=ghost?(k==='client'?'var(--client-ink)':`var(--${k})`):(k==='client'?'var(--on-client)':'#fff');
+  const r=Math.min(h/2,34),seq=[[mood,0]];if(m2)seq.push([m2,t2]);if(m3)seq.push([m3,t3]);
+  const body=ghost?`<rect width="${w}" height="${h}" rx="${r}" class="ghost" style="stroke:var(--${k});fill:var(--${k})"/>`
+    :`<rect width="${w}" height="${h}" rx="${r}" style="fill:var(--${k})"/><path d="M${(r*.75).toFixed(1)} 12Q${w/2} 2 ${(w-r*.75).toFixed(1)} 12" class="podseam"/>`;
+  let g=`<g class="${ghost?'ghostf':''}" style="--fg:${fg}">${body}${faceSeq(seq,w,h)}${extra}</g>${ip?`<text x="${w/2}" y="${h+17}" text-anchor="middle" class="m f12 mut">${ip}</text>`:''}${under}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})${s!==1?` scale(${s})`:''}">${g}</g>`;
+}
+const tagW=t=>Math.round(t.length*7.2+26);
+const tagD=w=>`M0 12L9.5 1.5Q11 0 13 0H${w-5}Q${w} 0 ${w} 5V19Q${w} 24 ${w-5} 24H13Q11 24 9.5 22.5Z`;
+const tagRaw=(t,k='ink-2')=>`<path d="${tagD(tagW(t))}" class="tagb" style="stroke:var(--${k})"/><circle cx="11" cy="12" r="2.5" style="fill:var(--${k})"/><text x="19" y="16.5" class="m f12">${t}</text>`;
+const tag=(x,y,t,{k='ink-2',an='fade',d=0,o}={})=>G(tagRaw(t,k),{x,y,an:o!=null?'inout':an,d,o});
+const tagHL=(x,y,t,ok,{d=0,o}={})=>{const c=ok?'ok':'bad';return `<path transform="translate(${x} ${y})" d="${tagD(tagW(t))}" class="${o!=null?'inout':'fade'}" style="fill:var(--${c});fill-opacity:.18;stroke:var(--${c});stroke-width:3;--d:${d}s${o!=null?`;--o:${o}s`:''}"/>`};
+function desk({x=0,y=0,w=170,name='Service: web',ip='',sub='',an='',v={},s=1,extra=''}={}){
+  let g=`<path d="M30 28V46M${w-30} 28V46" style="stroke:var(--ink-2);stroke-width:3"/><rect x="6" width="${w-12}" height="30" rx="8" class="inkf"/><text x="${w/2}" y="20" text-anchor="middle" class="f14 b inv">${name}</text><path d="M${w-64} 46a11 11 0 0 1 22 0Z" style="fill:var(--client)"/><circle cx="${w-53}" cy="33" r="2.6" style="fill:var(--client)"/><rect y="45" width="${w}" height="11" rx="4" class="inkf"/><rect x="8" y="56" width="${w-16}" height="58" rx="6" class="deskbody"/>${ip?`<text x="${w/2}" y="${sub?81:90}" text-anchor="middle" class="m f14 b">${ip}</text>`:''}${sub?`<text x="${w/2}" y="${ip?101:90}" text-anchor="middle" class="f12 mut">${sub}</text>`:''}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})${s!==1?` scale(${s})`:''}">${g}</g>`;
+}
+function clip({x=0,y=0,w=210,h=160,title='EndpointSlice',an='',v={},extra=''}={}){
+  let g=`<rect width="${w}" height="${h}" rx="10" class="inkf"/><rect x="8" y="12" width="${w-16}" height="${h-20}" rx="4" class="clippaper"/><rect x="${w/2-28}" y="-7" width="56" height="18" rx="5" class="clipclip"/><text x="20" y="38" class="f13 b">${title}</text><path d="M20 48H${w-20}" class="sep"/>${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function book({x=0,y=0,w=160,h=96,title='CoreDNS',sub='10.96.0.10',an='',v={},extra=''}={}){
+  let g=`<rect x="7" y="7" width="${w}" height="${h}" rx="8" style="fill:var(--note)"/><rect width="${w}" height="${h}" rx="8" class="inkf"/><path d="M18 6V${h-6}" style="stroke:var(--paper);stroke-opacity:.3;stroke-width:3"/><text x="30" y="${h/2-3}" class="f17 b inv">${title}</text>${sub?`<text x="30" y="${h/2+19}" class="m f12 inv" opacity=".78">${sub}</text>`:''}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function letterG(label=''){const w=Math.round(label.length*7.2+16);
+  return `<rect x="-14" y="-10" width="28" height="20" rx="3" class="paper"/><path d="M-14 -9L0 2L14 -9" class="paperfold"/>${label?`<rect x="${-w/2}" y="-40" width="${w}" height="22" rx="6" class="lbl"/><text x="0" y="-25" text-anchor="middle" class="m f12 b lbltxt">${label}</text>`:''}`}
+const sendL=(x1,y1,x2,y2,{d=0,dur=.8,label=''}={})=>`<g transform="translate(${x1} ${y1})"><g class="travel" ${S({d,dur,tx:x2-x1,ty:y2-y1})}>${letterG(label)}</g></g>`;
+const svcChip=(x,y,name,{w=170,an='pop',d=0}={})=>G(`<rect width="${w}" height="44" rx="12" class="deskbody"/><path d="M13 30a10 10 0 0 1 20 0Z" style="fill:var(--client)"/><rect x="10" y="29" width="26" height="4" rx="2" class="inkf"/><text x="44" y="28" class="f14 b">${name}</text>`,{x,y,an,d});
+const shieldP=`<path d="M0 -17L14 -11V0C14 9 7 15 0 18C-7 15 -14 9 -14 0V-11Z" class="inkf"/><path d="M-6 0l4 4 8-8" style="fill:none;stroke:var(--paper);stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round"/>`;
+const shield=(x,y,{s=1,an='pop',d=0}={})=>`<g transform="translate(${x} ${y}) scale(${s})"><g class="${an}" ${S({d})}>${shieldP}</g></g>`;
+const pill=(x,y,txt,{c='ok',an='pop',d=0}={})=>{const w=Math.round(txt.length*7.6+30);return G(`<rect width="${w}" height="24" rx="12" class="pill" style="stroke:var(--${c})"/><circle cx="13" cy="12" r="4.5" style="fill:var(--${c})"/><text x="23" y="16.5" class="f13 b">${txt}</text>`,{x,y,an,d})};
+const chipT=(t,w)=>`<rect x="${-w/2}" y="-12" width="${w}" height="24" rx="12" class="lbl"/><text x="0" y="5" text-anchor="middle" class="m f12 b lbltxt">${t}</text>`;
+const flyChip=(x1,y1,x2,y2,t,{d=0,dur=.8}={})=>`<g transform="translate(${x1} ${y1})"><g class="travel" ${S({d,dur,tx:x2-x1,ty:y2-y1})}>${chipT(t,Math.round(t.length*7.2+22))}</g></g>`;
+// ---------- Day 11 helpers ----------
+function ticket({x=0,y=0,w=170,h=96,title='PVC',lines=[],an='',v={},extra='',k='client'}={}){
+  const n=9,m=h/2;
+  const d=`M10 0H${w-10}Q${w} 0 ${w} 10V${m-n}A${n} ${n} 0 0 0 ${w} ${m+n}V${h-10}Q${w} ${h} ${w-10} ${h}H10Q0 ${h} 0 ${h-10}V${m+n}A${n} ${n} 0 0 0 0 ${m-n}V10Q0 0 10 0Z`;
+  let g=`<path d="${d}" class="paper"/><path d="M10 1H${w-10}Q${w-1} 1 ${w-1} 10V12H1V10Q1 1 10 1Z" style="fill:var(--${k})"/><text x="14" y="${m-9}" class="m f13 b">${title}</text><path d="M${n+5} ${m}H${w-n-5}" class="sep" style="stroke-dasharray:4 4"/>${lines.map((l,i)=>`<text x="14" y="${m+22+i*18}" class="m f12">${l}</text>`).join('')}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function pad({x=0,y=0,w=120,h=86,title='emptyDir',lines=[],an='',v={},extra=''}={}){
+  let rings='';for(let i=14;i<=w-20;i+=22)rings+=`<rect x="${i}" y="-6" width="6" height="14" rx="3" class="inkf"/>`;
+  let g=`<rect width="${w}" height="${h}" rx="8" style="fill:var(--note)"/>${rings}<text x="12" y="28" class="m f12 b lbltxt">${title}</text>${lines.map((l,i)=>`<text x="12" y="${50+i*18}" class="m f12 lbltxt">${l}</text>`).join('')}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function rack({x=0,y=0,w=110,h=90,label='backing storage',an='',v={}}={}){
+  const sh=(h-20)/3;let g=`<rect width="${w}" height="${h}" rx="10" style="fill:var(--ink-2)"/>`;
+  for(let i=0;i<3;i++){const yy=10+i*sh;g+=`<rect x="10" y="${yy}" width="${w-20}" height="${sh-6}" rx="4" fill="#fff" fill-opacity=".16"/><circle cx="${w-22}" cy="${yy+(sh-6)/2}" r="3.5" class="okf"/>`}
+  if(label)g+=`<text x="${w/2}" y="${h+18}" text-anchor="middle" class="f12 mut">${label}</text>`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function menuCard({x=0,y=0,w=200,h=150,title='StorageClass',rows='',an='',v={}}={}){
+  let g=`<rect width="${w}" height="${h}" rx="12" class="panel"/><path d="M12 0H${w-12}Q${w} 0 ${w} 12V32H0V12Q0 0 12 0Z" class="inkf"/><text x="14" y="21" class="f14 b inv">${title}</text>${rows}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+const HAT=w=>`<path d="M${w/2-36} -2Q${w/2-46} -20 ${w/2-28} -24Q${w/2-20} -40 ${w/2} -32Q${w/2+18} -42 ${w/2+28} -24Q${w/2+46} -20 ${w/2+36} -2Z" style="fill:#fff;stroke:var(--ink);stroke-width:2;stroke-linejoin:round"/>`;
+const nodeBox=(x,y,w,h,label,o={})=>G(`<rect width="${w}" height="${h}" rx="14" class="nodebox"/><text x="12" y="22" class="f13 b">${label}</text>`,{x,y,...o});
+const jersey=n=>`<circle cx="16" cy="16" r="12" class="stop"/><text x="16" y="21" text-anchor="middle" class="f13 b">${n}</text>`;
+const fileI=`<path d="M0 3Q0 0 3 0H12L18 6V21Q18 24 15 24H3Q0 24 0 21Z" class="paper"/><path d="M12 0.5V6H17.5" class="paperfold"/>`;
+const fileChip=(x,y,name,{an='fade',d=0,o,c=''}={})=>G(`${fileI}<text x="26" y="17" class="m f13 ${c}">${name}</text>`,{x,y,an:o!=null?'inout':an,d,o});
+const flyFile=(x1,y1,x2,y2,name='',{d=0,dur=.9}={})=>`<g transform="translate(${x1} ${y1})"><g class="travel" ${S({d,dur,tx:x2-x1,ty:y2-y1})}>${fileI}${name?`<text x="24" y="16" class="m f12 b">${name}</text>`:''}</g></g>`;
+const PENCIL=`<path d="M-7 7L-6 2L4 -8L8 -4L-2 6Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.8;stroke-linejoin:round"/>`;
+const EYE=`<path d="M-10 0Q0 -8 10 0Q0 8 -10 0Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.8"/><circle r="3" class="inkf"/>`;
+const LOCK=`<path d="M-6 -2V-7A6 6 0 0 1 6 -7V-2" style="fill:none;stroke:var(--ink);stroke-width:2.5"/><rect x="-9" y="-3" width="18" height="15" rx="3" class="inkf"/>`;
+const TRASH=`<rect x="-6" y="0" width="72" height="10" rx="3" class="inkf"/><rect x="22" y="-6" width="16" height="8" rx="2" class="inkf"/><path d="M2 14H58L54 76H6Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:2.5;stroke-linejoin:round"/><path d="M20 26V64M30 26V64M40 26V64" style="stroke:var(--ink-2);stroke-width:2.5"/>`;
+const sym=(g,x,y,{d=0,an='pop',s=1}={})=>`<g transform="translate(${x} ${y}) scale(${s})"><g class="${an}" ${S({d})}>${g}</g></g>`;
+const STAIRS=`<rect x="0" y="34" width="15" height="14" rx="3" style="fill:var(--web)"/><rect x="16" y="23" width="15" height="25" rx="3" style="fill:var(--teal)"/><rect x="32" y="12" width="15" height="36" rx="3" style="fill:var(--db)"/><rect x="48" y="1" width="15" height="47" rx="3" style="fill:var(--vol)"/>`;
+const term=(x,y,w,h,L,{fs=12,lh=24,top=26,d=0}={})=>G(`<rect width="${w}" height="${h}" rx="12" class="codebg"/>`+L.map(([t,c,dd],i)=>T(16,top+i*lh,t.replace(/ /g,'\u00A0'),{c:`m f${fs} ${c}`,d:dd})).join(''),{x,y,an:'fade',d});
+const chipsRow=(x,y,arr,{maxX=380,d=0,k='line'}={})=>{let s='',cx=x,cy=y;arr.forEach((t,i)=>{const w=Math.round(t.length*6.9+22);if(cx+w>maxX){cx=x;cy+=36}s+=G(`<rect width="${w}" height="28" rx="14" class="pill" style="stroke:var(--${k})"/><text x="${w/2}" y="19" text-anchor="middle" class="f13">${t}</text>`,{x:cx,y:cy,an:'pop',d:d+i*.15});cx+=w+8});return s};
+// ---------- Day 12 helpers ----------
+const LOCKW=`<path d="M-6 -2V-7A6 6 0 0 1 6 -7V-2" style="fill:none;stroke:#fff;stroke-width:2.5"/><rect x="-9" y="-3" width="18" height="15" rx="3" fill="#fff"/>`;
+function cfgCard({x=0,y=0,w=240,kind='cm',name='inference-config',rows=[],rh=24,an='',v={},extra=''}={}){
+  const k=kind==='cm'?'teal':'db',h=46+rows.length*rh;
+  let g=`<rect width="${w}" height="${h}" rx="12" class="panel"/><path d="M12 0H${w-12}Q${w} 0 ${w} 12V34H0V12Q0 0 12 0Z" style="fill:var(--${k})"/>${kind==='sec'?`<g transform="translate(${w-20} 18) scale(.75)">${LOCKW}</g>`:''}<text x="14" y="22" class="f13 b wht">${kind==='cm'?'ConfigMap':'Secret'}: ${name}</text>`;
+  rows.forEach(([kk,vv],i)=>{g+=`<text x="14" y="${58+i*rh}" class="m f12"><tspan class="b">${kk}</tspan><tspan class="mut">: </tspan>${vv}</text>`});
+  g+=extra;if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+const polaroid=(x,y,lines,{w=170,an='pop',d=0,o,label='photo at start'}={})=>{const h=40+lines.length*22+28;return G(`<rect width="${w}" height="${h}" rx="4" style="fill:#fff;stroke:var(--ink);stroke-width:2"/><rect x="10" y="10" width="${w-20}" height="${h-44}" rx="2" style="fill:#1F2449"/>${lines.map((l,i)=>`<text x="20" y="${36+i*22}" class="m f13 b" style="fill:#FFE38A">${l}</text>`).join('')}<text x="${w/2}" y="${h-12}" text-anchor="middle" class="f12" style="fill:#18203F">${label}</text>`,{x,y,an:an?(o!=null?'popout':an):'',d,o})};
+const liveWin=(x,y,w,h,title,o={})=>G(`<rect width="${w}" height="${h}" rx="10" class="panel"/><path d="M10 0H${w-10}Q${w} 0 ${w} 10V26H0V10Q0 0 10 0Z" class="codebg"/><circle cx="14" cy="13" r="4" class="badf"/><circle cx="28" cy="13" r="4" class="warnf"/><circle cx="42" cy="13" r="4" class="okf"/><text x="56" y="18" class="m f11 mut">${title}</text>`,{x,y,...o});
+const DISGUISE=`<circle cx="-15" cy="0" r="11" style="fill:var(--surface);fill-opacity:.2;stroke:var(--ink);stroke-width:3"/><circle cx="15" cy="0" r="11" style="fill:var(--surface);fill-opacity:.2;stroke:var(--ink);stroke-width:3"/><path d="M-4 0Q0 -4 4 0M-26 -2L-34 -6M26 -2L34 -6" style="fill:none;stroke:var(--ink);stroke-width:3;stroke-linecap:round"/><path d="M-22 20Q-11 12 0 18Q11 12 22 20Q11 26 0 22Q-11 26 -22 20Z" class="inkf"/>`;
+const room=(x,y,w,h,name,o={})=>{const tw=Math.round((11+name.length)*8.1+30);return G(`<rect width="${w}" height="${h}" rx="16" class="nodebox"/><path d="M16 0H${tw}V30H0V16Q0 0 16 0Z" class="inkf"/><text x="14" y="20" class="f13 b inv">namespace: ${name}</text>`,{x,y,...o})};
+const BOLT=`<path d="M8 0L0 18H8L4 34L20 12H11L16 0Z" style="fill:var(--warn);stroke:var(--ink);stroke-width:1.5;stroke-linejoin:round"/>`;
+const pillT=(x,y,t,{k='line',an='pop',d=0,o,c='f13'}={})=>{const w=Math.round(t.length*6.9+28);return G(`<rect width="${w}" height="32" rx="16" class="pill" style="stroke:var(--${k})"/><text x="14" y="21" class="${c}">${t}</text>`,{x,y,an:o!=null?'popout':an,d,o})};
+const valX=k=>14+(k.length+2)*7.2;
+// ---------- Day 13 helpers ----------
+function nodeCard({x=0,y=0,w=200,h=150,name='node',k='ink',an='',v={},extra=''}={}){
+  const head=k==='ink'?'class="inkf"':`style="fill:var(--${k})"`,tc=k==='ink'?'class="f13 b inv"':(k==='client'?'class="f13 b" style="fill:var(--on-client)"':'class="f13 b wht"');
+  let g=`<rect width="${w}" height="${h}" rx="14" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><path d="M14 0H${w-14}Q${w} 0 ${w} 14V30H0V14Q0 0 14 0Z" ${head}/><text x="14" y="21" ${tc}>${name}</text>${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function signRaw(t){const w=Math.round(t.length*7.2+24);let st='';for(let i=4;i<w-12;i+=12)st+=`M${i} 12L${i+8} 0`;return `<rect width="${w}" height="44" rx="6" style="fill:var(--surface);stroke:var(--ink);stroke-width:2"/><path d="M6 1H${w-6}Q${w-1} 1 ${w-1} 6V12H1V6Q1 1 6 1Z" style="fill:var(--warn)"/><path d="${st}" style="stroke:var(--ink);stroke-width:2.5"/><text x="12" y="33" class="m f12 b">${t}</text>`}
+const sign=(x,y,t,{an='pop',d=0,o}={})=>G(signRaw(t),{x,y,an:o!=null?'popout':an,d,o});
+function badgeRaw(t,k='ok'){const w=Math.round(t.length*6.6+44);return `<rect width="${w}" height="34" rx="8" style="fill:var(--surface);stroke:var(--${k});stroke-width:2.5"/><rect width="14" height="34" rx="6" style="fill:var(--${k})"/><circle cx="7" cy="9" r="2.5" style="fill:var(--surface)"/><text x="24" y="22" class="m f11 b">${t}</text>`}
+const badge=(x,y,t,{k='ok',an='pop',d=0,o}={})=>G(badgeRaw(t,k),{x,y,an:o!=null?'popout':an,d,o});
+function pizza(cx,cy,r,frac,{d=0}={}){let wedge;
+  if(frac>=1)wedge=`<circle cx="${cx}" cy="${cy}" r="${r-4}" style="fill:var(--warn)"/><circle cx="${cx-12}" cy="${cy-10}" r="5" class="badf"/><circle cx="${cx+14}" cy="${cy-4}" r="5" class="badf"/><circle cx="${cx-2}" cy="${cy+14}" r="5" class="badf"/>`;
+  else{const a=-Math.PI/2+frac*2*Math.PI,x2=cx+(r-4)*Math.cos(a),y2=cy+(r-4)*Math.sin(a),lg=frac>.5?1:0;wedge=`<path d="M${cx} ${cy}L${cx} ${cy-r+4}A${r-4} ${r-4} 0 ${lg} 1 ${x2.toFixed(1)} ${y2.toFixed(1)}Z" style="fill:var(--warn);stroke:var(--client-ink);stroke-width:2;stroke-linejoin:round"/>`}
+  return G(`<circle cx="${cx}" cy="${cy}" r="${r}" style="fill:none;stroke:var(--line);stroke-width:2;stroke-dasharray:5 5"/>${wedge}${frac>=1?`<circle cx="${cx}" cy="${cy}" r="${r-2}" style="fill:none;stroke:var(--client-ink);stroke-width:4"/>`:''}`,{an:'pop',d});}
+const BALLOON=`<ellipse cx="0" cy="0" rx="24" ry="30" style="fill:var(--vol)"/><ellipse cx="-8" cy="-10" rx="6" ry="9" fill="#fff" fill-opacity=".35"/><path d="M-4 29L4 29L0 35Z" style="fill:var(--vol)"/><path d="M0 35Q8 48 0 60" style="fill:none;stroke:var(--ink-2);stroke-width:2"/>`;
+const FUNNEL=`<path d="M0 0H60L38 26V46L22 54V26Z" style="fill:var(--teal)"/>`;
+const MAG=`<circle cx="20" cy="20" r="15" style="fill:var(--surface);stroke:var(--ink);stroke-width:5"/><path d="M31 31L46 46" style="stroke:var(--ink);stroke-width:7;stroke-linecap:round"/>`;
+const TARGET=`<circle r="16" style="fill:none;stroke:var(--web);stroke-width:4"/><circle r="8" style="fill:none;stroke:var(--web);stroke-width:4"/><circle r="3" style="fill:var(--web)"/>`;
+const miniPod=(x,y,k='web')=>`<g transform="translate(${x} ${y})"><rect width="32" height="24" rx="8" style="fill:var(--${k})"/><circle cx="11" cy="12" r="3" fill="#fff"/><circle cx="21" cy="12" r="3" fill="#fff"/></g>`;
+// ---------- Day 14 helpers ----------
+const ptick=(x,y,ok,{d=0,r=8}={})=>`<circle cx="${x}" cy="${y}" r="${r}" class="pop" style="fill:var(--${ok?'ok':'bad'});--d:${d}s"/>`;
+const CLOCK=`<circle r="10" class="warnf"/><path d="M0 -6V0L4 3" style="fill:none;stroke:#fff;stroke-width:2;stroke-linecap:round"/>`;
+const ptag=(x,y,name,k,{d=0,an='pop'}={})=>G(`<rect width="${Math.round(name.length*8.2+24)}" height="26" rx="13" style="fill:var(--${k})"/><text x="12" y="18" class="f13 b wht">${name}</text>`,{x,y,an,d});
+const spill=(x,y,txt,k='ok',{d=0,o,an}={})=>{const w=Math.round(txt.length*7.6+30);return G(`<rect width="${w}" height="24" rx="12" class="pill" style="stroke:var(--${k})"/><circle cx="13" cy="12" r="4.5" style="fill:var(--${k})"/><text x="23" y="16.5" class="f13 b">${txt}</text>`,{x,y,an:an||(o!=null?'inout':'pop'),d,o})};
+const pbox=(x,y,w,h,k,t,q,d)=>G(`<rect width="${w}" height="${h}" rx="14" class="panel" style="stroke:var(--${k});stroke-width:3"/><rect x="14" y="14" width="${Math.round(t.length*8.6+24)}" height="26" rx="13" style="fill:var(--${k})"/><text x="26" y="32" class="f14 b wht">${t}</text><text x="16" y="66" class="f14">${q}</text>`,{x,y,an:'pop',d});
+// ---------- Day 15 helpers ----------
+const crowd=(x,y,n,cols,{first=0,d0=.6,d1=1.8,gap=16,k='ink-2'}={})=>{let s='';for(let i=0;i<n;i++){const cx=x+(i%cols)*gap,cy=y+Math.floor(i/cols)*gap,d=i<first?d0:d1+(i-first)*.012;s+=`<circle cx="${cx}" cy="${cy}" r="5.5" class="pop" style="fill:var(--${k});--d:${d.toFixed(2)}s"/>`}return s};
+const meterCard=(x,y,w,h,title,val,frac,k,cap,{d=0,extra=''}={})=>G(`<rect width="${w}" height="${h}" rx="14" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><text x="16" y="30" class="f13 b mut">${title}</text>${val?`<text x="16" y="84" class="f30 b" style="fill:var(--${k})">${val}</text>`:''}<rect x="16" y="108" width="${w-32}" height="14" rx="7" style="fill:var(--line)"/><rect x="16" y="108" width="${Math.round((w-32)*frac)}" height="14" rx="7" class="grow-x" style="fill:var(--${k});--d:${d+.3}s"/><text x="16" y="150" class="f12">${cap}</text>${extra}`,{x,y,an:'pop',d});
+// ---------- Day 16 helpers ----------
+function house({x=0,y=0,w=150,h=140,name='inference-dev',k='teal',an='',v={},extra='',solar=false}={}){
+  const rh=Math.round(h*.38),bh=h-rh;
+  let g=`<path d="M${w/2} 0L${w} ${rh}H0Z" style="fill:var(--${k})"/>${solar?`<path d="M${w*.56} ${rh*.32}L${w*.86} ${rh*.82}L${w*.74} ${rh*.82}L${w*.48} ${rh*.42}Z" class="inkf" opacity=".75"/>`:''}<rect x="${w*.08}" y="${rh}" width="${w*.84}" height="${bh-24}" style="fill:var(--surface);stroke:var(--ink);stroke-width:2.5"/><rect x="${w/2-12}" y="${h-24-34}" width="24" height="34" rx="3" style="fill:var(--${k});fill-opacity:.6"/><rect x="${w*.18}" y="${rh+14}" width="22" height="18" rx="3" style="fill:var(--note)"/><rect x="${w*.82-22}" y="${rh+14}" width="22" height="18" rx="3" style="fill:var(--note)"/><rect y="${h-22}" width="${w}" height="22" rx="6" class="inkf"/><text x="${w/2}" y="${h-7}" text-anchor="middle" class="m f11 b inv">${name}</text>${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function blueprint({x=0,y=0,w=160,h=110,title='inference-chart',lines=[],an='',v={}}={}){
+  let grid='';for(let i=12;i<w;i+=16)grid+=`M${i} 0V${h}`;for(let j=12;j<h;j+=16)grid+=`M0 ${j}H${w}`;
+  let g=`<rect width="${w}" height="${h}" rx="8" style="fill:var(--web)"/><path d="${grid}" style="stroke:#fff;stroke-opacity:.14;stroke-width:1"/><path d="M${w-50} ${h-12}V${h-34}L${w-32} ${h-50}L${w-14} ${h-34}V${h-12}Z" style="fill:none;stroke:#fff;stroke-width:2;stroke-opacity:.75"/><text x="12" y="22" class="m f12 b wht">${title}</text>${lines.map((l,i)=>`<text x="12" y="${42+i*17}" class="m f11 wht">${l}</text>`).join('')}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function gears({x=0,y=0,w=150,h=120,label='helm render',an='',v={},d=0}={}){
+  const gear=(cx,cy,r,dd)=>{let t='';for(let i=0;i<8;i++)t+=`<rect x="${(cx-3.5).toFixed(1)}" y="${(cy-r-6).toFixed(1)}" width="7" height="10" rx="2" transform="rotate(${i*45} ${cx} ${cy})"/>`;return `<g class="spin" style="--d:${dd}s"><g style="fill:var(--ink-2)">${t}<circle cx="${cx}" cy="${cy}" r="${r}"/></g><circle cx="${cx}" cy="${cy}" r="${(r*.4).toFixed(1)}" style="fill:var(--surface)"/></g>`};
+  let g=`<rect width="${w}" height="${h}" rx="14" class="panel" style="stroke:var(--db);stroke-width:3"/>${gear(w*.36,h*.42,18,d)}${gear(w*.66,h*.58,13,d)}<text x="${w/2}" y="${h-12}" text-anchor="middle" class="m f12 b dbc">${label}</text>`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function docPaper({x=0,y=0,w=130,h=150,title='',lines=[],an='',v={},extra=''}={}){
+  let g=`<path d="M0 8Q0 0 8 0H${w-22}L${w} 22V${h-8}Q${w} ${h} ${w-8} ${h}H8Q0 ${h} 0 ${h-8}Z" class="paper"/><path d="M${w-22} 1V22H${w-1}" class="paperfold"/>${title?`<text x="12" y="22" class="m f11 b">${title}</text>`:''}${lines.map((l,i)=>`<text x="12" y="${46+i*18}" class="m f11">${l}</text>`).join('')}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+const PARCEL=w=>`<rect width="${w}" height="80" rx="6" style="fill:var(--warn);fill-opacity:.35;stroke:var(--ink);stroke-width:2.5"/><rect x="${w/2-9}" width="18" height="80" style="fill:var(--warn)"/><path d="M0 22H${w}" style="stroke:var(--ink);stroke-width:2"/>`;
+const bx2=(x,y,w,h,a,b,k,d)=>G(`<rect width="${w}" height="${h}" rx="12" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><text x="${w/2}" y="${b?h/2-3:h/2+5}" text-anchor="middle" class="f14 b">${a}</text>${b?`<text x="${w/2}" y="${h/2+15}" text-anchor="middle" class="f11 mut">${b}</text>`:''}`,{x,y,an:'pop',d});
+// ---------- Day 17 helpers ----------
+function idCard({x=0,y=0,w=150,h=80,name='model-sa',sub='ServiceAccount',k='teal',an='',v={}}={}){
+  const m=h/2+10;
+  let g=`<rect x="${w/2-14}" y="-10" width="28" height="16" rx="5" class="inkf"/><rect width="${w}" height="${h}" rx="10" style="fill:var(--surface);stroke:var(--${k});stroke-width:3"/><path d="M0 10Q0 0 10 0H${w-10}Q${w} 0 ${w} 10V18H0Z" style="fill:var(--${k})"/><circle cx="26" cy="${m}" r="14" style="fill:var(--${k});fill-opacity:.22"/><circle cx="26" cy="${m-4}" r="5" style="fill:var(--${k})"/><path d="M17 ${m+11}Q26 ${m+1} 35 ${m+11}Z" style="fill:var(--${k})"/><text x="48" y="${m-1}" class="m f12 b">${name}</text><text x="48" y="${m+15}" class="f11 mut">${sub}</text>`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function rdoor(x,y,label,{k='web',d=0,open=null,deny=null,w=64,h=96}={}){
+  let s=G(`<rect width="${w}" height="${h}" rx="4" style="fill:var(--line);stroke:var(--ink);stroke-width:2.5"/><rect x="6" y="6" width="${w-12}" height="${h-6}" rx="3" style="fill:var(--${k});fill-opacity:.55"/><circle cx="${w-14}" cy="${h/2+6}" r="3.5" class="inkf"/>${label?`<text x="${w/2}" y="${h+18}" text-anchor="middle" class="f12 b">${label}</text>`:''}`,{x,y,an:'pop',d});
+  s+=`<circle cx="${x+w/2}" cy="${y-10}" r="6" class="${open!=null?'inout':'pop'}" style="fill:var(--bad);--d:${d}s${open!=null?`;--o:${open}s`:''}"/>`;
+  if(open!=null)s+=G(`<rect x="6" y="6" width="${w-12}" height="${h-6}" rx="3" class="inkf" opacity=".85"/><path d="M6 6L${Math.round(w*.32)} 14V${h-4}L6 ${h}Z" style="fill:var(--${k})"/><circle cx="${w/2}" cy="-10" r="6" style="fill:var(--ok)"/>`,{x,y,an:'fade',d:open});
+  if(deny!=null)s+=icon('no',x+w/2,y+h/2,{r:13,d:deny});
+  return s;
+}
+const keyI=(x,y,{s=1,d=0,o,an='pop',k='warn'}={})=>G(`<g transform="scale(${s})"><circle cx="12" cy="15" r="10" style="fill:none;stroke:var(--${k});stroke-width:6"/><rect x="21" y="12" width="40" height="7" rx="3" style="fill:var(--${k})"/><rect x="47" y="18" width="6" height="9" rx="2" style="fill:var(--${k})"/><rect x="55" y="18" width="6" height="12" rx="2" style="fill:var(--${k})"/></g>`,{x,y,an:o!=null?'inout':an,d,o});
+const bindBand=(x,y,w,h,a,b,{d=0,k='vol'}={})=>G(`<rect width="${w}" height="${h}" rx="${h/2}" style="fill:var(--${k});fill-opacity:.18;stroke:var(--${k});stroke-width:3"/><g transform="translate(14 ${h/2-8})" style="fill:none;stroke:var(--${k});stroke-width:3"><rect width="16" height="10" rx="5"/><rect x="10" y="6" width="16" height="10" rx="5"/></g><text x="${w/2+14}" y="${b?h/2-2:h/2+5}" text-anchor="middle" class="f13 b">${a}</text>${b?`<text x="${w/2+14}" y="${h/2+14}" text-anchor="middle" class="f11 mut">${b}</text>`:''}`,{x,y,an:'pop',d});
+const mchip=(x,y,t,k,{d=0,o}={})=>{const w=Math.round(t.length*7.2+20);return G(`<rect width="${w}" height="24" rx="12" style="fill:var(--${k});fill-opacity:.18;stroke:var(--${k});stroke-width:2"/><text x="${w/2}" y="17" text-anchor="middle" class="m f12 b">${t}</text>`,{x,y,an:o!=null?'inout':'pop',d,o})};
+const hlr=(x,y,w,h,k,d)=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="4" class="fade" style="fill:var(--${k});fill-opacity:.22;stroke:var(--${k});stroke-width:1.5;--d:${d}s"/>`;
+// ---------- Day 18 helpers ----------
+function alarmClock(x,y,{s=1,an='pop',d=0,ring=null,k='warn'}={}){
+  const face=`<circle cx="9" cy="10" r="8" style="fill:var(--${k})"/><circle cx="51" cy="10" r="8" style="fill:var(--${k})"/><path d="M14 58L8 66M46 58L52 66" style="stroke:var(--ink);stroke-width:4;stroke-linecap:round"/><circle cx="30" cy="36" r="26" style="fill:var(--surface);stroke:var(--ink);stroke-width:4"/><path d="M30 20V36L41 42" style="fill:none;stroke:var(--ink);stroke-width:3.5;stroke-linecap:round"/><circle cx="30" cy="36" r="3" class="inkf"/>`;
+  const inner=ring!=null?`<g class="ringy" style="--d:${ring}s">${face}</g>`:face;
+  return G(`<g transform="scale(${s})">${inner}</g>`,{x,y,an,d});
+}
+function clipb({x=0,y=0,w=90,h=100,title='Job',k='db',an='pop',v={},extra=''}={}){
+  let g=`<rect width="${w}" height="${h}" rx="8" style="fill:var(--surface);stroke:var(--${k});stroke-width:3"/><rect x="${w/2-18}" y="-8" width="36" height="16" rx="5" style="fill:var(--${k})"/><text x="${w/2}" y="30" text-anchor="middle" class="f13 b">${title}</text><path d="M14 46H${w-14}M14 62H${w-14}M14 78H${w-30}" style="stroke:var(--line);stroke-width:4;stroke-linecap:round"/>${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+const gbar=(x,y,w,h,k,d,label='',{dur=.8,lc='wht',op=1}={})=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="5" class="grow-x" style="fill:var(--${k});fill-opacity:${op};--d:${d}s;--dur:${dur}s"/>`+(label?T(x+8,y+h/2+4.5,label,{c:`f12 b ${lc}`,d:d+dur*.6}):'');
+const vline=(x,y1,y2,k,d,dash=true)=>`<path d="M${x} ${y1}V${y2}" class="fade" style="stroke:var(--${k});stroke-width:2.5;${dash?'stroke-dasharray:6 5;':''}--d:${d}s"/>`;
+// ---------- Day 19 helpers ----------
+const evCard=(x,y,w,h,lines,{d=0,k='warn',an='pop',rot=0}={})=>G(`<g transform="rotate(${rot} ${w/2} ${h/2})"><rect width="${w}" height="${h}" rx="6" style="fill:var(--note);stroke:var(--ink);stroke-width:1.5"/><circle cx="${w/2}" cy="8" r="6" style="fill:var(--${k});stroke:var(--ink);stroke-width:1.5"/>${lines.map(([t,c],i)=>`<text x="14" y="${34+i*20}" class="${c||'f12'} lbltxt">${t}</text>`).join('')}</g>`,{x,y,an,d});
+const chip=(x,y,w,t,k,{d=0,o,mono=false,h=30}={})=>G(`<rect width="${w}" height="${h}" rx="${h/2}" style="fill:var(--${k});fill-opacity:.16;stroke:var(--${k});stroke-width:2"/><text x="${w/2}" y="${h/2+4.5}" text-anchor="middle" class="${mono?'m ':''}f12 b">${t}</text>`,{x,y,an:o!=null?'inout':'pop',d,o});
+const stepsChain=(items,y,{x0=20,gap=14,d0=0,step=.4,h=34}={})=>{let s='',x=x0;items.forEach(([t,w,k],i)=>{s+=chip(x,y,w,t,k,{d:d0+i*step,h});if(i<items.length-1)s+=arrow({x1:x+w+2,y1:y+h/2,x2:x+w+gap-2,y2:y+h/2},{d:d0+i*step+.2,dur:.15,c:'var(--ink-2)',w:2});x+=w+gap});return s};
+// ---------- Day 21 helpers ----------
+const cgrid=(x,y,cols,rows,cell,gap,k,{d0=0,step=.01,op=1,an='pop',rnd=false}={})=>{let s='';for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){const i=r*cols+c,d=d0+(rnd?((i*37)%97)/97*step*cols*rows:i*step);s+=`<rect x="${x+c*(cell+gap)}" y="${y+r*(cell+gap)}" width="${cell}" height="${cell}" rx="${Math.max(2,cell/5)}" class="${an}" style="fill:var(--${k});fill-opacity:${op};--d:${d.toFixed(2)}s"/>`}return s};
+const progRing=(cx,cy,r,frac,k,d,{w=12}={})=>{const a=-Math.PI/2+frac*2*Math.PI,x=cx+r*Math.cos(a),y=cy+r*Math.sin(a),big=frac>.5?1:0;return `<circle cx="${cx}" cy="${cy}" r="${r}" class="fade" style="fill:none;stroke:var(--line);stroke-width:${w};--d:${d}s"/><path d="M${cx} ${cy-r}A${r} ${r} 0 ${big} 1 ${x.toFixed(1)} ${y.toFixed(1)}" pathLength="1" class="aline draw" style="stroke:var(--${k});stroke-width:${w};stroke-linecap:round;--d:${d}s;--dur:1.2s"/>`};
+const hbar=(x,y,w,h,k,d,{dur=.8,op=1,label='',lc='wht'}={})=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="4" class="grow-x" style="fill:var(--${k});fill-opacity:${op};--d:${d}s;--dur:${dur}s"/>`+(label?T(x+8,y+h/2+4.5,label,{c:`f12 b ${lc}`,d:d+dur*.6}):'');
+const vbar=(x,base,w,h,k,d,{op=1}={})=>`<rect x="${x}" y="${base-h}" width="${w}" height="${h}" rx="3" class="up" style="fill:var(--${k});fill-opacity:${op};--d:${d}s"/>`;
+const zbox=(x,y,w,h,a,b,{k='ink',d=0,inv=false,an='pop',o}={})=>G(inv?`<rect width="${w}" height="${h}" rx="10" class="inkf"/><text x="${w/2}" y="${b?h/2-2:h/2+5}" text-anchor="middle" class="f13 b inv">${a}</text>${b?`<text x="${w/2}" y="${h/2+15}" text-anchor="middle" class="m f11 inv" opacity=".8">${b}</text>`:''}`:`<rect width="${w}" height="${h}" rx="10" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><text x="${w/2}" y="${b?h/2-2:h/2+5}" text-anchor="middle" class="f13 b">${a}</text>${b?`<text x="${w/2}" y="${h/2+15}" text-anchor="middle" class="m f11 mut">${b}</text>`:''}`,{x,y,an:o!=null?'inout':an,d,o});
+// ---------- Day 22 helpers ----------
+const STK=[['Application','Python / C++ / model serving','ink'],['Framework','PyTorch / TensorFlow','vol'],['CUDA runtime + libraries','libcudart.so · cuBLAS · cuDNN · NCCL','teal'],['CUDA Driver API','libcuda.so','db'],['NVIDIA host driver','user-space + kernel modules','web'],['Physical GPU','','ok']];
+const stackL=(x,y,w,L,{h=44,gap=10,d0=0,step=.2,rev=false,an='pop'}={})=>L.map(([n,sub,k],i)=>{const yy=y+i*(h+gap),d=d0+(rev?(L.length-1-i):i)*step;return G(`<rect width="${w}" height="${h}" rx="10" style="fill:var(--${k})"/><text x="16" y="${sub?h/2-2:h/2+5}" class="f14 b wht">${n}</text>${sub?`<text x="16" y="${h/2+15}" class="m f11 wht" opacity=".88">${sub}</text>`:''}`,{x,y:yy,an,d})}).join('');
+const vtag=(x,y,w,h,k,d,inner)=>G(`<path d="M24 0H${w-8}Q${w} 0 ${w} 8V${h-8}Q${w} ${h} ${w-8} ${h}H24L0 ${h/2}Z" style="fill:var(--surface);stroke:var(--${k});stroke-width:3;stroke-linejoin:round"/><circle cx="22" cy="${h/2}" r="6" style="fill:var(--paper);stroke:var(--${k});stroke-width:2.5"/>${inner}`,{x,y,an:'pop',d});
+// ---------- Day 23 helpers ----------
+const halfGauge=(cx,cy,r,frac,k,d,{w=12}={})=>{const a=Math.PI+Math.max(.001,Math.min(1,frac))*Math.PI,x=cx+r*Math.cos(a),y=cy+r*Math.sin(a);return `<path d="M${cx-r} ${cy}A${r} ${r} 0 0 1 ${cx+r} ${cy}" class="fade" style="fill:none;stroke:var(--line);stroke-width:${w};stroke-linecap:round;--d:${d}s"/><path d="M${cx-r} ${cy}A${r} ${r} 0 0 1 ${x.toFixed(1)} ${y.toFixed(1)}" pathLength="1" class="aline draw" style="stroke:var(--${k});stroke-width:${w};stroke-linecap:round;--d:${d}s;--dur:1.2s"/>`};
+const thermo=(x,y,frac,k,d)=>G(`<rect x="8" y="0" width="16" height="80" rx="8" style="fill:var(--surface);stroke:var(--ink);stroke-width:2.5"/><circle cx="16" cy="92" r="14" style="fill:var(--${k});stroke:var(--ink);stroke-width:2.5"/>`,{x,y,an:'pop',d})+`<rect x="${x+12}" y="${y+80-70*frac}" width="8" height="${70*frac+12}" rx="4" class="up" style="fill:var(--${k});--d:${d+.3}s"/>`;
+const lineP=(pts,k,d,{w=3.5,dash=false,dur=2}={})=>`<path d="M${pts.map(p=>p.join(' ')).join('L')}" pathLength="1" class="aline draw" style="stroke:var(--${k});stroke-width:${w};${dash?'stroke-dasharray:1 1;':''}--d:${d}s;--dur:${dur}s"/>`;
+// ---------- Day 24 helpers ----------
+const vramBar=(x,y,w,h,segs,{d0=0,step=.3,total=null,lab=true}={})=>{const tot=total||segs.reduce((a,s)=>a+s[0],0);let cx=x,s='';segs.forEach(([v,k,l,hat],i)=>{const sw=Math.round(v/tot*w),d=d0+i*step;s+=`<rect x="${cx}" y="${y}" width="${Math.max(sw,1)}" height="${h}" rx="3" class="grow-x" style="fill:var(--${k});fill-opacity:${hat?.25:1};${hat?`stroke:var(--${k});stroke-width:2;stroke-dasharray:5 4;`:''}--d:${d}s;--dur:.5s"/>`;if(lab&&l&&sw>l.length*6.6+12)s+=T(cx+sw/2,y+h/2+4,l,{c:`f11 b ${hat||k==='line'?'':'wht'}`,a:'middle',d:d+.3});cx+=sw});return s};
+const brk=(x1,x2,y,label,k,d,{up=false,c='f12 b'}={})=>{const t=up?-8:8;return `<path d="M${x1} ${y}V${y+t}H${x2}V${y}" class="fade" style="fill:none;stroke:var(--${k});stroke-width:2.5;--d:${d}s"/>`+T((x1+x2)/2,y+(up?-14:24),label,{c:`${c}`,a:'middle',d})};
+const lot=(x,y,slots,{w=40,h=56,gap=6,d0=0,step=.08}={})=>slots.split('').map((ch,i)=>{const sx=x+i*(w+gap),d=d0+i*step;let g=`<rect x="${sx}" y="${y}" width="${w}" height="${h}" rx="5" class="fade" style="fill:none;stroke:var(--line);stroke-width:2;stroke-dasharray:4 3;--d:${d0}s"/>`;if(ch==='L')g+=G(`<rect x="4" y="8" width="${w-8}" height="${h-16}" rx="8" style="fill:var(--teal)"/><rect x="9" y="14" width="${w-18}" height="10" rx="3" style="fill:#fff;opacity:.55"/>`,{x:sx,y,an:'drop',d});if(ch==='C')g+=G(`<path d="M${w/2} 12L${w/2+10} ${h-12}H${w/2-10}Z" style="fill:var(--db)"/><rect x="${w/2-13}" y="${h-14}" width="26" height="5" rx="2" style="fill:var(--db)"/>`,{x:sx,y,an:'pop',d});if(ch==='X')g+=G(`<rect x="4" y="8" width="${w-8}" height="${h-16}" rx="6" style="fill:var(--ink-2)"/>`,{x:sx,y,an:'pop',d});return g}).join('');
+// ---------- Day 25 helpers ----------
+const laneL=(x,y,t,d,{w=680,c='f12 b'}={})=>T(x,y+18,t,{c,d})+`<path d="M${x+60} ${y+28}H${x+60+w}" class="fade" style="stroke:var(--line);stroke-width:1.5;--d:${d}s"/>`;
+const blk=(x,y,w,k,d,label='',{h=28,op=1,dash=false,lc='wht',dur=.4}={})=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="5" class="grow-x" style="fill:var(--${k});fill-opacity:${op};${dash?`stroke:var(--${k});stroke-width:2;stroke-dasharray:5 4;`:''}--d:${d}s;--dur:${dur}s"/>`+(label?T(x+w/2,y+h/2+4.5,label,{c:`f11 b ${lc}`,a:'middle',d:d+dur*.7}):'');
+const tkt=(x,y,t,k,d,{an='drop'}={})=>G(`<path d="M0 0H44V46L38 52L32 46L26 52L20 46L14 52L8 46L2 52L0 50Z" style="fill:var(--surface);stroke:var(--${k});stroke-width:2.5"/><text x="22" y="30" text-anchor="middle" class="m f15 b" style="fill:var(--${k})">${t}</text>`,{x,y,an,d});
+// ---------- Day 26 helpers ----------
+const lockI=(x,y,{d=0,k='bad',s=1,an='pop',o}={})=>G(`<g transform="scale(${s})"><path d="M6 14V9A8 8 0 0 1 22 9V14" style="fill:none;stroke:var(--${k});stroke-width:3.5"/><rect x="1" y="14" width="26" height="20" rx="4" style="fill:var(--${k})"/><circle cx="14" cy="23" r="3" style="fill:#fff"/></g>`,{x,y,an:o!=null?'inout':an,d,o});
+const gpuChip=(x,y,w,h,label,{d=0,k='ok',an='pop'}={})=>G(`<rect width="${w}" height="${h}" rx="8" style="fill:var(--${k})"/><rect x="8" y="8" width="${w-16}" height="${h-16}" rx="4" style="fill:none;stroke:#fff;stroke-width:1.5;opacity:.6"/>`+[0,1,2,3].map(i=>`<path d="M${10+i*(w-20)/3} ${h}V${h+5}M${10+i*(w-20)/3} -5V0" style="stroke:var(--${k});stroke-width:2"/>`).join('')+`<text x="${w/2}" y="${h/2+5}" text-anchor="middle" class="f12 b wht">${label}</text>`,{x,y,an,d});
+const nbox=(x,y,w,h,lines,k,d,{an='pop',fill=.12,first='f13 b',rest='f12',lh=19,top=26}={})=>G(`<rect width="${w}" height="${h}" rx="12" style="fill:var(--${k});fill-opacity:${fill};stroke:var(--${k});stroke-width:2"/>`+lines.map((l,i)=>`<text x="14" y="${top+i*lh}" class="${i===0?first:rest}">${l}</text>`).join(''),{x,y,an,d});
+// ---------- Day 66 visuals 0-9 ----------
+const loopPk=(x1,y1,x2,y2,{d=0,dur=1.2,c='var(--web)',r=6}={})=>`<circle cx="${x1}" cy="${y1}" r="${r}" class="travel" style="fill:${c};--d:${d}s;--dur:${dur}s;--tx:${x2-x1}px;--ty:${y2-y1}px;--n:infinite"/>`;
+const pnl=(x,y,w,h,title,{k,d=0,an='fade',sub}={})=>G(`<rect width="${w}" height="${h}" rx="16" class="panel"${k?` style="stroke:var(--${k});stroke-width:2.5"`:''}/>${title?`<text x="18" y="30" class="f13 b">${title}</text>`:''}${sub?`<text x="18" y="48" class="f11 mut">${sub}</text>`:''}`,{x,y,an,d});
+const TC=(x,y,t,k,{c='',a,d=0}={})=>`<text x="${x}" y="${y}"${a?` text-anchor="${a}"`:''} class="${c} fade" style="fill:var(--${k});--d:${d}s">${t}</text>`;
+const solid=(x,y,w,h,k,a,b,d,{an='pop',fs='f14'}={})=>G(`<rect width="${w}" height="${h}" rx="12" style="fill:var(--${k})"/><text x="14" y="${b?26:h/2+5}" class="${fs} b wht">${a}</text>${b?`<text x="14" y="${h-14}" class="f12 wht">${b}</text>`:''}`,{x,y,an,d});
+const lines=(x,y,L,{lh=20,d=0,c='f12',step=0,a}={})=>L.map((t,i)=>T(x,y+i*lh,t,{c:Array.isArray(c)?c[i]:c,d:d+i*step,a})).join('');
+const tint=(x,y,w,h,k,d,inner,{an='pop',op=.1,sw=2.5}={})=>G(`<rect width="${w}" height="${h}" rx="12" style="fill:var(--${k});fill-opacity:${op};stroke:var(--${k});stroke-width:${sw}"/>${inner}`,{x,y,an,d});
+const env=(x,y,k,d,{an='pop',v={}}={})=>G(`<rect x="-14" y="-10" width="28" height="20" rx="3" style="fill:var(--surface);stroke:var(--${k});stroke-width:2"/><path d="M-14 -10L0 2L14 -10" style="fill:none;stroke:var(--${k});stroke-width:2"/>`,{x,y,an,d,...v});
+const mbox=(x,y,k,d,n=0,{flag=true}={})=>{let g=`<rect x="0" y="20" width="86" height="56" rx="10" style="fill:var(--${k});fill-opacity:.15;stroke:var(--${k});stroke-width:3"/><path d="M0 34Q0 0 43 0Q86 0 86 34" style="fill:var(--${k});fill-opacity:.15;stroke:var(--${k});stroke-width:3"/><rect x="38" y="76" width="10" height="34" style="fill:var(--${k})"/>${flag?`<path d="M90 10V40" style="stroke:var(--bad);stroke-width:3"/><rect x="90" y="10" width="18" height="12" style="fill:var(--bad)"/>`:''}`;for(let i=0;i<n;i++)g+=`<rect x="${14+i*12}" y="${36+(i%2)*6}" width="26" height="18" rx="2" class="pop" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.5;--d:${(d+.3+i*.2).toFixed(2)}s"/>`;return G(g,{x,y,an:'pop',d})};
+const code=(x,y,w,t,d,{h=32,fs='f12',an='up'}={})=>G(`<rect width="${w}" height="${h}" rx="8" class="codebg"/><text x="12" y="${h/2+5}" class="m ${fs} b">${t}</text>`,{x,y,an,d});
+
+function V0(){
+  const S=[['db','vLLM + GPU','writes stdout'],['teal','Docker','keeps local logs'],['ok','Alloy','collects + ships'],['vol','Loki','indexes + stores'],['warn','Grafana','explores (LogQL)']];
+  let s='';
+  S.forEach(([k,a,b],i)=>{const x=16+i*158,d=.2+i*.25;s+=solid(x,24,136,76,k,a,b,d);if(i<4)s+=arrow({x1:x+138,y1:62,x2:x+156,y2:62},{d:d+.2,dur:.1,c:'var(--ink-2)',w:2})});
+  for(let i=0;i<3;i++)s+=env(84,116,'ink',0,{an:'travel',v:{d:1.6+i*1.1,dur:3.3,tx:632,ty:0,n:'infinite'}});
+  s+=pnl(16,140,768,344,'What the Day 66 lab showed',{d:1.4});
+  const Ts=[['404','warn','a bad route, on purpose','found in Loki as INFO'],['OFF','bad','collector stopped','vLLM kept serving'],['back','ok','the outage-time line','appeared after restart'],['74 · 16 · 2','db','info · unknown · warning','lines in one window']];
+  Ts.forEach(([a,k,b,c],i)=>{const x=28+i*188,d=1.6+i*.3;s+=G(`<rect width="176" height="232" rx="14" style="fill:var(--${k});fill-opacity:.1;stroke:var(--${k});stroke-width:2.5"/><text x="88" y="98" text-anchor="middle" class="m ${a.length>5?'f22':'f30'} b" style="fill:var(--${k})">${a}</text><text x="88" y="158" text-anchor="middle" class="f13 b">${b}</text><text x="88" y="182" text-anchor="middle" class="f12">${c}</text>`,{x,y:186,an:'pop',d})});
+  s+=T(400,462,'Lab evidence from November 21, 2026 · RTX 3070 Laptop GPU · Qwen2.5-0.5B-Instruct',{c:'f12 mut',a:'middle',d:3.0});
+  return svg(s,'Day 66 in one picture: vLLM on the GPU writes stdout; Docker keeps local logs; Alloy collects and ships them; Loki indexes and stores them; Grafana explores them with LogQL. What the lab showed: a 404 from a bad route, made on purpose, was found in Loki as an INFO line; with the collector stopped, vLLM kept serving; the line written during the outage appeared after the collector restarted; and one Grafana window showed 74 info, 16 unknown and 2 warning lines. Lab evidence from November 21, 2026, on an RTX 3070 Laptop GPU with Qwen2.5-0.5B-Instruct.');
+}
+
+function V1(){
+  let s=pnl(16,12,470,330,'One container at a time',{k:'warn',d:.1});
+  const hit=[6,3];
+  s+=`<path d="M40 336L${44+hit[0]*24-8} ${62+hit[1]*24-4}L${44+hit[0]*24+26} ${62+hit[1]*24+22}Z" class="fade" style="fill:var(--warn);fill-opacity:.22;--d:1.4s"/>`;
+  for(let i=0;i<100;i++){const c=i%10,r=Math.floor(i/10),isHit=c===hit[0]&&r===hit[1],rs=[13,27,48,71,86].includes(i);s+=`<rect x="${44+c*24}" y="${62+r*24}" width="18" height="18" rx="4" class="${rs?'pulse':'pop'}" style="fill:var(--${isHit?'warn':rs?'bad':'db'});fill-opacity:${isHit?1:.55};--d:${(.2+i*.008).toFixed(3)}s"/>`}
+  s+=lines(302,82,['docker logs','one-container'],{lh:18,d:1.6,c:'m f12 b'});
+  s+=lines(302,140,['replicas restart','(red ones blink)','traffic spreads','over many nodes','you must search many','services and hours'],{lh:20,d:1.9,step:.15,c:['f13 b','f12 mut','f13 b','f12','f13 b','f12']});
+  s+=pnl(500,12,284,330,'Centralized: search them all',{k:'ok',d:2.6});
+  [0,1,2].forEach(n=>{const x=520+n*86,d=2.8+n*.2;s+=G(`<rect width="74" height="64" rx="8" class="nodebox"/>${[0,1,2,3].map(j=>`<rect x="${8+(j%2)*32}" y="${8+Math.floor(j/2)*26}" width="26" height="20" rx="4" style="fill:var(--db);fill-opacity:.55"/>`).join('')}`,{x,y:52,an:'pop',d});s+=loopPk(x+37,118,642,196,{d:3.2+n*.3,dur:1.2,c:'var(--ok)',r:5})});
+  s+=G(`<ellipse cx="0" cy="8" rx="44" ry="11" style="fill:var(--ok);fill-opacity:.3;stroke:var(--ok);stroke-width:2.5"/><path d="M-44 8V62A44 11 0 0 0 44 62V8" style="fill:var(--ok);fill-opacity:.15;stroke:var(--ok);stroke-width:2.5"/>`,{x:642,y:196,an:'pop',d:3.0});
+  s+=G(`<circle cx="0" cy="0" r="16" style="fill:var(--surface);stroke:var(--warn);stroke-width:4"/><path d="M11 11L24 24" style="stroke:var(--warn);stroke-width:6;stroke-linecap:round"/>`,{x:700,y:250,an:'pop',d:3.6});
+  s+=T(642,316,'one place to search',{c:'f13 b',a:'middle',d:3.8});
+  s+=G(`<rect width="768" height="128" rx="16" class="inkf"/><text x="24" y="36" class="f15 b inv">Centralizing separates who writes logs from where you investigate them.</text>`,{x:16,y:356,an:'up',d:4.0});
+  [['teal','metrics','quantify over time'],['warn','logs','keep each event (today)'],['db','traces','link work across services']].forEach(([k,a,b],i)=>{const x=40+i*250,d=4.3+i*.2;s+=`<rect x="${x}" y="412" width="14" height="14" rx="3" class="pop" style="fill:var(--${k});--d:${d}s"/>`+T(x+22,424,a,{c:'f13 b inv',d})+T(x+22,446,b,{c:'f12 inv',d})});
+  return svg(s,'Why centralize? With a 100-container fleet, docker logs one-container is a flashlight on one box: replicas restart, traffic spreads over many nodes, and you must search many services and hours. Centralized logging ships every node’s container logs into one place to search. It separates who writes logs from where you investigate them. The three signals: metrics quantify behavior over time, logs keep each event and are today’s focus, and traces link work across services.');
+}
+
+function V2(){
+  let s=G(`<rect width="768" height="316" rx="18" style="fill:var(--ink-2);fill-opacity:.04;stroke:var(--ink-2);stroke-width:2;stroke-dasharray:8 6"/><text x="18" y="26" class="f12 b mut">one laptop · every port bound to 127.0.0.1</text>`,{x:16,y:12,an:'fade',d:.1});
+  s+=solid(36,52,176,80,'client','HTTP client','calls port 8000',.3);
+  s+=solid(296,52,216,80,'db','vLLM container','GPU + Qwen2.5-0.5B',.5);
+  s+=solid(596,52,172,80,'teal','Docker log driver','stdout / stderr',.7);
+  s+=solid(596,224,172,80,'ok','Grafana Alloy',':12346 diagnostics',1.2);
+  s+=solid(296,224,216,80,'vol','Grafana Loki',':13100 labels + chunks',1.6);
+  s+=solid(36,224,176,80,'warn','Grafana Explore',':13000 LogQL',2.0);
+  s+=arrow({x1:214,y1:92,x2:292,y2:92},{d:.4,dur:.15,c:'var(--client)'})+arrow({x1:514,y1:92,x2:592,y2:92},{d:.8,dur:.15,c:'var(--db)'});
+  s+=arrow({x1:682,y1:134,x2:682,y2:220},{d:1.0,dur:.2,c:'var(--teal)'})+T(694,182,'Docker API',{c:'f12 b',d:1.1});
+  s+=arrow({x1:594,y1:264,x2:516,y2:264},{d:1.4,dur:.15,c:'var(--ok)'})+T(555,256,'push',{c:'f12 b',a:'middle',d:1.5});
+  s+=arrow({x1:214,y1:264,x2:292,y2:264},{d:1.8,dur:.15,c:'var(--warn)'})+T(253,256,'query',{c:'f12 b',a:'middle',d:1.9});
+  for(let i=0;i<2;i++)s+=loopPk(516,92,590,92,{d:2.3+i*.6,dur:.9,c:'var(--db)',r:5})+loopPk(682,136,682,218,{d:2.6+i*.6,dur:.9,c:'var(--teal)',r:5})+loopPk(592,282,518,282,{d:2.9+i*.6,dur:.9,c:'var(--ok)',r:5});
+  s+=pnl(16,342,470,142,'Two Compose files',{d:2.8});
+  s+=code(36,380,214,'compose.yaml',3.0,{h:28})+T(262,399,'Loki, Alloy, Grafana',{c:'f12',d:3.0});
+  s+=code(36,414,214,'compose.vllm.yaml',3.2,{h:28})+T(262,433,'+ vLLM, Docker collection',{c:'f12',d:3.2});
+  s+=T(36,470,'Prometheus + DCGM ran separately; a link to them wasn’t proven here.',{c:'f12 mut',d:3.4});
+  s+=pnl(500,342,284,142,'Heads-up',{k:'warn',d:3.6});
+  s+=lines(520,396,['Alloy reads the Docker socket.','That access is privileged,','even when mounted :ro.'],{lh:22,d:3.8,step:.15,c:['f13','f13','f13 b']});
+  return svg(s,'The validated single-host architecture, on one laptop with every port bound to 127.0.0.1. An HTTP client calls the vLLM container on port 8000, running Qwen2.5-0.5B on the GPU. Its stdout and stderr go to the Docker log driver. Grafana Alloy reads them through the Docker API, with diagnostics on port 12346, and pushes them to Grafana Loki on port 13100, which keeps labels and chunks. Grafana Explore on port 13000 queries Loki with LogQL. Two Compose files: compose.yaml with Loki, Alloy and Grafana, and compose.vllm.yaml adding vLLM and Docker collection. Prometheus and DCGM ran separately; a link to them wasn’t proven here. Heads-up: Alloy reads the Docker socket, and that access is privileged even when mounted read-only.');
+}
+
+function V3(){
+  const R=[['db','vLLM','the writer','serves inference on the GPU; writes messages','if it fails: the API itself suffers'],['teal','Docker','the mailbox','runs vLLM; keeps a bounded rolling history','keeps filling even if the courier stops'],['ok','Alloy','the courier','finds the vLLM container, reads, forwards','if it fails: central visibility stops'],['vol','Loki','sorting office + archive','receives, indexes labels, stores chunks','if it fails: ingest or search stops'],['warn','Grafana','the reading room','explores lines, labels and log metrics','a window, not the storage engine']];
+  let s='';
+  R.forEach(([k,a,b,c,e],i)=>{const y=12+i*95,d=.2+i*.45;s+=G(`<rect width="768" height="84" rx="14" style="fill:var(--${k});fill-opacity:.08;stroke:var(--${k});stroke-width:2.5"/><rect width="210" height="84" rx="14" style="fill:var(--${k})"/><text x="16" y="36" class="f17 b wht">${a}</text><text x="16" y="60" class="f13 wht">${b}</text><text x="228" y="36" class="f13">${c}</text><text x="228" y="62" class="f13 b">${e}</text>`,{x:16,y,an:'slide',d,dx:-30})});
+  return svg(s,'What each component contributes, as a postal system. vLLM is the writer: it serves inference on the GPU and writes messages; if it fails, the API itself suffers. Docker is the mailbox: it runs vLLM and keeps a bounded rolling history, and keeps filling even if the courier stops. Alloy is the courier: it finds the vLLM container, reads its logs and forwards them; if it fails, central visibility stops. Loki is the sorting office and archive: it receives entries, indexes labels and stores chunks; if it fails, ingestion or search stops. Grafana is the reading room: it explores lines, labels and log-derived metrics, a window rather than the storage engine.');
+}
+
+function V4(){
+  let s=G(`<rect width="768" height="68" rx="14" class="codebg"/><text x="18" y="27" class="f11 b mut">one log entry arrives</text><rect x="18" y="36" width="150" height="24" rx="6" style="fill:var(--teal);fill-opacity:.2"/><text x="28" y="53" class="m f12 b">timestamp</text><rect x="178" y="36" width="392" height="24" rx="6" style="fill:var(--db);fill-opacity:.2"/><text x="188" y="53" class="m f12 b">{app="vllm",source="docker",environment="lab"}</text><rect x="580" y="36" width="172" height="24" rx="6" style="fill:var(--warn);fill-opacity:.2"/><text x="590" y="53" class="m f12 b">the original line</text>`,{x:16,y:12,an:'up',d:.1});
+  s+=arrow({x1:390,y1:82,x2:200,y2:112},{d:.8,dur:.2,c:'var(--db)'})+arrow({x1:410,y1:82,x2:600,y2:112},{d:1.0,dur:.2,c:'var(--warn)'});
+  s+=pnl(16,116,376,220,'Label index: small and fast',{k:'db',d:1.2});
+  s+=G(`<rect width="150" height="120" rx="8" style="fill:var(--db);fill-opacity:.12;stroke:var(--db);stroke-width:3"/>${[0,1,2].map(i=>`<rect x="12" y="${12+i*36}" width="126" height="28" rx="5" style="fill:var(--surface);stroke:var(--db);stroke-width:2"/><rect x="60" y="${22+i*36}" width="30" height="7" rx="3" style="fill:var(--db)"/>`).join('')}`,{x:36,y:166,an:'pop',d:1.4});
+  ['app="vllm"','source="docker"','environment="lab"'].forEach((t,i)=>{s+=G(`<rect width="170" height="26" rx="6" style="fill:var(--surface);stroke:var(--db);stroke-width:2"/><text x="10" y="18" class="m f12 b">${t}</text>`,{x:204,y:172+i*36,an:'slide',d:1.6+i*.2,dx:-20})});
+  s+=T(36,318,'finds candidate streams',{c:'f13 b dbc',d:2.2});
+  s+=pnl(408,116,376,220,'Chunks: compressed boxes of lines',{k:'warn',d:1.8});
+  s+=`<path d="M428 268H764" class="fade" style="stroke:var(--ink-2);stroke-width:4;--d:1.9s"/>`;
+  for(let i=0;i<6;i++){const x=436+i*54,d=2.0+i*.12;s+=G(`<rect width="46" height="${i===2?70:60}" rx="5" style="fill:var(--warn);fill-opacity:${i===2?.5:.22};stroke:var(--warn);stroke-width:2.5"/><path d="M8 ${i===2?24:20}H38M8 ${i===2?36:32}H32M8 ${i===2?48:44}H36" style="stroke:var(--warn);stroke-width:2"/>`,{x,y:i===2?196:206,an:'up',d})}
+  s+=T(428,318,'keeps the original lines',{c:'f13 b warnc',d:2.8});
+  s+=pnl(16,350,768,134,'A LogQL query, step by step',{d:3.0});
+  [['1','pick streams by label','db'],['2','open their chunks in the time range','teal'],['3','filter or parse the lines','warn']].forEach(([n,t,k],i)=>{const x=[36,248,556][i],d=3.2+i*.3;s+=G(`<circle cx="14" cy="14" r="14" style="fill:var(--${k})"/><text x="14" y="19" text-anchor="middle" class="f13 b wht">${n}</text><text x="36" y="19" class="f13 b">${t}</text>`,{x,y:384,an:'pop',d});if(i<2)s+=T([222,532][i],403,'→',{c:'f15 b',d:d+.1})});
+  s+=T(36,458,'Trade-off: indexing a few labels keeps the index cheap, but content filters must scan the chunks.',{c:'f13',d:4.2});
+  return svg(s,'How Loki organizes information. One log entry arrives with a timestamp, a label set such as app="vllm", source="docker", environment="lab", and the original line. All entries sharing one label set form a stream. The label index is small and fast, like a card catalogue: it finds candidate streams. Chunks are compressed boxes that keep the original lines. A LogQL query works in three steps: pick streams by label, open their chunks in the time range, then filter or parse the lines. The trade-off: indexing a few labels keeps the index cheap, but content filters must scan the chunks.');
+}
+
+function V5(){
+  let s=pnl(16,12,376,330,'environment = lab',{k:'ok',d:.1,sub:'a handful of possible values'});
+  ['lab','staging','prod'].forEach((t,i)=>{const x=46+i*112,d=.4+i*.25;s+=G(`<path d="M0 0H86L78 110H8Z" style="fill:var(--ok);fill-opacity:.15;stroke:var(--ok);stroke-width:3;stroke-linejoin:round"/><text x="43" y="62" text-anchor="middle" class="m f13 b">${t}</text>`,{x,y:110,an:'pop',d})});
+  s+=T(46,262,'(example values)',{c:'f11 mut',d:1.2});
+  s+=T(46,300,'few streams: cheap index',{c:'f15 b okc',d:1.4});
+  s+=pnl(408,12,376,330,'request_id = &lt;unique ID&gt;',{k:'bad',d:1.6,sub:'can reach millions of values'});
+  s+=cgrid(428,74,22,10,12,4,'bad',{d0:1.8,step:.006,op:.75});
+  s+=T(428,262,'one stream per request',{c:'f11 mut',d:3.2});
+  s+=T(428,300,'stream explosion: costly + fragmented',{c:'f15 b badc',d:3.4});
+  s+=G(`<rect width="768" height="128" rx="16" class="inkf"/><text x="24" y="40" class="f15 b inv">Keep request IDs in the log line or in structured metadata.</text><text x="24" y="70" class="f13 inv">Which fields become labels is a performance and reliability decision,</text><text x="24" y="92" class="f13 inv">not a formatting preference.</text>`,{x:16,y:356,an:'up',d:3.8});
+  return svg(s,'Label cardinality. A label like environment = lab has only a handful of possible values, such as lab, staging and prod, so it makes few streams and a cheap index. A label like request_id holds a unique ID per request and can reach millions of values: one stream per request, a stream explosion that is costly and fragmented. Keep request IDs in the log line or in structured metadata. Which fields become labels is a performance and reliability decision, not a formatting preference.');
+}
+
+function V6(){
+  let s=G(`<rect width="768" height="70" rx="14" class="codebg"/><text x="18" y="34" class="m f15 b">{app="vllm", source="docker"}</text><text x="330" y="34" class="m f15 b warnc">|= "ERROR"</text><path d="M18 44H306" style="stroke:var(--db);stroke-width:4"/><path d="M330 44H440" style="stroke:var(--warn);stroke-width:4"/><text x="18" y="62" class="f11 b dbc">selector: which streams</text><text x="330" y="62" class="f11 b warnc">pipeline: which lines</text><rect x="560" y="16" width="190" height="40" rx="8" style="fill:var(--teal);fill-opacity:.15;stroke:var(--teal);stroke-width:2"/><text x="655" y="34" text-anchor="middle" class="f12 b">time picker:</text><text x="655" y="50" text-anchor="middle" class="f11">which timestamps</text>`,{x:16,y:12,an:'up',d:.1});
+  s+=pnl(16,96,768,300,'Which sample lines survive? (illustrative lines)',{d:.8});
+  const Q=[['selector only','db'],['|= "ERROR"','bad'],['|~ "404|WARNING"','warn'],['!= "GET /health"','teal']],X=[392,488,596,716];
+  Q.forEach(([q,k],j)=>{s+=T(X[j],140,q,{c:'m f11 b',a:'middle',d:1.0+j*.1})+`<path d="M${X[j]-48} 148H${X[j]+48}" class="fade" style="stroke:var(--${k});stroke-width:3;--d:${1.0+j*.1}s"/>`});
+  const L=[['INFO  "GET /health" 200',[1,0,0,0]],['INFO  "GET /day66-intentional-404" 404',[1,0,1,1]],['WARNING  …a warning line…',[1,0,1,1]],['ERROR  …an error line…',[1,1,0,1]],['INFO  "POST /v1/chat/completions" 200',[1,0,0,1]]];
+  L.forEach(([t,m],i)=>{const y=184+i*42,d=1.4+i*.15;s+=T(36,y,t,{c:'m f11 b',d});m.forEach((v,j)=>{s+=icon(v?'yes':'no',X[j],y-4,{d:1.8+j*.4+i*.06,r:10})})});
+  s+=pnl(16,410,768,74,'',{k:'warn',d:3.6});
+  s+=lines(36,440,['|= contains · != excludes · |~ regex match. Case-sensitive unless you add (?i).','The label selector chooses streams; it isn’t a content filter.'],{lh:22,d:3.8,step:.2,c:['m f12 b','f13']});
+  return svg(s,'LogQL from first principles. In {app="vllm", source="docker"} |= "ERROR", the selector in braces picks which streams, the pipeline after it picks which lines, and Grafana’s time picker sets which timestamps. With five illustrative sample lines, a health check, the intentional 404, a warning, an error and a chat completion: the selector alone keeps all five; |= "ERROR" keeps only the error line; |~ "404|WARNING" keeps the 404 line and the warning line; and != "GET /health" keeps everything except the health check. |= means contains, != excludes, and |~ is a regex match; matching is case-sensitive unless you add (?i). The label selector chooses streams; it isn’t a content filter.');
+}
+
+function V7(){
+  let s=term(16,12,768,76,[['# separate demo file, synthetic JSON','mut',.2],['{"level":"INFO","service":"vllm","message":"day66 pipeline test","latency_ms":250}','b',.4]],{fs:12,lh:26,top:28,d:.1});
+  s+=G(`<rect width="150" height="70" rx="14" style="fill:var(--db)"/><text x="75" y="44" text-anchor="middle" class="m f22 b wht">| json</text>`,{x:16,y:118,an:'pop',d:.8});
+  s+=arrow({x1:168,y1:153,x2:200,y2:153},{d:1.0,dur:.1,c:'var(--db)'});
+  [['level','INFO'],['service','vllm'],['message','day66 pipeline test'],['latency_ms','250']].forEach(([a,b],i)=>{const x=[206,318,430,618][i],w=[104,104,180,120][i],d=1.2+i*.2;s+=G(`<rect width="${w}" height="44" rx="10" style="fill:var(--db);fill-opacity:.12;stroke:var(--db);stroke-width:2"/><text x="10" y="18" class="m f11 mut">${a}</text><text x="10" y="36" class="m f13 b">${b}</text>`,{x,y:131,an:'pop',d})});
+  s+=arrow({x1:678,y1:180,x2:640,y2:214},{d:2.2,dur:.1,c:'var(--ok)'});
+  s+=G(`<rect width="226" height="56" rx="12" style="fill:var(--ok);fill-opacity:.12;stroke:var(--ok);stroke-width:2.5"/><text x="16" y="35" class="m f15 b">latency_ms > 200</text>`,{x:478,y:218,an:'pop',d:2.4});
+  s+=G(`<rect width="62" height="34" rx="17" style="fill:var(--ok)"/><text x="31" y="23" text-anchor="middle" class="m f13 b wht">250 ✓</text>`,{x:712,y:229,an:'stamp',d:2.8});
+  s+=code(16,226,440,'{app="day66-demo"} | json | latency_ms > 200',2.0,{h:40,fs:'f13'});
+  s+=pnl(16,296,376,188,'Label vs parsed field',{k:'db',d:3.2});
+  s+=lines(36,352,['label: indexed; chooses streams','before anything is read','parsed field: extracted at query','time from the line itself'],{lh:22,d:3.4,step:.15,c:['f13 b','f13','f13 b','f13']});
+  s+=pnl(408,296,376,188,'Careful with the real vLLM logs',{k:'warn',d:3.9});
+  s+=lines(428,352,['Its Docker startup and access logs','here were mostly plain text, so','| json won’t reliably pull out latency','or status. Match the parser to the','format, or add structured logging.'],{lh:22,d:4.1,step:.12,c:['f13','f13','f13','f13','f13 b']});
+  return svg(s,'Parsing structured JSON. A separate demo file had a synthetic JSON line: level INFO, service vllm, message day66 pipeline test, latency_ms 250. The query {app="day66-demo"} | json | latency_ms > 200 parses it into fields, and 250 passes the latency_ms > 200 check. Label versus parsed field: a label is indexed and chooses streams before anything is read; a parsed field is extracted at query time from the line itself. Careful with the real vLLM logs: its Docker startup and access logs here were mostly plain text, so | json won’t reliably pull out latency or status. Match the parser to the format, or add structured logging.');
+}
+
+function V8(){
+  let s=code(16,12,768,'sum(count_over_time({app="vllm",source="docker"} |= "day66-intentional-404" [5m]))',.2,{h:40,fs:'f11'});
+  s+=T(784,70,'→ matching lines in a rolling 5-minute window',{c:'f12 b',a:'end',d:.5});
+  s+=code(16,82,520,'sum(rate({app="vllm",source="docker"} |= "ERROR" [5m]))',.7,{h:40,fs:'f11'});
+  s+=T(784,108,'→ matching lines per second',{c:'f12 b',a:'end',d:1.0});
+  s+=pnl(16,138,768,212,'Turning log ticks into a time series',{d:1.2,sub:'illustrative ticks, not lab data'});
+  const ticks=[1.2,2.1,2.4,3.0,5.5,6.1,6.2,6.6,7.0,7.3,7.5,9.8,12.4,12.9,13.1,13.3,13.6,13.8,14.0,14.4,16.9,18.2],X=m=>60+m*34;
+  s+=`<path d="M60 300H740" class="axis fade" style="--d:1.3s"/>`+[0,5,10,15,20].map(m=>T(X(m),318,`${m} min`,{c:'m f11 mut',a:'middle',d:1.3})).join('');
+  ticks.forEach((m,i)=>{s+=`<path d="M${X(m)} 300V284" class="fade" style="stroke:var(--warn);stroke-width:3;--d:${(1.4+i*.04).toFixed(2)}s"/>`});
+  const cnt=t=>ticks.filter(v=>v<=t&&v>t-5).length;
+  const P=[];for(let t=5;t<=20;t+=.5)P.push([X(t),+(270-cnt(t)*9).toFixed(1)]);
+  s+=lineP(P,'db',2.4,{w:3,dur:1.6});
+  s+=G(`<rect width="170" height="96" rx="6" style="fill:var(--db);fill-opacity:.1;stroke:var(--db);stroke-width:2;stroke-dasharray:6 4"/><text x="85" y="-6" text-anchor="middle" class="m f11 b dbc">[5m]</text>`,{x:X(0),y:206,an:'move',d:2.4,dur:4,tx:X(15)-X(0)});
+  s+=TC(764,168,'purple line: count_over_time','db',{c:'m f12 b',a:'end',d:3.6});
+  s+=pnl(16,364,768,120,'A log count isn’t a request count',{k:'bad',d:3.8});
+  [['one request can','write several lines'],['some events are','never logged'],['a 404 can be','logged at INFO']].forEach(([a,b],i)=>{const x=36+i*250,d=4.0+i*.2;s+=G(`<rect width="232" height="58" rx="10" style="fill:var(--bad);fill-opacity:.08;stroke:var(--bad);stroke-width:2"/><text x="14" y="25" class="f13">${a}</text><text x="14" y="45" class="f13 b">${b}</text>`,{x,y:408,an:'pop',d})});
+  return svg(s,'From logs to metric time series. sum of count_over_time over app="vllm", source="docker" lines containing day66-intentional-404 in a 5-minute window counts matching lines in a rolling 5-minute window. sum of rate over lines containing ERROR in 5 minutes gives matching lines per second. Illustratively, log ticks along a 20-minute timeline become a time series as a 5-minute window slides across them. But a log count isn’t a request count: one request can write several lines, some events are never logged, and a 404 can be logged at INFO.');
+}
+
+function V9(){
+  let s=pnl(16,12,500,472,'Bring the lab up, safely',{k:'web',d:.1});
+  const St=[['Secret in .env, never committed','umask 077 · token_urlsafe(24)'],['Validate the Compose files','docker compose … config --quiet'],['Pull the images','docker compose … pull'],['GPU check inside the image','… run --rm --entrypoint nvidia-smi vllm'],['Free port 8000 first','stop the old native vLLM server'],['Start everything','docker compose … up -d · ps'],['Confirm readiness','curl :13100/ready · curl :8000/health']];
+  St.forEach(([a,b],i)=>{const y=52+i*61,d=.3+i*.3;s+=G(`<circle cx="16" cy="18" r="15" style="fill:var(--web)"/><text x="16" y="23" text-anchor="middle" class="f13 b wht">${i+1}</text><text x="44" y="16" class="f14 b">${a}</text><text x="44" y="38" class="m f11">${b}</text>`,{x:32,y,an:'up',d})});
+  s+=pnl(530,12,254,472,'Version note',{k:'warn',d:2.6});
+  s+=G(`<rect width="214" height="66" rx="12" style="fill:var(--db)"/><text x="14" y="26" class="f12 wht">in Docker today</text><text x="14" y="50" class="m f13 b wht">v0.11.0</text>`,{x:550,y:56,an:'pop',d:2.8});
+  s+=T(657,152,'≠',{c:'f30 b',a:'middle',d:3.0});
+  s+=G(`<rect width="214" height="66" rx="12" style="fill:var(--ink-2)"/><text x="14" y="26" class="f12 wht">earlier host install</text><text x="14" y="50" class="m f13 b wht">vLLM 0.33.0</text>`,{x:550,y:170,an:'pop',d:3.2});
+  s+=lines(550,276,['Image: vllm/vllm-openai.','The move proved the same','health check and chat reply','work: functional equivalence,','not benchmark equivalence.'],{lh:22,d:3.5,step:.12,c:['m f11','f13','f13','f13 b','f13 b']});
+  return svg(s,'Bringing the lab up safely, in seven steps: 1, put a generated secret in .env and never commit it, using umask 077 and token_urlsafe(24); 2, validate the Compose files with docker compose config --quiet; 3, pull the images; 4, check the GPU inside the image by running nvidia-smi as the entrypoint; 5, free port 8000 first by stopping the old native vLLM server; 6, start everything with up -d and check ps; 7, confirm readiness with curl on Loki’s /ready at port 13100 and vLLM’s /health at port 8000. Version note: the vllm/vllm-openai image in Docker today is v0.11.0, not the earlier host install of vLLM 0.33.0. The move proved the same health check and chat reply work: functional equivalence, not benchmark equivalence.');
+}
+
+// ---------- Day 66 visuals 10-19 ----------
+function V10(){
+  let s=pnl(16,12,470,330,'A healthy chat request',{k:'ok',d:.1});
+  s+=G(`<rect width="220" height="40" rx="14" style="fill:var(--client)"/><text x="14" y="25" class="f14 b" style="fill:var(--on-client)">Reply with OK.</text>`,{x:36,y:52,an:'slide',d:.3,dx:-20});
+  s+=chip(268,58,110,'temperature 0','db',{d:.5,h:28,mono:true})+chip(36,104,130,'max_tokens 16','warn',{d:.7,h:28,mono:true});
+  s+=T(36,170,'completion tokens',{c:'f12 mut',d:.9});
+  for(let i=0;i<16;i++)s+=`<rect x="${36+i*26}" y="182" width="22" height="34" rx="5" class="pop" style="fill:var(--ok);--d:${(1.0+i*.12).toFixed(2)}s"/>`;
+  s+=`<path d="M${36+16*26-2} 172V226" class="fade" style="stroke:var(--bad);stroke-width:4;--d:3.0s"/>`+T(36+16*26-8,244,'16 / 16',{c:'m f14 b',a:'end',d:3.0});
+  s+=G(`<path d="M-14 -34H14L34 -14V14L14 34H-14L-34 14V-14Z" style="fill:var(--bad)"/><text y="5" text-anchor="middle" class="f12 b wht">length</text>`,{x:410,y:296,an:'stamp',d:3.3});
+  s+=lines(36,284,['finish_reason = length','the reply hit its 16-token budget'],{lh:22,d:3.5,step:.15,c:['m f14 b','f13']});
+  s+=pnl(500,12,284,330,'Then the logs travel',{k:'warn',d:1.6});
+  [['teal','Docker keeps them','docker logs day66-vllm'],['ok','Alloy forwards them','loki.source.docker + discovery'],['warn','Grafana Explore','{app="vllm",source="docker"}']].forEach(([k,a,b],i)=>{const y=56+i*92,d=1.8+i*.4;s+=G(`<rect width="244" height="72" rx="12" style="fill:var(--${k});fill-opacity:.12;stroke:var(--${k});stroke-width:2.5"/><text x="14" y="28" class="f13 b">${a}</text><text x="14" y="52" class="m f11 b">${b}</text>`,{x:520,y,an:'pop',d});if(i<2)s+=arrow({x1:642,y1:y+74,x2:642,y2:y+90},{d:d+.2,dur:.1,c:`var(--${k})`})});
+  s+=G(`<rect width="768" height="128" rx="16" class="inkf"/><text x="24" y="42" class="f15 b inv">length means the reply reached its max_tokens budget.</text><text x="24" y="74" class="f13 inv">The small budget truncated the output. It isn’t an error, and the server didn’t crash.</text>`,{x:16,y:356,an:'up',d:3.9});
+  return svg(s,'A healthy chat request: Reply with OK., with temperature 0 and max_tokens 16. The reply used all 16 of 16 completion tokens, so finish_reason = length: it hit its 16-token budget. Then the logs travel: Docker keeps them, visible with docker logs day66-vllm; Alloy forwards them using loki.source.docker with Docker discovery; and Grafana Explore shows them with the query {app="vllm",source="docker"}. length means the reply reached its max_tokens budget; the small budget truncated the output. It isn’t an error, and the server didn’t crash.');
+}
+
+function V11(){
+  const W=v=>v/8*430;
+  let s=pnl(16,12,470,250,'GPU memory at startup (RTX 3070 Laptop, 8 GiB)',{k:'db',d:.1});
+  s+=`<rect x="36" y="58" width="430" height="40" rx="8" class="fade" style="fill:none;stroke:var(--ink-2);stroke-width:2;stroke-dasharray:6 4;--d:.2s"/>`;
+  s+=`<rect x="36" y="58" width="${W(.927).toFixed(1)}" height="40" rx="6" class="grow-x" style="fill:var(--db);--d:.4s"/><rect x="${(36+W(.927)).toFixed(1)}" y="58" width="${W(3.47).toFixed(1)}" height="40" rx="6" class="grow-x" style="fill:var(--teal);--d:.9s"/>`;
+  s+=T(36,116,'0',{c:'m f11 mut',d:.3})+T(466,116,'8 GiB',{c:'m f11 mut',a:'end',d:.3});
+  [['db','model weights ≈ 0.927 GiB',''],['teal','KV cache ≈ 3.47 GiB','(engine-reported)'],['ink-2','the rest isn’t itemized in the notes','']].forEach(([k,a,b],i)=>{const y=148+i*28,d=1.3+i*.2;s+=`<rect x="36" y="${y-11}" width="14" height="14" rx="3" class="pop" style="fill:var(--${k});${i===2?'fill-opacity:.3;':''}--d:${d}s"/>`+T(58,y,a,{c:'f13 b',d})+T(272,y,b,{c:'f12 mut',d})});
+  s+=T(36,240,'nvidia-smi ran inside the Docker image: GPU visible',{c:'f12',d:2.0});
+  s+=pnl(500,12,284,250,'KV-cache capacity',{k:'teal',d:2.2});
+  s+=T(642,84,'303,328',{c:'m f30 b tealc',a:'middle',d:2.4})+T(642,106,'tokens (reported)',{c:'f12',a:'middle',d:2.4});
+  s+=T(642,144,'÷ 2,048 tokens per request',{c:'m f12 b',a:'middle',d:2.7})+T(642,184,'= 148.11×',{c:'m f22 b',a:'middle',d:3.0});
+  s+=T(642,208,'theoretical max concurrency',{c:'f12',a:'middle',d:3.0})+T(642,236,'an estimate, not a load test',{c:'f12 b badc',a:'middle',d:3.2});
+  s+=pnl(16,276,376,208,'Severity in one Grafana window',{k:'ok',d:3.4});
+  [['info',74,'ok'],['unknown',16,'ink-2'],['warning',2,'warn']].forEach(([a,v,k],i)=>{const y=318+i*40,d=3.6+i*.25;s+=T(36,y+20,a,{c:'f13 b',d})+`<rect x="120" y="${y}" width="${Math.max(4,v/74*200).toFixed(1)}" height="28" rx="6" class="grow-x" style="fill:var(--${k});--d:${d}s"/>`+T(128+Math.max(4,v/74*200),y+20,String(v),{c:'m f14 b',d:d+.3})});
+  s+=T(36,466,'“unknown” isn’t proof of an application error',{c:'f12 b',d:4.4});
+  s+=pnl(408,276,376,208,'Engine init ≈ 25.03 s',{k:'warn',d:4.0});
+  s+=T(428,330,'profiling, KV-cache setup and warm-up',{c:'f12',d:4.1})+T(428,362,'Not established by startup logs:',{c:'f13 b',d:4.3});
+  ['p95 inference latency','sustained throughput','fleet reliability or GPU efficiency gains'].forEach((t,i)=>{const y=390+i*26,d=4.5+i*.15;s+=icon('no',440,y-5,{d,r:9})+T(458,y,t,{c:'f13',d})});
+  return svg(s,'What the startup output established, carefully interpreted. GPU memory at startup on the RTX 3070 Laptop GPU with 8 GiB: model weights about 0.927 GiB and KV cache about 3.47 GiB, engine-reported; the rest isn’t itemized in the notes. nvidia-smi ran inside the Docker image, so the GPU was visible. KV-cache capacity was reported as 303,328 tokens; divided by 2,048 tokens per request that’s 148.11 times, a theoretical maximum concurrency, an estimate rather than a load test. Severity in one Grafana window: 74 info, 16 unknown and 2 warning lines; unknown isn’t proof of an application error. Engine init took about 25.03 s for profiling, KV-cache setup and warm-up. Not established by startup logs: p95 inference latency, sustained throughput, or fleet reliability and GPU efficiency gains.');
+}
+
+function V12(){
+  let s=term(16,12,768,98,[["$ curl -sS -o /dev/null -w 'HTTP status: %{http_code}\\n' \\",'b',.2],['    http://127.0.0.1:8000/day66-intentional-404','b',.3],['HTTP status: 404','warnc b',.7]],{fs:13,lh:26,top:28,d:.1});
+  s+=pnl(16,124,376,236,'One line, two different labels',{k:'warn',d:1.0});
+  s+=G(`<rect width="170" height="110" rx="8" style="fill:var(--surface);stroke:var(--ink);stroke-width:2.5"/><path d="M0 0L85 60L170 0" style="fill:none;stroke:var(--ink);stroke-width:2.5"/>`,{x:36,y:170,an:'pop',d:1.2});
+  s+=G(`<rect width="96" height="34" rx="6" style="fill:var(--warn)"/><text x="48" y="23" text-anchor="middle" class="m f14 b wht">HTTP 404</text>`,{x:52,y:236,an:'stamp',d:1.6})+G(`<rect width="70" height="30" rx="15" style="fill:var(--ok)"/><text x="35" y="20" text-anchor="middle" class="m f13 b wht">INFO</text>`,{x:150,y:166,an:'stamp',d:2.0});
+  s+=lines(226,198,['HTTP 404:','the request’s','outcome'],{lh:18,d:1.8,c:['f12 b warnc','f12','f12']})+lines(226,262,['INFO:','the message’s','severity'],{lh:18,d:2.2,c:['f12 b okc','f12','f12']});
+  s+=icon('yes',44,335,{d:2.5,r:9})+T(60,340,'container healthy',{c:'f12',d:2.5})+icon('yes',212,335,{d:2.6,r:9})+T(228,340,'chat API worked',{c:'f12',d:2.6});
+  s+=pnl(408,124,376,236,'Which search finds it?',{d:2.8});
+  s+=code(428,170,336,'{app="vllm",source="docker"} |= "ERROR"',3.0,{h:34,fs:'f11'})+icon('no',440,230,{d:3.3,r:11})+T(460,235,'misses it: the line isn’t an ERROR',{c:'f13 b badc',d:3.3});
+  s+=code(428,262,336,'… |= "day66-intentional-404"',3.6,{h:34,fs:'f11'})+icon('yes',440,322,{d:3.9,r:11})+T(460,327,'finds the access line in Loki',{c:'f13 b okc',d:3.9});
+  s+=G(`<rect width="768" height="110" rx="16" class="inkf"/><text x="24" y="40" class="f15 b inv">HTTP status describes what happened to the request.</text><text x="24" y="66" class="f15 b inv">Log severity classifies the message.</text><text x="24" y="92" class="f13 inv">A 404 route-not-found can be an INFO access line, so an ERROR-only search misses it.</text>`,{x:16,y:374,an:'up',d:4.3});
+  return svg(s,'Incident A, an application-level HTTP 404. Calling curl on http://127.0.0.1:8000/day66-intentional-404 printed HTTP status: 404, while the container stayed healthy and the chat API worked. One line carries two different labels: HTTP 404 is the request’s outcome, and INFO is the message’s severity. Which search finds it? Filtering {app="vllm",source="docker"} with |= "ERROR" misses it, because the line isn’t an ERROR; filtering with |= "day66-intentional-404" finds the access line in Loki. HTTP status describes what happened to the request; log severity classifies the message. A 404 route-not-found can be an INFO access line, so an ERROR-only search misses it.');
+}
+
+function V13(){
+  let s='';
+  const loki=(x,y,d)=>G(`<ellipse cx="0" cy="6" rx="30" ry="8" style="fill:var(--vol);fill-opacity:.3;stroke:var(--vol);stroke-width:2.5"/><path d="M-30 6V44A30 8 0 0 0 30 44V6" style="fill:var(--vol);fill-opacity:.15;stroke:var(--vol);stroke-width:2.5"/><text y="34" text-anchor="middle" class="f11 b">Loki</text>`,{x,y,an:'pop',d});
+  // 1 healthy
+  s+=pnl(16,12,248,316,'1 · Healthy',{k:'ok',d:.1});
+  s+=mbox(34,56,'teal',.3,2,{flag:false})+pod({x:146,y:72,w:56,h:42,k:'ok',mood:'happy',an:'pop',v:{d:.5}})+T(174,134,'Alloy',{c:'f12 b',a:'middle',d:.6});
+  s+=loki(174,170,.7)+loopPk(122,96,146,96,{d:1.0,dur:.8,c:'var(--teal)',r:4})+loopPk(174,140,174,170,{d:1.2,dur:.8,c:'var(--ok)',r:4});
+  s+=lines(34,266,['vLLM serving,','Alloy shipping lines','to Loki as they arrive'],{lh:20,d:.9,c:['f13 b','f12','f12']});
+  // 2 stop
+  s+=pnl(276,12,248,316,'2 · Stop Alloy',{k:'bad',d:1.3});
+  s+=code(292,52,216,'docker stop day66-loki-alloy-1',1.4,{h:26,fs:'f11'});
+  s+=mbox(294,88,'teal',1.6,3,{flag:true});
+  s+=G(`<rect width="56" height="42" rx="10" style="fill:none;stroke:var(--ink-2);stroke-width:2.5;stroke-dasharray:5 4"/><text x="28" y="26" text-anchor="middle" class="f11 b mut">gone</text>`,{x:432,y:104,an:'pop',d:1.8});
+  s+=G(`<rect width="96" height="22" rx="4" style="fill:var(--warn)"/><text x="48" y="15" text-anchor="middle" class="m f11 b wht">outage-test</text>`,{x:292,y:214,an:'drop',d:2.2});
+  s+=lines(294,266,['vLLM stayed healthy;','docker logs showed','the outage-test request'],{lh:20,d:2.4,c:['f13 b','f12','f12']});
+  // 3 restart
+  s+=pnl(536,12,248,316,'3 · Restart Alloy',{k:'ok',d:2.8});
+  s+=code(552,52,216,'docker start day66-loki-alloy-1',2.9,{h:26,fs:'f11'});
+  s+=mbox(554,88,'teal',3.1,0,{flag:false})+pod({x:666,y:104,w:56,h:42,k:'ok',mood:'wow',an:'pop',v:{d:3.2}});
+  s+=G(`<rect width="216" height="58" rx="8" style="fill:#151A24"/><text x="10" y="22" class="m f11 b" style="fill:#F2C14E">…day66-alloy-outage-test…</text><text x="10" y="44" class="m f11 b" style="fill:#7FE3A0">…day66-alloy-recovered…</text>`,{x:552,y:192,an:'up',d:3.6});
+  s+=lines(554,276,['Grafana later showed','both lines: backfill seen'],{lh:20,d:3.9,c:['f13 b','f12']});
+  s+=pnl(16,342,376,142,'Directly observed',{k:'ok',d:4.2});
+  ['Alloy stopped; vLLM stayed healthy','Docker logs held the outage request','after restart, Grafana showed both'].forEach((t,i)=>{const y=394+i*28,d=4.4+i*.15;s+=icon('yes',42,y-5,{d,r:9})+T(60,y,t,{c:'f13',d})});
+  s+=pnl(408,342,376,142,'Not shown',{k:'warn',d:4.8});
+  s+=lines(428,394,['No Loki query screenshot from during','the outage. So: post-restart recovery','of a short event, not lossless delivery.'],{lh:22,d:5.0,step:.12,c:['f13','f13','f13 b']});
+  return svg(s,'Incident B, a collector outage and backfill, told as a mail courier. 1, healthy: vLLM serving and Alloy shipping lines to Loki as they arrive. 2, stop Alloy with docker stop day66-loki-alloy-1: the courier is gone, but vLLM stayed healthy and docker logs showed the outage-test request piling up in the mailbox. 3, restart Alloy with docker start day66-loki-alloy-1: Grafana later showed both the day66-alloy-outage-test and day66-alloy-recovered lines, so backfill was seen. Directly observed: Alloy stopped while vLLM stayed healthy; Docker logs held the outage request; after the restart Grafana showed both. Not shown: no Loki query screenshot from during the outage, so this proves post-restart recovery of a short event, not lossless delivery.');
+}
+
+function V14(){
+  let s=pnl(16,12,376,300,'Alloy keeps a bookmark',{k:'ok',d:.1});
+  s+=G(`${[0,1,2,3,4,5,6].map(i=>`<path d="M20 ${20+i*22}H180" style="stroke:var(--ink-2);stroke-width:2;stroke-opacity:.5"/>`).join('')}<rect width="200" height="170" rx="8" style="fill:none;stroke:var(--ink);stroke-width:2.5"/><path d="M150 -6V${20+4*22+4}L160 ${20+4*22-6}L170 ${20+4*22+4}V-6Z" style="fill:var(--ok)"/>`,{x:36,y:60,an:'pop',d:.3});
+  s+=lines(250,90,['read','positions','(offsets)'],{lh:20,d:.8,c:['f13 b','f13 b','f12 mut']});
+  s+=lines(36,262,['After a restart it resumes where it','stopped, if the lines are still there.'],{lh:20,d:1.1,step:.15,c:['f13','f13 b']});
+  s+=pnl(408,12,376,300,'Docker keeps only so much',{k:'teal',d:1.4});
+  for(let i=0;i<3;i++)s+=G(`<path d="M0 0H44L58 14V74H0Z" style="fill:var(--surface);stroke:var(--teal);stroke-width:2.5"/><path d="M44 0V14H58" style="fill:none;stroke:var(--teal);stroke-width:2.5"/><text x="29" y="50" text-anchor="middle" class="m f11 b">10m</text>`,{x:520+i*72,y:66,an:'pop',d:1.6+i*.2});
+  s+=G(`<path d="M0 0H44L58 14V74H0Z" style="fill:var(--surface);stroke:var(--bad);stroke-width:2.5;stroke-dasharray:5 4"/><text x="29" y="50" text-anchor="middle" class="m f11 b badc">oldest</text>`,{x:440,y:66,an:'inout',d:2.4,o:.9});
+  s+=T(428,182,'max-size 10m · max-file 3',{c:'m f13 b',d:2.6});
+  s+=lines(428,212,['“10m” means 10 MB per file, not minutes.','≈ 30 MB of local history in all','(our arithmetic)'],{lh:22,d:2.8,step:.15,c:['f13','f13 b','f12 mut']});
+  s+=T(428,290,'A bookmark can’t bring back torn-out pages.',{c:'f13 b badc',d:3.3});
+  s+=pnl(16,326,768,158,'Short vs long outage (illustrative)',{d:3.6});
+  const x0=170,x1=740;
+  [['short outage',560,640,true],['long outage',260,640,false]].forEach(([a,o0,o1,ok],i)=>{const y=372+i*52,d=3.8+i*.6;s+=T(36,y+18,a,{c:'f13 b',d});s+=`<rect x="${x0}" y="${y}" width="${x1-x0}" height="26" rx="6" class="fade" style="fill:var(--line);--d:${d}s"/><rect x="430" y="${y}" width="${x1-430}" height="26" rx="6" class="grow-x" style="fill:var(--teal);fill-opacity:.35;--d:${d+.1}s"/><rect x="${o0}" y="${y+6}" width="${o1-o0}" height="14" rx="4" class="grow-x" style="fill:var(--bad);--d:${d+.3}s"/>`;s+=icon(ok?'yes':'no',x1+24,y+13,{d:d+.6,r:11})});
+  s+=T(585,366,'still in Docker’s files',{c:'f11 b tealc',a:'middle',d:4.0})+T(300,476,'part of this outage was already rotated away',{c:'f11 b badc',a:'middle',d:4.8});
+  return svg(s,'Why backfill is conditional. Alloy keeps a bookmark: read positions, or offsets, so after a restart it resumes where it stopped, if the lines are still there. Docker keeps only so much: the lab config was max-size 10m and max-file 3; 10m means 10 MB per file, not minutes, so about 30 MB of local history in all, by our arithmetic, and the oldest file is dropped on rotation. A bookmark can’t bring back torn-out pages. Illustratively, a short outage stays within what Docker still holds, so it can be backfilled; a long outage reaches back past the retained files, and that part was already rotated away.');
+}
+
+function V15(){
+  let s=G(`<rect width="240" height="48" rx="12" class="inkf"/><text x="120" y="30" text-anchor="middle" class="f14 b inv">Missing fresh logs in Grafana</text>`,{x:280,y:12,an:'pop',d:.2});
+  s+=arrow({x1:400,y1:62,x2:400,y2:82},{d:.4,dur:.1,c:'var(--ink-2)'});
+  s+=G(`<path d="M0 -34L120 0L0 34L-120 0Z" style="fill:var(--db);fill-opacity:.15;stroke:var(--db);stroke-width:2.5"/><text y="5" text-anchor="middle" class="f14 b">Does the API respond?</text>`,{x:400,y:118,an:'pop',d:.6});
+  s+=arrow({x1:280,y1:118,x2:180,y2:186},{d:1.0,dur:.2,c:'var(--bad)'})+T(220,144,'no',{c:'f14 b badc',a:'end',d:1.0});
+  s+=tint(16,190,300,108,'bad',1.2,`<text x="16" y="30" class="f14 b">Inspect vLLM</text><text x="16" y="54" class="f13">its state, stdout, and</text><text x="16" y="74" class="f13">GPU resource errors</text>`,{op:.1});
+  s+=arrow({x1:520,y1:118,x2:580,y2:176},{d:1.6,dur:.2,c:'var(--ok)'})+T(566,144,'yes',{c:'f14 b okc',d:1.6});
+  s+=G(`<path d="M0 -32L120 0L0 32L-120 0Z" style="fill:var(--teal);fill-opacity:.15;stroke:var(--teal);stroke-width:2.5"/><text y="-2" text-anchor="middle" class="f13 b">New messages in</text><text y="15" text-anchor="middle" class="f13 b">Docker logs?</text>`,{x:600,y:212,an:'pop',d:1.8});
+  s+=arrow({x1:540,y1:236,x2:460,y2:310},{d:2.2,dur:.2,c:'var(--warn)'})+T(486,268,'no',{c:'f14 b warnc',a:'end',d:2.2});
+  s+=arrow({x1:660,y1:236,x2:700,y2:310},{d:2.6,dur:.2,c:'var(--ok)'})+T(696,268,'yes',{c:'f14 b okc',d:2.6});
+  s+=tint(336,314,218,170,'warn',2.4,`<text x="16" y="30" class="f14 b">Inspect the app</text><text x="16" y="56" class="f13">its logging path</text><text x="16" y="76" class="f13">and whether requests</text><text x="16" y="96" class="f13">are arriving at all</text>`,{op:.1});
+  s+=tint(566,314,218,170,'ok',2.8,`<text x="16" y="30" class="f14 b">Inspect the pipeline</text><text x="16" y="56" class="f13">Alloy, Docker discovery,</text><text x="16" y="76" class="f13">Loki readiness, and</text><text x="16" y="96" class="f13">Grafana’s time range</text>`,{op:.1});
+  s+=pnl(16,314,306,170,'Follow the mail',{d:3.2});
+  s+=lines(36,368,['Is the writer writing?','Is the mailbox filling?','Is the courier delivering?','Is the reader looking at','the right day?'],{lh:22,d:3.4,step:.15,c:['f13 b','f13 b','f13 b','f13 b','f13 b']});
+  return svg(s,'Troubleshooting decision tree for missing fresh logs in Grafana. Does the API respond? If no, inspect vLLM: its state, stdout and GPU resource errors. If yes, are there new messages in Docker logs? If no, inspect the app: its logging path and whether requests are arriving at all. If yes, inspect the pipeline: Alloy, Docker discovery, Loki readiness and Grafana’s time range. Follow the mail: is the writer writing, is the mailbox filling, is the courier delivering, and is the reader looking at the right day?');
+}
+
+function V16(){
+  let s=G(`<rect width="768" height="80" rx="16" class="inkf"/><text x="24" y="34" class="f15 b inv">Loki answered, but the result is empty.</text><text x="24" y="60" class="f13 inv">That means the query ran. It says nothing yet about whether the service is healthy.</text>`,{x:16,y:12,an:'up',d:.1});
+  const C=[['Stream labels','is the selector spelled','exactly right?','db'],['Time range','does the picker cover','the event?','teal'],['Docker discovery','did Alloy find the','container by name/label?','ok'],['Alloy logs','any errors in the','collector itself?','ok'],['Local entries','docker logs day66-vllm:','is the line there?','teal'],['Retention','was it rotated away','before collection?','bad']];
+  C.forEach(([a,b,c,k],i)=>{const x=16+(i%3)*259,y=106+Math.floor(i/3)*126,d=.5+i*.25;s+=G(`<rect width="246" height="114" rx="14" style="fill:var(--${k});fill-opacity:.08;stroke:var(--${k});stroke-width:2.5"/><circle cx="26" cy="28" r="14" style="fill:var(--${k})"/><text x="26" y="33" text-anchor="middle" class="f13 b wht">${i+1}</text><text x="50" y="33" class="f14 b">${a}</text><text x="18" y="70" class="f13">${b}</text><text x="18" y="92" class="f13">${c}</text>`,{x,y,an:'pop',d})});
+  s+=pnl(16,372,768,112,'Practice: zero ERROR lines while p95 latency rises. Healthy?',{k:'warn',d:2.3});
+  s+=lines(36,432,['Not proven. Look for logging gaps, failures logged at INFO, request queues,','GPU saturation, slow I/O, or parts of the system that don’t log at all.'],{lh:22,d:2.5,step:.2,c:['f13','f13']});
+  return svg(s,'When Loki answers but the result is empty, the query ran; it says nothing yet about whether the service is healthy. Check six things: 1, stream labels: is the selector spelled exactly right? 2, time range: does the picker cover the event? 3, Docker discovery: did Alloy find the container by name or label? 4, Alloy logs: any errors in the collector itself? 5, local entries: does docker logs day66-vllm show the line? 6, retention: was it rotated away before collection? Practice: zero ERROR lines while p95 latency rises; is it healthy? Not proven: look for logging gaps, failures logged at INFO, request queues, GPU saturation, slow I/O, or parts of the system that don’t log at all.');
+}
+
+function V17(){
+  let s=pnl(16,12,376,472,'Learning lab, as built',{k:'warn',d:.1});
+  ['Loki auth_enabled: false','ports bound to loopback only','no TLS, no multi-tenant authorization','privileged Docker socket mount','bounded local rotation, not durable buffering'].forEach((t,i)=>{const y=74+i*62,d=.3+i*.25;s+=icon('warn',44,y-5,{d,r:12})+T(66,y,t,{c:i===0?'m f13 b':'f13 b',d})});
+  s+=G(`<rect width="336" height="54" rx="12" style="fill:var(--warn);fill-opacity:.15"/><text x="168" y="33" text-anchor="middle" class="f14 b">Fine for a laptop lab only</text>`,{x:36,y:404,an:'pop',d:1.7});
+  s+=pnl(408,12,376,472,'Production redesign',{k:'ok',d:2.0});
+  ['authenticated, access-controlled ingest + query','TLS for data in transit','managed or backed-up storage + retention','monitor collector and ingestion health','redact secrets and prompts','least-privilege log collection','collectors + rollout policy on every node','validate DCGM + vLLM metrics separately'].forEach((t,i)=>{const y=70+i*50,d=2.2+i*.2;s+=icon('yes',436,y-5,{d,r:11})+T(456,y,t,{c:'f13',d})});
+  return svg(s,'Security: a learning lab, as built, versus a production redesign. The lab has Loki auth_enabled: false, ports bound to loopback only, no TLS and no multi-tenant authorization, a privileged Docker socket mount, and bounded local rotation rather than durable buffering: fine for a laptop lab only. A production redesign needs authenticated, access-controlled ingestion and query; TLS for data in transit; managed or backed-up storage with retention; monitoring of collector and ingestion health; redaction of secrets and prompts; least-privilege log collection; collectors and a rollout policy on every node; and DCGM and vLLM metrics validated separately.');
+}
+
+const miniSvg=(inner,vb)=>`<svg viewBox="${vb}" aria-hidden="true">${inner}</svg>`;
+function V18(){
+  const PI=`${['db','teal','ok','vol','warn'].map((k,i)=>`<rect x="${i*13}" y="9" width="10" height="12" rx="2" style="fill:var(--${k})"/>`).join('')}`;
+  const LB=`<rect x="0" y="4" width="18" height="22" rx="3" style="fill:var(--db)"/><text x="24" y="21" class="f15 b">≠</text><rect x="38" y="6" width="5" height="5" style="fill:var(--bad)"/><rect x="46" y="12" width="5" height="5" style="fill:var(--bad)"/><rect x="54" y="6" width="5" height="5" style="fill:var(--bad)"/><rect x="42" y="19" width="5" height="5" style="fill:var(--bad)"/><rect x="52" y="19" width="5" height="5" style="fill:var(--bad)"/>`;
+  const LQ=`<text x="0" y="20" class="m f12 b">{…} |=</text>`;
+  const ST=`<rect x="0" y="6" width="30" height="18" rx="4" style="fill:var(--warn)"/><text x="15" y="19" text-anchor="middle" class="m f11 b wht">404</text><rect x="34" y="6" width="28" height="18" rx="9" style="fill:var(--ok)"/><text x="48" y="19" text-anchor="middle" class="m f11 b wht">I</text>`;
+  const FD=`<rect x="0" y="6" width="22" height="18" rx="4" style="fill:var(--db)"/><path d="M26 15H36" style="stroke:var(--bad);stroke-width:3;stroke-dasharray:3 2"/><rect x="40" y="6" width="22" height="18" rx="4" style="fill:var(--ok);fill-opacity:.4"/>`;
+  const CP=`<text x="0" y="20" class="m f13 b">148×?</text>`;
+  const items=[[miniSvg(PI,'0 0 64 30'),'<b>vLLM writes stdout/stderr; Docker keeps a bounded local copy; Alloy ships it to Loki;</b> Grafana queries it.'],
+    [miniSvg(LB,'0 0 62 30'),'<b>Loki indexes a few low-cardinality labels</b> and keeps lines in compressed chunks. Never make request IDs labels.'],
+    [miniSvg(LQ,'0 0 60 28'),'<b>LogQL selects streams, then filters or parses lines.</b> Log-derived counts aren’t request totals.'],
+    [miniSvg(ST,'0 0 64 30'),'<b>HTTP status isn’t log severity:</b> the intentional 404 was an INFO line, so an ERROR-only search misses it.'],
+    [miniSvg(FD,'0 0 64 30'),'<b>Logging is its own failure domain:</b> with Alloy stopped, vLLM kept serving. Backfill works only while Docker still has the lines.'],
+    [miniSvg(CP,'0 0 54 28'),'<b>Startup numbers are capacity estimates</b> (303,328 KV tokens, 148.11×), not measured throughput.']];
+  return `<ul class="take">${items.map(([ic,t],i)=>`<li class="up" style="--d:${.3+i*.3}s">${ic}<div>${t}</div></li>`).join('')}</ul>`;
+}
+function V19(){
+  const Q=[['warn','Loki shows zero errors while p95 latency rises. Does that prove good health?','No. Look for logging gaps, failures logged at INFO, request queues, GPU saturation, slow I/O or missing coverage.'],
+    ['db','What’s the difference between a label and a parsed JSON field?','An indexed label chooses candidate streams; a parsed field is extracted during the query. Don’t put a unique request ID in a label.'],
+    ['ok','Why did the outage-test line show up after Alloy restarted?','Docker had kept the output, and Alloy resumed and collected it. That held for this short event, within Docker’s retention.'],
+    ['bad','Why doesn’t finish_reason=length mean the service failed?','It means generation reached the requested max_tokens budget, here 16 tokens.']];
+  return `<div class="quiz"><div class="cards">${Q.map(([k,q,a],i)=>`<button class="card up" style="--k:var(--${k});--d:${.3+i*.15}s" aria-pressed="false"><span class="card-inner"><span class="face front"><small>Question ${i+1}</small><span class="q">${q}</span><em>Tap to flip</em></span><span class="face back" aria-hidden="true"><small>Answer</small><span class="q">${a}</span></span></span></button>`).join('')}</div><button class="again up" style="--d:1s" data-action="restart">Watch again from the start</button></div>`;
+}
+
+// ---------- Scenes ----------
+const CH=['Intro','Why centralize','The pipeline','Inside Loki','LogQL','The lab','Incident A','Incident B','Troubleshooting','Production','Wrap-up'];
+const P=(t,d)=>`<p class="up" style="--d:${d}s">${t}</p>`;
+const R=(t,d)=>`<p class="rule up" style="--d:${d}s"><span>${t}</span></p>`;
+const SC=[
+ {ch:0,dur:10,title:'Centralized Logging',vis:V0(),copy:`<p class="course up" style="--d:.05s">AI Infrastructure &amp; ML Systems, Day 66</p><h1 class="long up" style="--d:.15s">Centralized Logging</h1><p class="lede up" style="--d:.3s">Follow a vLLM log line from the GPU server to a Grafana search, and see what happens when the courier stops.</p><button class="start up" style="--d:.45s" data-action="start"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15l12-7.5z"/></svg>Start the explainer</button><p class="hint up" style="--d:.6s">About 4 minutes. Use ← → or swipe to go at your own pace.</p><p class="hint rotate-hint up" style="--d:.7s">Tip: turn your phone sideways for bigger diagrams.</p>`},
+ {ch:1,dur:12.5,title:'A flashlight in a stadium',vis:V1(),body:P('With 100 containers, reading one at a time doesn’t scale.',.2)+R('Ship every log to one place to search.',.35)},
+ {ch:2,dur:13,title:'The pipeline on one laptop',vis:V2(),body:P('Six boxes, four ports, one direction of travel.',.2)+R('Write, keep, collect, store, query.',.35)},
+ {ch:2,dur:12.5,title:'A postal system for logs',vis:V3(),body:P('Each part has a job, and fails in its own way.',.2)+R('Know what breaks when each part stops.',.35)},
+ {ch:3,dur:13,title:'Catalogue and shelves',vis:V4(),body:P('Loki indexes labels, not every word.',.2)+R('Select streams, then scan their chunks.',.35)},
+ {ch:3,dur:12,title:'Pick labels carefully',vis:V5(),body:P('A label with millions of values creates millions of streams.',.2)+R('Few values make good labels.',.35)},
+ {ch:4,dur:13,title:'Selectors and filters',vis:V6(),body:P('Braces pick streams; pipes pick lines.',.2)+R('A label selector isn’t a text search.',.35)},
+ {ch:4,dur:12.5,title:'Parsing JSON lines',vis:V7(),body:P('| json turns fields into things you can compare.',.2)+R('Only when the line really is JSON.',.35)},
+ {ch:4,dur:12.5,title:'From lines to numbers',vis:V8(),body:P('count_over_time and rate turn log lines into a chart.',.2)+R('Log counts aren’t request counts.',.35)},
+ {ch:5,dur:12.5,title:'Deploy the lab',vis:V9(),body:P('Check the secret, the config and the GPU before starting.',.2)+R('Same behavior isn’t same performance.',.35)},
+ {ch:5,dur:12.5,title:'A healthy request',vis:V10(),body:P('16 tokens, finish_reason length.',.2)+R('A budget limit, not a crash.',.35)},
+ {ch:5,dur:13.5,title:'What startup logs tell you',vis:V11(),body:P('Memory, capacity and init time, as the engine reported them.',.2)+R('Capacity isn’t measured throughput.',.35)},
+ {ch:6,dur:13,title:'Incident A: a quiet 404',vis:V12(),body:P('A bad route, a healthy server, an INFO line.',.2)+R('Status code ≠ severity.',.35)},
+ {ch:7,dur:14,title:'Incident B: the courier stops',vis:V13(),body:P('Stop Alloy, make a request, start Alloy again.',.2)+R('Serving and logging fail separately.',.35)},
+ {ch:7,dur:13,title:'Why backfill has limits',vis:V14(),body:P('A bookmark only helps while the pages still exist.',.2)+R('Rotation sets the deadline.',.35)},
+ {ch:8,dur:12.5,title:'Missing logs? Start here',vis:V15(),body:P('Work outward from the source.',.2)+R('Check the API before the pipeline.',.35)},
+ {ch:8,dur:12.5,title:'Empty isn’t the same as healthy',vis:V16(),body:P('Six checks before you trust an empty result.',.2)+R('Missing errors don’t prove health.',.35)},
+ {ch:9,dur:12.5,title:'Lab vs production',vis:V17(),body:P('The lab skipped security on purpose.',.2)+R('Production needs every one of these.',.35)},
+ {ch:10,dur:12,title:'What to remember',vis:V18(),body:P('Six ideas carry the whole lesson.',.2)+P('Next, check yourself with four quick questions.',.35)},
+ {ch:10,dur:10,title:'Check yourself',vis:V19(),body:P('Answer in your head first, then tap a card to flip it.',.2)+P('Next up: Day 67.',.35)}
+];
+// ---------- Player ----------
+const stage=document.getElementById('stage'),track=document.getElementById('track'),chap=document.getElementById('chap'),count=document.getElementById('count'),live=document.getElementById('live');
+const btnPrev=document.getElementById('prev'),btnNext=document.getElementById('next'),btnPlay=document.getElementById('play'),btnReplay=document.getElementById('replay');
+const strip=s=>s.replace(/<[^>]+>/g,'').replace(/&amp;/g,'&');
+const els=[],fills=[],segs=[];
+SC.forEach((s,i)=>{
+  const sec=document.createElement('section');sec.className='scene';
+  sec.setAttribute('aria-label',`Scene ${i+1} of ${SC.length}: ${strip(s.title)}`);
+  sec.innerHTML=`<div class="copy">${s.copy||`<h2 class="up" style="--d:.05s">${s.title}</h2>${s.body}`}</div><div class="vis">${s.vis}</div>`;
+  stage.appendChild(sec);els.push(sec);
+  const b=document.createElement('button');b.className='seg'+(i>0&&SC[i-1].ch!==s.ch?' chstart':'');
+  b.setAttribute('aria-label',`Go to scene ${i+1}: ${strip(s.title)}`);b.innerHTML='<i><b></b></i>';
+  b.addEventListener('click',()=>go(i));track.appendChild(b);segs.push(b);fills.push(b.querySelector('b'));
+});
+const ICON_PLAY='<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',ICON_PAUSE='<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6.5" y="5" width="4" height="14" rx="1"/><rect x="13.5" y="5" width="4" height="14" rx="1"/></svg>';
+let cur=-1,auto=false,t0=performance.now(),onTimer=null;
+function setAuto(v){
+  auto=v;btnPlay.innerHTML=v?ICON_PAUSE:ICON_PLAY;btnPlay.setAttribute('aria-label',v?'Pause auto-play':'Start auto-play');btnPlay.setAttribute('aria-pressed',String(v));
+  if(v&&cur>=0){const dur=SC[cur].dur*1000,el=performance.now()-t0;if(el>dur-1200)t0=performance.now()-(dur-1200)}
+}
+function go(i,{replay=false}={}){
+  i=Math.max(0,Math.min(SC.length-1,i));
+  if(i===cur&&!replay)return;
+  const prev=cur;
+  els.forEach((el,j)=>{el.classList.toggle('active',j===i);el.classList.toggle('past',j<i);
+    if(j===i){el.inert=false;el.removeAttribute('aria-hidden')}else{el.inert=true;el.setAttribute('aria-hidden','true')}});
+  if(prev>=0&&prev!==i){const p=prev;setTimeout(()=>{if(cur!==p)els[p].classList.remove('on')},750)}
+  const el=els[i];el.classList.remove('on');void el.getBoundingClientRect();
+  clearTimeout(onTimer);const delay=(prev===i)?40:260;
+  onTimer=setTimeout(()=>{el.classList.add('on');t0=performance.now()},delay);
+  t0=performance.now()+delay;cur=i;el.scrollTop=0;
+  const s=SC[i];
+  chap.innerHTML=s.ch===0?'<b>Intro</b>':`Chapter ${s.ch} of ${CH.length-1}: <b>${CH[s.ch]}</b>`;
+  count.textContent=`${i+1} / ${SC.length}`;
+  live.textContent=`Scene ${i+1} of ${SC.length}: ${strip(s.title)}`;
+  btnPrev.disabled=i===0;btnNext.disabled=i===SC.length-1;
+  fills.forEach((f,j)=>{f.style.width=j<i?'100%':'0%'});
+  segs.forEach((b,j)=>{if(j===i)b.setAttribute('aria-current','step');else b.removeAttribute('aria-current')});
+}
+function tick(now){
+  if(cur>=0){const dur=SC[cur].dur*1000,el=Math.max(0,now-t0);fills[cur].style.width=(Math.min(1,el/dur)*100).toFixed(2)+'%';
+    if(auto&&el>=dur){if(cur<SC.length-1)go(cur+1);else setAuto(false)}}
+  requestAnimationFrame(tick);
+}
+btnPrev.addEventListener('click',()=>go(cur-1));
+btnNext.addEventListener('click',()=>go(cur+1));
+btnPlay.addEventListener('click',()=>{if(!auto&&cur===SC.length-1){go(0)}setAuto(!auto);if(auto&&cur===0)go(1)});
+btnReplay.addEventListener('click',()=>go(cur,{replay:true}));
+stage.addEventListener('click',e=>{
+  const a=e.target.closest('[data-action]');
+  if(a){if(a.dataset.action==='start'){setAuto(true);go(1)}else if(a.dataset.action==='restart'){setAuto(true);go(1)}return}
+  const c=e.target.closest('.card');
+  if(c){const f=c.classList.toggle('flipped');c.setAttribute('aria-pressed',String(f));c.querySelector('.front').setAttribute('aria-hidden',String(f));c.querySelector('.back').setAttribute('aria-hidden',String(!f))}
+});
+document.addEventListener('keydown',e=>{
+  if(e.altKey||e.ctrlKey||e.metaKey)return;
+  const onBtn=e.target.closest&&e.target.closest('button');
+  if(e.key==='ArrowRight'||e.key==='PageDown'){e.preventDefault();go(cur+1)}
+  else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();go(cur-1)}
+  else if(e.key===' '&&!onBtn){e.preventDefault();btnPlay.click()}
+  else if(e.key==='r'||e.key==='R'){go(cur,{replay:true})}
+  else if(e.key==='Home'){go(0)}else if(e.key==='End'){go(SC.length-1)}
+});
+let sx=null,sy=null;
+stage.addEventListener('touchstart',e=>{const t=e.touches[0];sx=t.clientX;sy=t.clientY},{passive:true});
+stage.addEventListener('touchend',e=>{if(sx==null)return;const t=e.changedTouches[0],dx=t.clientX-sx,dy=t.clientY-sy;if(Math.abs(dx)>55&&Math.abs(dx)>Math.abs(dy)*1.4)go(cur+(dx<0?1:-1));sx=null},{passive:true});
+setAuto(false);go(0);requestAnimationFrame(tick);
+</script>
+</body>
+</html>

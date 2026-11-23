@@ -1,0 +1,13 @@
+
+route:
+  receiver: day68-webhook
+  group_by: ["alertname", "job"]
+  group_wait: 0s
+  group_interval: 30s
+  repeat_interval: 1h
+
+receivers:
+  - name: day68-webhook
+    webhook_configs:
+      - url: "http://127.0.0.1:19094/"
+        send_resolved: true

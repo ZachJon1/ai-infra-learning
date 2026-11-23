@@ -1,0 +1,37 @@
+
+groups:
+  - name: vllm-alerts
+    rules:
+      - alert: VLLMServerDown
+        expr: up{job="vllm"} == 0
+        for: 30s
+        labels:
+          severity: critical
+          service: vllm
+        annotations:
+          summary: "vLLM metrics target unavailable"
+          description: "Investigate vLLM, network, and metrics."
+
+      - alert: VLLMHighP95Latency
+        expr: |
+          (
+            histogram_quantile(
+              0.95,
+              sum by (le) (
+                rate(vllm:e2e_request_latency_seconds_bucket{job="vllm"}[5m])
+              )
+            ) > 1
+          )
+          and
+          (
+            sum(
+              rate(vllm:e2e_request_latency_seconds_count{job="vllm"}[5m])
+            ) > 0.1
+          )
+        for: 5m
+        labels:
+          severity: warning
+          service: vllm
+        annotations:
+          summary: "High vLLM p95 request latency"
+          description: "Investigate load, queueing, and GPU resources."

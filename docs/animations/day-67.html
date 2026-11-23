@@ -1,0 +1,1054 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Distributed tracing, explained</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=JetBrains+Mono:wght@400;600;700&display=swap">
+<style>
+:root{
+  --paper:#EEF2FA;--surface:#FFFFFF;--ink:#18203F;--ink-2:#525B82;--line:#CBD3EA;--code:#E2E7F5;
+  --web:#2F6BFF;--db:#7A4CF5;--client:#F5A524;--client-ink:#A35F00;--vol:#E94A89;--teal:#0E9FAE;
+  --ok:#0F9D65;--bad:#E0433F;--warn:#D98200;--net:rgba(47,107,255,.06);--on-client:#2A1C00;
+  --note:#FFE38A;--note-ink:#3B2E00;--hl:rgba(245,165,36,.42);
+  --sans:"Bricolage Grotesque",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  color-scheme:light;box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --paper:#151936;--surface:#1F2449;--ink:#ECEEFF;--ink-2:#A8AFD6;--line:#363E70;--code:#262C5A;
+  --web:#5C8DFF;--db:#9E80FF;--client:#FFBE3B;--client-ink:#FFCB5C;--vol:#FF6FA4;--teal:#29C3D2;
+  --ok:#33D08E;--bad:#FF6A6A;--warn:#FFB340;--net:rgba(92,141,255,.09);--note:#EBCF63;--note-ink:#2A2000;--hl:rgba(255,190,59,.30);color-scheme:dark}}
+:root[data-theme="dark"]{
+  --paper:#151936;--surface:#1F2449;--ink:#ECEEFF;--ink-2:#A8AFD6;--line:#363E70;--code:#262C5A;
+  --web:#5C8DFF;--db:#9E80FF;--client:#FFBE3B;--client-ink:#FFCB5C;--vol:#FF6FA4;--teal:#29C3D2;
+  --ok:#33D08E;--bad:#FF6A6A;--warn:#FFB340;--net:rgba(92,141,255,.09);--note:#EBCF63;--note-ink:#2A2000;--hl:rgba(255,190,59,.30);color-scheme:dark}
+*,*::before,*::after{box-sizing:inherit}
+html{height:100%;scroll-padding-top:env(safe-area-inset-top,0px);background:var(--paper)}
+body{height:100%;margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;overflow:hidden}
+.app{height:100%;display:grid;grid-template-rows:auto minmax(0,1fr) auto;padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
+.top{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px clamp(16px,3vw,44px) 4px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px;letter-spacing:-.01em}
+.brand svg{width:30px;height:22px}
+.where{font-size:15px;color:var(--ink-2);text-align:right}
+.where b{color:var(--ink);font-weight:650}
+.stage{position:relative;overflow:hidden}
+.scene{position:absolute;inset:0;display:grid;grid-template-columns:minmax(260px,.78fr) minmax(0,1.75fr);gap:clamp(16px,3.2vw,56px);align-items:center;padding:6px clamp(16px,3vw,44px) 10px;opacity:0;visibility:hidden;transform:translateX(48px);transition:opacity .45s ease,transform .6s cubic-bezier(.2,.8,.2,1),visibility 0s linear .6s}
+.scene.past{transform:translateX(-48px)}
+.scene.active{opacity:1;visibility:visible;transform:none;transition:opacity .55s ease .12s,transform .7s cubic-bezier(.2,.8,.2,1) .12s,visibility 0s}
+.copy{max-width:40ch;align-self:center;min-width:0}
+.copy h1{font-size:clamp(46px,6.6vw,98px);line-height:.95;letter-spacing:-.035em;margin:.08em 0 .25em;font-weight:800;font-variation-settings:"opsz" 96}
+.copy h2{font-size:clamp(26px,3.2vw,48px);line-height:1.04;letter-spacing:-.028em;margin:0 0 .45em;font-weight:760;font-variation-settings:"opsz" 96;text-wrap:balance}
+.copy p{font-size:clamp(15.5px,1.25vw,19px);line-height:1.45;color:var(--ink-2);margin:0 0 .75em;text-wrap:pretty}
+.copy p strong{color:var(--ink)}
+.copy code,.vis code{font-family:var(--mono);font-size:.84em;background:var(--code);color:var(--ink);padding:.06em .36em;border-radius:6px}
+.copy .rule{color:var(--ink);font-weight:680}
+.copy .rule span{background:linear-gradient(transparent 58%,var(--hl) 58%,var(--hl) 92%,transparent 92%);-webkit-box-decoration-break:clone;box-decoration-break:clone}
+.copy pre{font-family:var(--mono);font-size:13.5px;line-height:1.55;background:var(--code);color:var(--ink);padding:10px 12px;border-radius:10px;margin:0 0 .8em;overflow-x:auto;white-space:pre}
+.copy pre.yaml{font-size:12px;line-height:1.5;max-height:min(46vh,430px);overflow:auto}
+.copy .lede{font-size:clamp(18px,1.6vw,23px);color:var(--ink)}
+.copy .course{font-weight:650;color:var(--ink)}
+.copy .hint{font-size:14px}
+.rotate-hint{display:none}
+.start{font:inherit;font-weight:700;font-size:18px;padding:14px 24px 14px 20px;border-radius:999px;border:0;background:var(--ink);color:var(--paper);cursor:pointer;display:inline-flex;gap:10px;align-items:center;margin:.3em 0 1em;transition:background .2s,transform .15s}
+.start:hover{background:var(--web)}
+.start:active{transform:scale(.97)}
+.start svg{width:18px;height:18px}
+.vis{height:100%;min-height:0;min-width:0;display:flex;align-items:center;justify-content:center}
+.vis>svg{width:100%;height:100%;max-height:100%;overflow:visible;font-size:15px}
+.controls{display:flex;align-items:center;gap:10px;padding:8px clamp(16px,3vw,44px) 14px}
+.btn{width:44px;height:44px;border-radius:50%;border:1.5px solid var(--line);background:var(--surface);color:var(--ink);display:grid;place-items:center;cursor:pointer;flex:none;padding:0;transition:transform .15s,background .2s}
+.btn:hover{background:var(--code)}
+.btn:active{transform:scale(.94)}
+.btn:disabled{opacity:.35;cursor:default}
+.btn svg{width:20px;height:20px}
+.btn.play{width:52px;height:52px;background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.btn.play:hover{background:var(--web);border-color:var(--web)}
+:focus-visible{outline:3px solid var(--web);outline-offset:3px}
+.track{flex:1;display:flex;gap:4px;align-items:center;min-width:0}
+.seg{flex:1;height:28px;border:0;background:none;padding:0;cursor:pointer;display:flex;align-items:center;min-width:0}
+.seg.chstart{margin-left:7px}
+.seg i{display:block;width:100%;height:6px;border-radius:3px;background:var(--line);overflow:hidden;position:relative}
+.seg i b{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--ink);border-radius:3px}
+.seg:hover i{background:var(--ink-2)}
+.count{font-family:var(--mono);font-size:13px;color:var(--ink-2);min-width:4.6em;text-align:right}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+/* takeaways + quiz */
+.take{list-style:none;margin:0;padding:0;display:grid;gap:clamp(10px,1.8vh,20px);width:100%;max-width:660px}
+.take li{display:grid;grid-template-columns:64px 1fr;gap:16px;align-items:center;font-size:clamp(15px,1.25vw,19px);line-height:1.4;color:var(--ink-2)}
+.take li b{color:var(--ink)}
+.take svg{width:64px;height:auto;overflow:visible}
+.quiz{width:100%;max-width:740px;display:grid;gap:14px}
+.cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.card{perspective:1000px;border:0;background:none;padding:0;cursor:pointer;min-height:clamp(150px,23vh,210px);font:inherit;text-align:left;color:inherit;border-radius:18px}
+.card-inner{position:relative;display:block;width:100%;height:100%;min-height:inherit;transform-style:preserve-3d;transition:transform .65s cubic-bezier(.3,1.25,.5,1)}
+.card.flipped .card-inner{transform:rotateY(180deg)}
+.face{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;border-radius:18px;padding:16px 18px;display:flex;flex-direction:column;gap:8px}
+.front{background:var(--surface);border:2px solid var(--line);border-top:7px solid var(--k)}
+.back{background:var(--ink);color:var(--paper);transform:rotateY(180deg)}
+.face small{font-size:13px;font-weight:650;color:var(--ink-2)}
+.back small{color:var(--paper);opacity:.7}
+.face .q{font-size:clamp(15px,1.2vw,18px);line-height:1.35;font-weight:620}
+.face em{margin-top:auto;font-style:normal;font-size:13px;color:var(--ink-2)}
+.again{justify-self:start;font:inherit;font-weight:650;font-size:15px;padding:10px 16px;border-radius:999px;border:1.5px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+.again:hover{background:var(--code)}
+/* svg vocabulary */
+.vis text{fill:var(--ink);font-family:var(--sans);white-space:pre}
+.vis .m{font-family:var(--mono)}
+.vis .b{font-weight:700}
+.vis .mut{fill:var(--ink-2)}
+.vis .okc{fill:var(--ok)}.vis .badc{fill:var(--bad)}.vis .warnc{fill:var(--warn)}.vis .webc{fill:var(--web)}.vis .dbc{fill:var(--db)}.vis .clc{fill:var(--client-ink)}.vis .volc{fill:var(--vol)}.vis .tealc{fill:var(--teal)}.vis .wht{fill:#fff}.vis .inv{fill:var(--paper)}
+.f10{font-size:10px}.f11{font-size:11px}.f12{font-size:12px}.f13{font-size:13px}.f14{font-size:14px}.f15{font-size:15px}.f16{font-size:16px}.f17{font-size:17px}.f18{font-size:18px}.f20{font-size:20px}.f22{font-size:22px}.f30{font-size:30px}.f44{font-size:44px}
+.vis .cname{fill:var(--fg);font-size:15px;font-weight:750}
+.vis .csub{fill:var(--fg);font-family:var(--mono);font-size:10.5px;opacity:.85}
+.vis .ridge{stroke:rgba(255,255,255,.2);stroke-width:2;fill:none}
+.vis .capline{stroke:rgba(0,0,0,.14);stroke-width:2}
+.vis .eye{fill:#fff}.vis .pupil{fill:#18203F}
+.vis .mouth,.vis .lid{fill:none;stroke:var(--fg);stroke-width:3;stroke-linecap:round}
+.vis .ghost{fill-opacity:.12;stroke-width:2.5;stroke-dasharray:7 5}
+.vis .ghostf .eye{stroke:var(--fg);stroke-width:2}
+.vis .paper{fill:var(--surface);stroke:var(--ink);stroke-width:2}
+.vis .paperfold{fill:none;stroke:var(--ink);stroke-width:2}
+.vis .panel{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+.vis .codebg{fill:var(--code)}
+.vis .sep{stroke:var(--line);stroke-width:1.5}
+.vis .net{fill:var(--net);stroke:var(--ink-2);stroke-width:2;stroke-dasharray:9 7}
+.vis .hostbox{fill:none;stroke:var(--line);stroke-width:2.5}
+.vis .aline{fill:none;stroke-linecap:round}
+.vis .draw{stroke-dasharray:1 1;stroke-linecap:butt}
+.vis .dashy{stroke-dasharray:6 6}
+.vis .ahead{fill:none;stroke-linecap:round;stroke-linejoin:round}
+.vis .bub{fill:var(--surface);stroke-width:2;stroke-linejoin:round}
+.vis .note rect{fill:var(--note)}
+.vis .note text{fill:var(--note-ink);font-family:var(--mono);font-size:11.5px}
+.vis .hlbox{fill:var(--hl)}
+.vis .hlrow{fill:var(--hl)}
+.vis .badhl{fill:var(--bad);fill-opacity:.12}
+.vis .zz{fill:var(--ink-2);font-weight:800;font-size:15px}
+.vis .trackl{stroke:var(--line);stroke-width:6;stroke-linecap:round}
+.vis .post{fill:var(--ink-2)}
+.vis .okf{fill:var(--ok)}.vis .badf{fill:var(--bad)}.vis .warnf{fill:var(--warn)}.vis .mutf{fill:var(--ink-2)}.vis .inkf{fill:var(--ink)}
+.vis .ring{fill:none;stroke:var(--ink-2);stroke-width:2}
+.vis .axis{stroke:var(--ink-2);stroke-width:2;fill:none}
+.vis .playhead{stroke:var(--ink);stroke-width:2.5}
+.vis .pipe{fill:none;stroke:var(--vol);stroke-width:10;stroke-opacity:.6}
+.vis .spot{fill:none;stroke:var(--bad);stroke-width:2;stroke-dasharray:4 4}
+.vis .steth{fill:none;stroke:var(--ink);stroke-width:4;stroke-linecap:round}
+.vis .stampbox{fill:var(--surface);stroke:var(--bad);stroke-width:3}
+.vis .pill{fill:var(--surface);stroke-width:1.5}
+.vis .rowchip{fill:var(--note)}
+.vis .dim{fill:var(--paper);fill-opacity:.62}
+.vis .armstripe{stroke:var(--ink);stroke-width:12;stroke-dasharray:12 12}
+.vis .outline{fill:none;stroke:var(--ink);stroke-width:2.5}
+.vis .outline-bad{fill:none;stroke:var(--bad);stroke-width:2.5}
+.vis .glass{stroke-width:3;fill-opacity:.08}
+.vis .ic-ok-o{fill:var(--surface);stroke:var(--ok);stroke-width:2.5}
+.vis .ic-ok-s{fill:none;stroke:var(--ok);stroke-width:2.8;stroke-linecap:round;stroke-linejoin:round}
+.vis .ic-w{fill:none;stroke:#fff;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}
+.vis .ic-wf{fill:#fff}
+.vis .caret{fill:var(--ink)}
+.vis .folder{fill:var(--note);stroke:var(--note-ink);stroke-width:1.5}
+/* motion */
+.vis :is(.pop,.popout,.popoof,.drop,.poof,.shake,.wiggle,.pulse,.stamp,.fly,.slide,.bounce,.move,.travel,.press){transform-box:fill-box;transform-origin:center}
+.vis :is(.grow-x,.growshrink,.lift,.typing){transform-box:fill-box;transform-origin:left center}
+.vis .liftr{transform-box:fill-box;transform-origin:right center}
+@keyframes k-fade{from{opacity:0}to{opacity:1}}
+@keyframes k-out{from{opacity:1}to{opacity:0}}
+@keyframes k-up{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+@keyframes k-pop{0%{opacity:0;transform:scale(.45)}60%{opacity:1;transform:scale(1.07)}100%{opacity:1;transform:scale(1)}}
+@keyframes k-poof{0%{opacity:1;transform:scale(1)}35%{opacity:1;transform:scale(1.12)}100%{opacity:0;transform:scale(.15)}}
+@keyframes k-drop{0%{opacity:0;transform:translateY(-140px)}55%{opacity:1;transform:translateY(6px)}75%{transform:translateY(-6px)}100%{opacity:1;transform:none}}
+@keyframes k-draw{from{opacity:1;stroke-dashoffset:1}to{opacity:1;stroke-dashoffset:0}}
+@keyframes k-flow{to{stroke-dashoffset:-24}}
+@keyframes k-travel{0%{opacity:0;transform:translate(0,0)}12%{opacity:1}88%{opacity:1}100%{opacity:0;transform:translate(var(--tx),var(--ty))}}
+@keyframes k-move{from{transform:translate(0,0)}to{transform:translate(var(--tx,0px),var(--ty,0px))}}
+@keyframes k-fly{from{opacity:1;transform:translate(0,0) scale(1)}to{opacity:0;transform:translate(var(--tx),var(--ty)) scale(.35)}}
+@keyframes k-slide{from{opacity:0;transform:translate(var(--dx,0px),var(--dy,0px))}to{opacity:1;transform:none}}
+@keyframes k-shake{0%,100%{transform:translateX(0)}15%,55%{transform:translateX(-7px)}35%,75%{transform:translateX(7px)}}
+@keyframes k-wiggle{0%,100%{transform:rotate(0)}20%,60%{transform:rotate(-5deg)}40%,80%{transform:rotate(5deg)}}
+@keyframes k-float{0%{opacity:0;transform:translate(0,0)}25%{opacity:1}100%{opacity:0;transform:translate(8px,-22px)}}
+@keyframes k-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.2)}}
+@keyframes k-blink{0%,49%{opacity:1}50%,100%{opacity:0}}
+@keyframes k-blip{0%{opacity:0}18%{opacity:1}70%{opacity:1}100%{opacity:0}}
+@keyframes k-growx{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes k-shrinkx{from{transform:scaleX(1)}to{transform:scaleX(0)}}
+@keyframes k-stamp{0%{opacity:0;transform:scale(1.7) rotate(-3deg)}70%{opacity:1;transform:scale(.96) rotate(-3deg)}100%{opacity:1;transform:scale(1) rotate(-3deg)}}
+@keyframes k-lift{from{transform:rotate(0)}to{transform:rotate(-72deg)}}
+@keyframes k-liftr{from{transform:rotate(0)}to{transform:rotate(72deg)}}
+@keyframes k-press{0%{transform:translateY(0)}45%,60%{transform:translateY(var(--ty))}100%{transform:translateY(0)}}
+@keyframes k-bounce{0%{opacity:0;transform:translate(0,0)}10%{opacity:1}60%{opacity:1;transform:translate(var(--tx),var(--ty))}100%{opacity:0;transform:translate(calc(var(--tx) - 70px),calc(var(--ty) + 40px)) rotate(-25deg)}}
+@keyframes k-type{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+.on .fade{animation:k-fade .5s ease var(--d,0s) both}
+.on .out{animation:k-out .35s ease var(--o,0s) forwards}
+.on .inout{animation:k-fade .45s ease var(--d,0s) both,k-out .35s ease var(--o,9s) forwards}
+.on .up{animation:k-up .6s cubic-bezier(.2,.8,.2,1) var(--d,0s) both}
+.on .pop{animation:k-pop .55s cubic-bezier(.3,1.3,.5,1) var(--d,0s) both}
+.on .popout{animation:k-pop .5s cubic-bezier(.3,1.3,.5,1) var(--d,0s) both,k-out .35s ease var(--o,9s) forwards}
+.on .popoof{animation:k-pop .5s cubic-bezier(.3,1.3,.5,1) var(--d,0s) both,k-poof .55s ease-in var(--o,9s) forwards}
+.on .poof{animation:k-poof .55s ease-in var(--o,0s) forwards}
+.on .drop{animation:k-drop .85s ease-out var(--d,0s) both}
+.on .draw{animation:k-draw var(--dur,.7s) ease-in-out var(--d,0s) both}
+.on .drawout{animation:k-draw var(--dur,.7s) ease-in-out var(--d,0s) both,k-out .3s ease var(--o,9s) forwards}
+.on .dashy.fade{animation:k-fade .5s ease var(--d,0s) both,k-flow 1.1s linear var(--d,0s) infinite}
+.on .travel{animation:k-travel var(--dur,.9s) ease-in-out var(--d,0s) var(--n,1) both}
+.on .move{animation:k-move var(--dur,1s) var(--ease,cubic-bezier(.45,0,.25,1)) var(--d,0s) forwards}
+.on .fly{animation:k-fly var(--dur,.7s) cubic-bezier(.5,0,.3,1) var(--d,0s) forwards}
+.on .slide{animation:k-slide .7s cubic-bezier(.2,.8,.2,1) var(--d,0s) both}
+.on .shake{animation:k-shake .5s ease var(--d,0s) 1}
+.on .wiggle{animation:k-wiggle .8s ease var(--d,0s) 1}
+.on .zz{animation:k-float 2.4s ease-out var(--d,0s) infinite both}
+.on .pulse{animation:k-pulse 1.1s ease-in-out var(--d,0s) infinite}
+.on .blink{animation:k-blink 1s steps(1) var(--d,0s) infinite}
+.on .blip{animation:k-blip var(--dur,.9s) ease var(--d,0s) both}
+.on .grow-x{animation:k-growx var(--dur,.9s) var(--ease,cubic-bezier(.2,.8,.2,1)) var(--d,0s) both}
+.on .growshrink{animation:k-growx var(--dur,.9s) cubic-bezier(.2,.8,.2,1) var(--d,0s) both,k-shrinkx .45s ease-in var(--o,9s) forwards}
+.on .stamp{animation:k-stamp .45s cubic-bezier(.3,1.2,.5,1) var(--d,0s) both}
+.on .lift{animation:k-lift .7s cubic-bezier(.3,1.3,.5,1) var(--d,0s) forwards}
+.on .liftr{animation:k-liftr .7s cubic-bezier(.3,1.3,.5,1) var(--d,0s) forwards}
+.on .press{animation:k-press var(--dur,1.2s) ease-in-out var(--d,0s) 1}
+.on .bounce{animation:k-bounce var(--dur,1.4s) ease-in-out var(--d,0s) both}
+.on .typing{animation:k-type var(--dur,1s) var(--d,0s) both}
+.scene:not(.on) :is(.fade,.inout,.up,.pop,.popout,.popoof,.drop,.draw,.drawout,.travel,.slide,.zz,.blip,.stamp,.bounce,.grow-x,.growshrink){opacity:0}
+.scene:not(.on) .typing{transform:scaleX(0)}
+@media (max-width:820px),(max-aspect-ratio:1/1){
+  .scene{grid-template-columns:1fr;grid-template-rows:auto auto;align-items:start;align-content:start;overflow-y:auto;gap:10px;padding-top:4px}
+  .copy{max-width:62ch}
+  .copy h2{font-size:clamp(24px,6.2vw,36px);margin-bottom:.35em}
+  .copy p{font-size:15px;margin-bottom:.5em}
+  .copy pre.yaml{max-height:30vh}
+  .vis{height:auto}
+  .vis>svg{height:auto;max-height:64vh}
+}
+@media (max-width:600px) and (orientation:portrait){.rotate-hint{display:block}.cards{grid-template-columns:1fr}.card{min-height:130px}}
+@media (max-width:480px){.count{display:none}.btn{width:40px;height:40px}.btn.play{width:46px;height:46px}.brand span{font-size:14px}.where{font-size:13px}}
+@media (prefers-reduced-motion:reduce){
+  .scene,.scene.past,.scene.active{transform:none!important}
+  .scene{transition:opacity .25s ease,visibility 0s linear .25s}
+  .scene.active{transition:opacity .25s ease,visibility 0s}
+  .scene.on *{animation-duration:1ms!important;animation-iteration-count:1!important}
+  .card-inner{transition:none}
+}
+
+.vis .podseam{fill:none;stroke:rgba(255,255,255,.32);stroke-width:2.5;stroke-linecap:round}
+.vis .tagb{fill:var(--surface);stroke-width:2}
+.vis .deskbody{fill:var(--surface);stroke:var(--ink);stroke-width:2}
+.vis .clippaper{fill:var(--surface)}
+.vis .clipclip{fill:var(--ink-2)}
+.vis .lbl{fill:var(--note)}
+.vis .lbltxt{fill:var(--note-ink)}
+.vis .nodebox{fill:var(--net);stroke:var(--ink);stroke-width:2.5}
+.vis .door{fill:var(--client);stroke:var(--ink);stroke-width:2}
+.vis .road{fill:none;stroke:var(--line);stroke-width:22;stroke-linecap:round}
+.vis .roadmid{fill:none;stroke:var(--surface);stroke-width:2.5;stroke-dasharray:10 10}
+.vis .rope{fill:none;stroke:var(--bad);stroke-width:7;stroke-linecap:round}
+.vis .stanchion{fill:var(--ink-2)}
+.vis .pipe2{fill:none;stroke:var(--teal);stroke-width:14;stroke-linecap:round;stroke-linejoin:round;stroke-opacity:.28}
+.vis .flow{fill:none;stroke:var(--teal);stroke-width:4;stroke-dasharray:6 10;stroke-linecap:round}
+.vis .stop{fill:var(--surface);stroke:var(--ink-2);stroke-width:2.5}
+.vis .cniband{fill:var(--teal);fill-opacity:.1;stroke:var(--teal);stroke-width:2}
+.vis .valve{fill:var(--surface);stroke:var(--ink);stroke-width:2.5}
+.vis .brk{fill:none;stroke-width:2}
+@keyframes k-flow16{to{stroke-dashoffset:-32}}
+.on .flow.fade{animation:k-fade .5s ease var(--d,0s) both,k-flow16 .9s linear var(--d,0s) infinite}
+.on .flow.inout{animation:k-fade .5s ease var(--d,0s) both,k-out .35s ease var(--o,9s) forwards,k-flow16 .9s linear var(--d,0s) infinite}
+.take{gap:clamp(8px,1.5vh,18px)}
+.take svg{max-height:52px}
+.copy h1.long{font-size:clamp(36px,4.2vw,64px)}
+@keyframes k-unwind{from{stroke-dashoffset:0}to{stroke-dashoffset:1}}
+.on .unwind{animation:k-unwind var(--dur,3s) linear var(--d,0s) both}
+@keyframes k-spin{to{transform:rotate(360deg)}}
+.vis .spin{transform-box:fill-box;transform-origin:center}
+.on .spin{animation:k-spin 2.4s linear var(--d,0s) infinite}
+@keyframes k-ring{0%,100%{transform:rotate(0)}25%{transform:rotate(-12deg)}75%{transform:rotate(12deg)}}
+.vis .ringy{transform-box:fill-box;transform-origin:center}
+.on .ringy{animation:k-ring .22s linear var(--d,0s) 6}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand"><svg viewBox="0 0 30 22" aria-hidden="true"><rect x="2" y="3" width="26" height="5" rx="2" fill="var(--web)"/><rect x="8" y="10" width="12" height="4" rx="2" fill="var(--teal)"/><rect x="18" y="16" width="10" height="4" rx="2" fill="var(--db)"/></svg><span>Distributed tracing, explained</span></div>
+    <div class="where" id="chap"></div>
+  </header>
+  <main class="stage" id="stage"></main>
+  <nav class="controls" aria-label="Explainer controls">
+    <button class="btn" id="prev" aria-label="Previous scene"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
+    <button class="btn play" id="play" aria-label="Start auto-play" aria-pressed="false"></button>
+    <button class="btn" id="next" aria-label="Next scene"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></button>
+    <div class="track" id="track"></div>
+    <span class="count" id="count"></span>
+    <button class="btn" id="replay" aria-label="Replay this scene"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4.5h4.5"/></svg></button>
+  </nav>
+  <div class="sr" aria-live="polite" id="live"></div>
+</div>
+<script>
+const I=n=>'\u00A0'.repeat(n);
+const S=o=>{const p=[];for(const k in o){const v=o[k];if(v==null)continue;const sec=['d','o','dur'].includes(k),px=['tx','ty','dx','dy'].includes(k);p.push(`--${k}:${v}${sec?'s':px?'px':''}`)}return p.length?`style="${p.join(';')}"`:''};
+const G=(inner,o={})=>{const{x,y,an,...v}=o;let g=an?`<g class="${an}" ${S(v)}>${inner}</g>`:inner;if(x!=null||y!=null)g=`<g transform="translate(${x||0} ${y||0})">${g}</g>`;return g};
+const T=(x,y,s,o={})=>{const{c='',a,an='fade',d=0,o:oo}=o;return `<text x="${x}" y="${y}"${a?` text-anchor="${a}"`:''} class="${c} ${an}" ${an?S({d,o:oo}):''}>${s}</text>`};
+const svg=(inner,label)=>`<svg viewBox="0 0 800 500" role="img" aria-label="${label}" xml:space="preserve">${inner}</svg>`;
+let UID=0;
+
+function face(m,w,h){
+  const a=w*.36,b=w*.64,ey=h*.56,mx=w/2,my=h*.75;
+  if(m==='sleepy')return `<path class="lid" d="M${a-7} ${ey}q7 5 14 0M${b-7} ${ey}q7 5 14 0"/><path class="mouth" d="M${mx-5} ${my}h10"/>`;
+  const eyes=`<circle cx="${a}" cy="${ey}" r="8" class="eye"/><circle cx="${a+1}" cy="${ey+1}" r="3.8" class="pupil"/><circle cx="${b}" cy="${ey}" r="8" class="eye"/><circle cx="${b+1}" cy="${ey+1}" r="3.8" class="pupil"/>`;
+  const M={happy:`<path class="mouth" d="M${mx-11} ${my-3}q11 10 22 0"/>`,sad:`<path class="mouth" d="M${mx-10} ${my+4}q10 -9 20 0"/>`,flat:`<path class="mouth" d="M${mx-8} ${my}h16"/>`,worried:`<path class="mouth" d="M${mx-11} ${my+2}q5.5 -5 11 0q5.5 5 11 0"/>`,wow:`<ellipse class="mouth" cx="${mx}" cy="${my}" rx="5" ry="6"/>`};
+  return eyes+(M[m]||M.happy);
+}
+const ZZ=w=>`<text x="${w-26}" y="14" class="zz" style="--d:0s">z</text><text x="${w-14}" y="4" class="zz" style="--d:.8s">z</text><text x="${w-2}" y="-6" class="zz" style="--d:1.6s">Z</text>`;
+
+function crate({x=0,y=0,w=140,h=96,k='web',name='',sub='',mood='happy',m2,t2,m3,t3,an='',v={},s=1,ghost=false,extra=''}={}){
+  const fg=ghost?(k==='client'?'var(--client-ink)':`var(--${k})`):(k==='client'?'var(--on-client)':'#fff');
+  let r='';for(let i=16;i<w-8;i+=16)r+=`M${i} 30V${h-8}`;
+  const seq=[[mood,0]];if(m2)seq.push([m2,t2]);if(m3)seq.push([m3,t3]);
+  let faces='';
+  seq.forEach(([m,t],i)=>{const nx=seq[i+1];let cls='',st={};
+    if(i>0){cls='fade';st.d=t}
+    if(nx){cls=cls?'inout':'out';st.o=nx[1]}
+    faces+=`<g${cls?` class="${cls}" ${S(st)}`:''}>${face(m,w,h)}${m==='sleepy'?ZZ(w):''}</g>`;});
+  const body=ghost?`<rect width="${w}" height="${h}" rx="14" class="ghost" style="stroke:var(--${k});fill:var(--${k})"/>`
+    :`<rect width="${w}" height="${h}" rx="14" style="fill:var(--${k})"/><path d="${r}" class="ridge"/><path d="M8 27H${w-8}" class="capline"/>`;
+  let g=`<g class="${ghost?'ghostf':''}" style="--fg:${fg}">${body}${name?`<text x="12" y="19" class="cname">${name}</text>`:''}${sub?`<text x="${w-10}" y="18" text-anchor="end" class="csub">${sub}</text>`:''}${faces}${extra}</g>`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})${s!==1?` scale(${s})`:''}">${g}</g>`;
+}
+
+function drum({x=0,y=0,w=130,h=110,label='postgres_data',an='',v={},fs=12,ring=.5,extra=''}={}){
+  const rx=w/2,ry=13,ry2=Math.round(h*ring);
+  let g=`<path d="M0 ${ry}V${h-ry}A${rx} ${ry} 0 0 0 ${w} ${h-ry}V${ry}" style="fill:var(--vol)"/><ellipse cx="${rx}" cy="${ry}" rx="${rx}" ry="${ry}" style="fill:var(--vol)"/><ellipse cx="${rx}" cy="${ry}" rx="${rx}" ry="${ry}" fill="#fff" fill-opacity=".28"/><path d="M0 ${ry2}A${rx} ${ry} 0 0 0 ${w} ${ry2}" fill="none" stroke="#fff" stroke-opacity=".35" stroke-width="2"/>${label?`<text x="${rx}" y="${h-12}" text-anchor="middle" class="m b wht" style="font-size:${fs}px">${label}</text>`:''}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+
+function bubPath(W,H,tail,tp){
+  const top=tail==='tl'?`H${tp}L${tp+4} -12L${tp+14} 0H${W-12}`:`H${W-12}`;
+  const bot=tail==='bl'?`H${tp+14}L${tp+4} ${H+12}L${tp} ${H}H12`:`H12`;
+  return `M12 0${top}Q${W} 0 ${W} 12V${H-12}Q${W} ${H} ${W-12} ${H}${bot}Q0 ${H} 0 ${H-12}V12Q0 0 12 0Z`;
+}
+function bubble(x,y,txt,{w,c='var(--ink)',fs=14,mono=true,tail='bl',tp=16,an='pop',d=0,o}={}){
+  const plain=txt.replace(/<[^>]+>/g,'').replace(/&[a-z#0-9]+;/g,'x');
+  const W=w||Math.round(plain.length*fs*(mono?.6:.56)+26),H=fs+18;
+  const inner=`<path d="${bubPath(W,H,tail,tp)}" class="bub" style="stroke:${c}"/><text x="13" y="${(H/2+fs*.36).toFixed(1)}" class="${mono?'m ':''}b" style="fill:${c};font-size:${fs}px">${txt}</text>`;
+  let a=an;if(o!=null)a=an==='pop'?'popout':an==='fade'?'inout':an;
+  return G(inner,{x,y,an:a,d,o});
+}
+
+function arrow(p,{c='var(--ink)',d=0,dur=.7,w=2.5,dash=false}={}){
+  let path,fx,fy;const{x1,y1,x2,y2,q,c1,c2,poly}=p;let ex=x2,ey=y2;
+  if(poly){path='M'+poly.map(pt=>pt.join(' ')).join('L');const n=poly.length;[ex,ey]=poly[n-1];[fx,fy]=poly[n-2]}
+  else if(c1){path=`M${x1} ${y1}C${c1[0]} ${c1[1]} ${c2[0]} ${c2[1]} ${x2} ${y2}`;[fx,fy]=c2}
+  else if(q){path=`M${x1} ${y1}Q${q[0]} ${q[1]} ${x2} ${y2}`;[fx,fy]=q}
+  else{path=`M${x1} ${y1}L${x2} ${y2}`;fx=x1;fy=y1}
+  const ang=Math.atan2(ey-fy,ex-fx),L=12;
+  const h1=[ex+L*Math.cos(ang+2.55),ey+L*Math.sin(ang+2.55)],h2=[ex+L*Math.cos(ang-2.55),ey+L*Math.sin(ang-2.55)];
+  const head=`<path d="M${h1[0].toFixed(1)} ${h1[1].toFixed(1)}L${ex} ${ey}L${h2[0].toFixed(1)} ${h2[1].toFixed(1)}" class="ahead fade" style="stroke:${c};stroke-width:${w};--d:${(d+dur*.8).toFixed(2)}s"/>`;
+  const line=dash?`<path d="${path}" class="aline dashy fade" style="stroke:${c};stroke-width:${w};--d:${d}s"/>`
+    :`<path d="${path}" pathLength="1" class="aline draw" style="stroke:${c};stroke-width:${w};--d:${d}s;--dur:${dur}s"/>`;
+  return `<g>${line}${head}</g>`;
+}
+const packet=(x1,y1,x2,y2,{d=0,dur=.8,c='var(--web)',r=7}={})=>`<circle cx="${x1}" cy="${y1}" r="${r}" class="travel" style="fill:${c};--d:${d}s;--dur:${dur}s;--tx:${x2-x1}px;--ty:${y2-y1}px"/>`;
+
+function icon(t,x,y,{d=0,o,r=14,an='pop'}={}){
+  const s=r/14;
+  const sym={
+    kept:`<circle r="14" class="ic-ok-o"/><path d="M-6 0l4 4 8-8" class="ic-ok-s"/>`,
+    yes:`<circle r="14" class="okf"/><path d="M-6 0l4 4 8-8" class="ic-w"/>`,
+    no:`<circle r="14" class="badf"/><path d="M-5 -5l10 10M5 -5l-10 10" class="ic-w"/>`,
+    stop:`<circle r="14" class="mutf"/><path d="M-3.5 -5v10M3.5 -5v10" class="ic-w"/>`,
+    play:`<circle r="14" class="okf"/><path d="M-3.5 -6L6 0L-3.5 6Z" class="ic-wf"/>`,
+    restart:`<circle r="14" style="fill:var(--web)"/><path d="M6 1.5A6.2 6.2 0 1 1 3.6 -5" class="ic-w"/><path d="M4.5 -9.5L4 -4.6L-0.8 -5.6" class="ic-w"/>`,
+    plus:`<circle r="14" class="okf"/><path d="M0 -6V6M-6 0H6" class="ic-w"/>`,
+    warn:`<circle r="14" class="warnf"/><path d="M0 -6.5V1.5" class="ic-w"/><circle cy="6" r="1.7" class="ic-wf"/>`
+  }[t];
+  const a=o!=null?(an==='pop'?'popout':an):an;
+  return `<g transform="translate(${x} ${y})${s!==1?` scale(${s})`:''}"><g class="${a}" ${S({d,o})}>${sym}</g></g>`;
+}
+function typed(x,y,str,{fs=15,d=0,dur=1,c=''}={}){
+  const id='clip'+(UID++),w=str.length*fs*.6+6;
+  return `<clipPath id="${id}"><rect x="${x-2}" y="${y-fs}" width="${w}" height="${fs*1.5}" class="typing" style="--d:${d}s;--dur:${dur}s;animation-timing-function:steps(${str.length},end)"/></clipPath><text x="${x}" y="${y}" class="m ${c}" clip-path="url(#${id})" style="font-size:${fs}px">${str}</text>`;
+}
+function browser(x,y,w,h,addr,o={}){
+  return G(`<rect width="${w}" height="${h}" rx="10" class="panel"/><path d="M0 22H${w}" class="sep"/><circle cx="12" cy="11" r="3.5" class="badf"/><circle cx="24" cy="11" r="3.5" class="warnf"/><circle cx="36" cy="11" r="3.5" class="okf"/><rect x="8" y="32" width="${w-16}" height="24" rx="6" class="codebg"/><text x="16" y="49" class="m f12">${addr}</text>`,{x,y,...o});
+}
+const glass=(x,y,w,h,k,label,o={})=>G(`<rect width="${w}" height="${h}" rx="16" class="glass" style="stroke:var(--${k});fill:var(--${k})"/><path d="M0 16Q0 0 16 0H${label.length*8.2+30}V28H0Z" style="fill:var(--${k})"/><text x="14" y="19" class="f14 b" style="fill:${k==='client'?'var(--on-client)':'#fff'}">${label}</text>`,{x,y,...o});
+const codeLine=(x,y,s,c='')=>`<text x="${x}" y="${y}" class="m ${c}">${s}</text>`;
+// ---------- Day 10 helpers ----------
+function faceSeq(seq,w,h){let f='';seq.forEach(([m,t],i)=>{const nx=seq[i+1];let cls='',st={};if(i>0){cls='fade';st.d=t}if(nx){cls=cls?'inout':'out';st.o=nx[1]}f+=`<g${cls?` class="${cls}" ${S(st)}`:''}>${face(m,w,h)}${m==='sleepy'?ZZ(w):''}</g>`});return f}
+function pod({x=0,y=0,w=104,h=74,k='web',ip='',mood='happy',m2,t2,m3,t3,an='',v={},s=1,ghost=false,extra='',under=''}={}){
+  const fg=ghost?(k==='client'?'var(--client-ink)':`var(--${k})`):(k==='client'?'var(--on-client)':'#fff');
+  const r=Math.min(h/2,34),seq=[[mood,0]];if(m2)seq.push([m2,t2]);if(m3)seq.push([m3,t3]);
+  const body=ghost?`<rect width="${w}" height="${h}" rx="${r}" class="ghost" style="stroke:var(--${k});fill:var(--${k})"/>`
+    :`<rect width="${w}" height="${h}" rx="${r}" style="fill:var(--${k})"/><path d="M${(r*.75).toFixed(1)} 12Q${w/2} 2 ${(w-r*.75).toFixed(1)} 12" class="podseam"/>`;
+  let g=`<g class="${ghost?'ghostf':''}" style="--fg:${fg}">${body}${faceSeq(seq,w,h)}${extra}</g>${ip?`<text x="${w/2}" y="${h+17}" text-anchor="middle" class="m f12 mut">${ip}</text>`:''}${under}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})${s!==1?` scale(${s})`:''}">${g}</g>`;
+}
+const tagW=t=>Math.round(t.length*7.2+26);
+const tagD=w=>`M0 12L9.5 1.5Q11 0 13 0H${w-5}Q${w} 0 ${w} 5V19Q${w} 24 ${w-5} 24H13Q11 24 9.5 22.5Z`;
+const tagRaw=(t,k='ink-2')=>`<path d="${tagD(tagW(t))}" class="tagb" style="stroke:var(--${k})"/><circle cx="11" cy="12" r="2.5" style="fill:var(--${k})"/><text x="19" y="16.5" class="m f12">${t}</text>`;
+const tag=(x,y,t,{k='ink-2',an='fade',d=0,o}={})=>G(tagRaw(t,k),{x,y,an:o!=null?'inout':an,d,o});
+const tagHL=(x,y,t,ok,{d=0,o}={})=>{const c=ok?'ok':'bad';return `<path transform="translate(${x} ${y})" d="${tagD(tagW(t))}" class="${o!=null?'inout':'fade'}" style="fill:var(--${c});fill-opacity:.18;stroke:var(--${c});stroke-width:3;--d:${d}s${o!=null?`;--o:${o}s`:''}"/>`};
+function desk({x=0,y=0,w=170,name='Service: web',ip='',sub='',an='',v={},s=1,extra=''}={}){
+  let g=`<path d="M30 28V46M${w-30} 28V46" style="stroke:var(--ink-2);stroke-width:3"/><rect x="6" width="${w-12}" height="30" rx="8" class="inkf"/><text x="${w/2}" y="20" text-anchor="middle" class="f14 b inv">${name}</text><path d="M${w-64} 46a11 11 0 0 1 22 0Z" style="fill:var(--client)"/><circle cx="${w-53}" cy="33" r="2.6" style="fill:var(--client)"/><rect y="45" width="${w}" height="11" rx="4" class="inkf"/><rect x="8" y="56" width="${w-16}" height="58" rx="6" class="deskbody"/>${ip?`<text x="${w/2}" y="${sub?81:90}" text-anchor="middle" class="m f14 b">${ip}</text>`:''}${sub?`<text x="${w/2}" y="${ip?101:90}" text-anchor="middle" class="f12 mut">${sub}</text>`:''}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})${s!==1?` scale(${s})`:''}">${g}</g>`;
+}
+function clip({x=0,y=0,w=210,h=160,title='EndpointSlice',an='',v={},extra=''}={}){
+  let g=`<rect width="${w}" height="${h}" rx="10" class="inkf"/><rect x="8" y="12" width="${w-16}" height="${h-20}" rx="4" class="clippaper"/><rect x="${w/2-28}" y="-7" width="56" height="18" rx="5" class="clipclip"/><text x="20" y="38" class="f13 b">${title}</text><path d="M20 48H${w-20}" class="sep"/>${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function book({x=0,y=0,w=160,h=96,title='CoreDNS',sub='10.96.0.10',an='',v={},extra=''}={}){
+  let g=`<rect x="7" y="7" width="${w}" height="${h}" rx="8" style="fill:var(--note)"/><rect width="${w}" height="${h}" rx="8" class="inkf"/><path d="M18 6V${h-6}" style="stroke:var(--paper);stroke-opacity:.3;stroke-width:3"/><text x="30" y="${h/2-3}" class="f17 b inv">${title}</text>${sub?`<text x="30" y="${h/2+19}" class="m f12 inv" opacity=".78">${sub}</text>`:''}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function letterG(label=''){const w=Math.round(label.length*7.2+16);
+  return `<rect x="-14" y="-10" width="28" height="20" rx="3" class="paper"/><path d="M-14 -9L0 2L14 -9" class="paperfold"/>${label?`<rect x="${-w/2}" y="-40" width="${w}" height="22" rx="6" class="lbl"/><text x="0" y="-25" text-anchor="middle" class="m f12 b lbltxt">${label}</text>`:''}`}
+const sendL=(x1,y1,x2,y2,{d=0,dur=.8,label=''}={})=>`<g transform="translate(${x1} ${y1})"><g class="travel" ${S({d,dur,tx:x2-x1,ty:y2-y1})}>${letterG(label)}</g></g>`;
+const svcChip=(x,y,name,{w=170,an='pop',d=0}={})=>G(`<rect width="${w}" height="44" rx="12" class="deskbody"/><path d="M13 30a10 10 0 0 1 20 0Z" style="fill:var(--client)"/><rect x="10" y="29" width="26" height="4" rx="2" class="inkf"/><text x="44" y="28" class="f14 b">${name}</text>`,{x,y,an,d});
+const shieldP=`<path d="M0 -17L14 -11V0C14 9 7 15 0 18C-7 15 -14 9 -14 0V-11Z" class="inkf"/><path d="M-6 0l4 4 8-8" style="fill:none;stroke:var(--paper);stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round"/>`;
+const shield=(x,y,{s=1,an='pop',d=0}={})=>`<g transform="translate(${x} ${y}) scale(${s})"><g class="${an}" ${S({d})}>${shieldP}</g></g>`;
+const pill=(x,y,txt,{c='ok',an='pop',d=0}={})=>{const w=Math.round(txt.length*7.6+30);return G(`<rect width="${w}" height="24" rx="12" class="pill" style="stroke:var(--${c})"/><circle cx="13" cy="12" r="4.5" style="fill:var(--${c})"/><text x="23" y="16.5" class="f13 b">${txt}</text>`,{x,y,an,d})};
+const chipT=(t,w)=>`<rect x="${-w/2}" y="-12" width="${w}" height="24" rx="12" class="lbl"/><text x="0" y="5" text-anchor="middle" class="m f12 b lbltxt">${t}</text>`;
+const flyChip=(x1,y1,x2,y2,t,{d=0,dur=.8}={})=>`<g transform="translate(${x1} ${y1})"><g class="travel" ${S({d,dur,tx:x2-x1,ty:y2-y1})}>${chipT(t,Math.round(t.length*7.2+22))}</g></g>`;
+// ---------- Day 11 helpers ----------
+function ticket({x=0,y=0,w=170,h=96,title='PVC',lines=[],an='',v={},extra='',k='client'}={}){
+  const n=9,m=h/2;
+  const d=`M10 0H${w-10}Q${w} 0 ${w} 10V${m-n}A${n} ${n} 0 0 0 ${w} ${m+n}V${h-10}Q${w} ${h} ${w-10} ${h}H10Q0 ${h} 0 ${h-10}V${m+n}A${n} ${n} 0 0 0 0 ${m-n}V10Q0 0 10 0Z`;
+  let g=`<path d="${d}" class="paper"/><path d="M10 1H${w-10}Q${w-1} 1 ${w-1} 10V12H1V10Q1 1 10 1Z" style="fill:var(--${k})"/><text x="14" y="${m-9}" class="m f13 b">${title}</text><path d="M${n+5} ${m}H${w-n-5}" class="sep" style="stroke-dasharray:4 4"/>${lines.map((l,i)=>`<text x="14" y="${m+22+i*18}" class="m f12">${l}</text>`).join('')}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function pad({x=0,y=0,w=120,h=86,title='emptyDir',lines=[],an='',v={},extra=''}={}){
+  let rings='';for(let i=14;i<=w-20;i+=22)rings+=`<rect x="${i}" y="-6" width="6" height="14" rx="3" class="inkf"/>`;
+  let g=`<rect width="${w}" height="${h}" rx="8" style="fill:var(--note)"/>${rings}<text x="12" y="28" class="m f12 b lbltxt">${title}</text>${lines.map((l,i)=>`<text x="12" y="${50+i*18}" class="m f12 lbltxt">${l}</text>`).join('')}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function rack({x=0,y=0,w=110,h=90,label='backing storage',an='',v={}}={}){
+  const sh=(h-20)/3;let g=`<rect width="${w}" height="${h}" rx="10" style="fill:var(--ink-2)"/>`;
+  for(let i=0;i<3;i++){const yy=10+i*sh;g+=`<rect x="10" y="${yy}" width="${w-20}" height="${sh-6}" rx="4" fill="#fff" fill-opacity=".16"/><circle cx="${w-22}" cy="${yy+(sh-6)/2}" r="3.5" class="okf"/>`}
+  if(label)g+=`<text x="${w/2}" y="${h+18}" text-anchor="middle" class="f12 mut">${label}</text>`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function menuCard({x=0,y=0,w=200,h=150,title='StorageClass',rows='',an='',v={}}={}){
+  let g=`<rect width="${w}" height="${h}" rx="12" class="panel"/><path d="M12 0H${w-12}Q${w} 0 ${w} 12V32H0V12Q0 0 12 0Z" class="inkf"/><text x="14" y="21" class="f14 b inv">${title}</text>${rows}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+const HAT=w=>`<path d="M${w/2-36} -2Q${w/2-46} -20 ${w/2-28} -24Q${w/2-20} -40 ${w/2} -32Q${w/2+18} -42 ${w/2+28} -24Q${w/2+46} -20 ${w/2+36} -2Z" style="fill:#fff;stroke:var(--ink);stroke-width:2;stroke-linejoin:round"/>`;
+const nodeBox=(x,y,w,h,label,o={})=>G(`<rect width="${w}" height="${h}" rx="14" class="nodebox"/><text x="12" y="22" class="f13 b">${label}</text>`,{x,y,...o});
+const jersey=n=>`<circle cx="16" cy="16" r="12" class="stop"/><text x="16" y="21" text-anchor="middle" class="f13 b">${n}</text>`;
+const fileI=`<path d="M0 3Q0 0 3 0H12L18 6V21Q18 24 15 24H3Q0 24 0 21Z" class="paper"/><path d="M12 0.5V6H17.5" class="paperfold"/>`;
+const fileChip=(x,y,name,{an='fade',d=0,o,c=''}={})=>G(`${fileI}<text x="26" y="17" class="m f13 ${c}">${name}</text>`,{x,y,an:o!=null?'inout':an,d,o});
+const flyFile=(x1,y1,x2,y2,name='',{d=0,dur=.9}={})=>`<g transform="translate(${x1} ${y1})"><g class="travel" ${S({d,dur,tx:x2-x1,ty:y2-y1})}>${fileI}${name?`<text x="24" y="16" class="m f12 b">${name}</text>`:''}</g></g>`;
+const PENCIL=`<path d="M-7 7L-6 2L4 -8L8 -4L-2 6Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.8;stroke-linejoin:round"/>`;
+const EYE=`<path d="M-10 0Q0 -8 10 0Q0 8 -10 0Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:1.8"/><circle r="3" class="inkf"/>`;
+const LOCK=`<path d="M-6 -2V-7A6 6 0 0 1 6 -7V-2" style="fill:none;stroke:var(--ink);stroke-width:2.5"/><rect x="-9" y="-3" width="18" height="15" rx="3" class="inkf"/>`;
+const TRASH=`<rect x="-6" y="0" width="72" height="10" rx="3" class="inkf"/><rect x="22" y="-6" width="16" height="8" rx="2" class="inkf"/><path d="M2 14H58L54 76H6Z" style="fill:var(--surface);stroke:var(--ink);stroke-width:2.5;stroke-linejoin:round"/><path d="M20 26V64M30 26V64M40 26V64" style="stroke:var(--ink-2);stroke-width:2.5"/>`;
+const sym=(g,x,y,{d=0,an='pop',s=1}={})=>`<g transform="translate(${x} ${y}) scale(${s})"><g class="${an}" ${S({d})}>${g}</g></g>`;
+const STAIRS=`<rect x="0" y="34" width="15" height="14" rx="3" style="fill:var(--web)"/><rect x="16" y="23" width="15" height="25" rx="3" style="fill:var(--teal)"/><rect x="32" y="12" width="15" height="36" rx="3" style="fill:var(--db)"/><rect x="48" y="1" width="15" height="47" rx="3" style="fill:var(--vol)"/>`;
+const term=(x,y,w,h,L,{fs=12,lh=24,top=26,d=0}={})=>G(`<rect width="${w}" height="${h}" rx="12" class="codebg"/>`+L.map(([t,c,dd],i)=>T(16,top+i*lh,t.replace(/ /g,'\u00A0'),{c:`m f${fs} ${c}`,d:dd})).join(''),{x,y,an:'fade',d});
+const chipsRow=(x,y,arr,{maxX=380,d=0,k='line'}={})=>{let s='',cx=x,cy=y;arr.forEach((t,i)=>{const w=Math.round(t.length*6.9+22);if(cx+w>maxX){cx=x;cy+=36}s+=G(`<rect width="${w}" height="28" rx="14" class="pill" style="stroke:var(--${k})"/><text x="${w/2}" y="19" text-anchor="middle" class="f13">${t}</text>`,{x:cx,y:cy,an:'pop',d:d+i*.15});cx+=w+8});return s};
+// ---------- Day 12 helpers ----------
+const LOCKW=`<path d="M-6 -2V-7A6 6 0 0 1 6 -7V-2" style="fill:none;stroke:#fff;stroke-width:2.5"/><rect x="-9" y="-3" width="18" height="15" rx="3" fill="#fff"/>`;
+function cfgCard({x=0,y=0,w=240,kind='cm',name='inference-config',rows=[],rh=24,an='',v={},extra=''}={}){
+  const k=kind==='cm'?'teal':'db',h=46+rows.length*rh;
+  let g=`<rect width="${w}" height="${h}" rx="12" class="panel"/><path d="M12 0H${w-12}Q${w} 0 ${w} 12V34H0V12Q0 0 12 0Z" style="fill:var(--${k})"/>${kind==='sec'?`<g transform="translate(${w-20} 18) scale(.75)">${LOCKW}</g>`:''}<text x="14" y="22" class="f13 b wht">${kind==='cm'?'ConfigMap':'Secret'}: ${name}</text>`;
+  rows.forEach(([kk,vv],i)=>{g+=`<text x="14" y="${58+i*rh}" class="m f12"><tspan class="b">${kk}</tspan><tspan class="mut">: </tspan>${vv}</text>`});
+  g+=extra;if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+const polaroid=(x,y,lines,{w=170,an='pop',d=0,o,label='photo at start'}={})=>{const h=40+lines.length*22+28;return G(`<rect width="${w}" height="${h}" rx="4" style="fill:#fff;stroke:var(--ink);stroke-width:2"/><rect x="10" y="10" width="${w-20}" height="${h-44}" rx="2" style="fill:#1F2449"/>${lines.map((l,i)=>`<text x="20" y="${36+i*22}" class="m f13 b" style="fill:#FFE38A">${l}</text>`).join('')}<text x="${w/2}" y="${h-12}" text-anchor="middle" class="f12" style="fill:#18203F">${label}</text>`,{x,y,an:an?(o!=null?'popout':an):'',d,o})};
+const liveWin=(x,y,w,h,title,o={})=>G(`<rect width="${w}" height="${h}" rx="10" class="panel"/><path d="M10 0H${w-10}Q${w} 0 ${w} 10V26H0V10Q0 0 10 0Z" class="codebg"/><circle cx="14" cy="13" r="4" class="badf"/><circle cx="28" cy="13" r="4" class="warnf"/><circle cx="42" cy="13" r="4" class="okf"/><text x="56" y="18" class="m f11 mut">${title}</text>`,{x,y,...o});
+const DISGUISE=`<circle cx="-15" cy="0" r="11" style="fill:var(--surface);fill-opacity:.2;stroke:var(--ink);stroke-width:3"/><circle cx="15" cy="0" r="11" style="fill:var(--surface);fill-opacity:.2;stroke:var(--ink);stroke-width:3"/><path d="M-4 0Q0 -4 4 0M-26 -2L-34 -6M26 -2L34 -6" style="fill:none;stroke:var(--ink);stroke-width:3;stroke-linecap:round"/><path d="M-22 20Q-11 12 0 18Q11 12 22 20Q11 26 0 22Q-11 26 -22 20Z" class="inkf"/>`;
+const room=(x,y,w,h,name,o={})=>{const tw=Math.round((11+name.length)*8.1+30);return G(`<rect width="${w}" height="${h}" rx="16" class="nodebox"/><path d="M16 0H${tw}V30H0V16Q0 0 16 0Z" class="inkf"/><text x="14" y="20" class="f13 b inv">namespace: ${name}</text>`,{x,y,...o})};
+const BOLT=`<path d="M8 0L0 18H8L4 34L20 12H11L16 0Z" style="fill:var(--warn);stroke:var(--ink);stroke-width:1.5;stroke-linejoin:round"/>`;
+const pillT=(x,y,t,{k='line',an='pop',d=0,o,c='f13'}={})=>{const w=Math.round(t.length*6.9+28);return G(`<rect width="${w}" height="32" rx="16" class="pill" style="stroke:var(--${k})"/><text x="14" y="21" class="${c}">${t}</text>`,{x,y,an:o!=null?'popout':an,d,o})};
+const valX=k=>14+(k.length+2)*7.2;
+// ---------- Day 13 helpers ----------
+function nodeCard({x=0,y=0,w=200,h=150,name='node',k='ink',an='',v={},extra=''}={}){
+  const head=k==='ink'?'class="inkf"':`style="fill:var(--${k})"`,tc=k==='ink'?'class="f13 b inv"':(k==='client'?'class="f13 b" style="fill:var(--on-client)"':'class="f13 b wht"');
+  let g=`<rect width="${w}" height="${h}" rx="14" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><path d="M14 0H${w-14}Q${w} 0 ${w} 14V30H0V14Q0 0 14 0Z" ${head}/><text x="14" y="21" ${tc}>${name}</text>${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function signRaw(t){const w=Math.round(t.length*7.2+24);let st='';for(let i=4;i<w-12;i+=12)st+=`M${i} 12L${i+8} 0`;return `<rect width="${w}" height="44" rx="6" style="fill:var(--surface);stroke:var(--ink);stroke-width:2"/><path d="M6 1H${w-6}Q${w-1} 1 ${w-1} 6V12H1V6Q1 1 6 1Z" style="fill:var(--warn)"/><path d="${st}" style="stroke:var(--ink);stroke-width:2.5"/><text x="12" y="33" class="m f12 b">${t}</text>`}
+const sign=(x,y,t,{an='pop',d=0,o}={})=>G(signRaw(t),{x,y,an:o!=null?'popout':an,d,o});
+function badgeRaw(t,k='ok'){const w=Math.round(t.length*6.6+44);return `<rect width="${w}" height="34" rx="8" style="fill:var(--surface);stroke:var(--${k});stroke-width:2.5"/><rect width="14" height="34" rx="6" style="fill:var(--${k})"/><circle cx="7" cy="9" r="2.5" style="fill:var(--surface)"/><text x="24" y="22" class="m f11 b">${t}</text>`}
+const badge=(x,y,t,{k='ok',an='pop',d=0,o}={})=>G(badgeRaw(t,k),{x,y,an:o!=null?'popout':an,d,o});
+function pizza(cx,cy,r,frac,{d=0}={}){let wedge;
+  if(frac>=1)wedge=`<circle cx="${cx}" cy="${cy}" r="${r-4}" style="fill:var(--warn)"/><circle cx="${cx-12}" cy="${cy-10}" r="5" class="badf"/><circle cx="${cx+14}" cy="${cy-4}" r="5" class="badf"/><circle cx="${cx-2}" cy="${cy+14}" r="5" class="badf"/>`;
+  else{const a=-Math.PI/2+frac*2*Math.PI,x2=cx+(r-4)*Math.cos(a),y2=cy+(r-4)*Math.sin(a),lg=frac>.5?1:0;wedge=`<path d="M${cx} ${cy}L${cx} ${cy-r+4}A${r-4} ${r-4} 0 ${lg} 1 ${x2.toFixed(1)} ${y2.toFixed(1)}Z" style="fill:var(--warn);stroke:var(--client-ink);stroke-width:2;stroke-linejoin:round"/>`}
+  return G(`<circle cx="${cx}" cy="${cy}" r="${r}" style="fill:none;stroke:var(--line);stroke-width:2;stroke-dasharray:5 5"/>${wedge}${frac>=1?`<circle cx="${cx}" cy="${cy}" r="${r-2}" style="fill:none;stroke:var(--client-ink);stroke-width:4"/>`:''}`,{an:'pop',d});}
+const BALLOON=`<ellipse cx="0" cy="0" rx="24" ry="30" style="fill:var(--vol)"/><ellipse cx="-8" cy="-10" rx="6" ry="9" fill="#fff" fill-opacity=".35"/><path d="M-4 29L4 29L0 35Z" style="fill:var(--vol)"/><path d="M0 35Q8 48 0 60" style="fill:none;stroke:var(--ink-2);stroke-width:2"/>`;
+const FUNNEL=`<path d="M0 0H60L38 26V46L22 54V26Z" style="fill:var(--teal)"/>`;
+const MAG=`<circle cx="20" cy="20" r="15" style="fill:var(--surface);stroke:var(--ink);stroke-width:5"/><path d="M31 31L46 46" style="stroke:var(--ink);stroke-width:7;stroke-linecap:round"/>`;
+const TARGET=`<circle r="16" style="fill:none;stroke:var(--web);stroke-width:4"/><circle r="8" style="fill:none;stroke:var(--web);stroke-width:4"/><circle r="3" style="fill:var(--web)"/>`;
+const miniPod=(x,y,k='web')=>`<g transform="translate(${x} ${y})"><rect width="32" height="24" rx="8" style="fill:var(--${k})"/><circle cx="11" cy="12" r="3" fill="#fff"/><circle cx="21" cy="12" r="3" fill="#fff"/></g>`;
+// ---------- Day 14 helpers ----------
+const ptick=(x,y,ok,{d=0,r=8}={})=>`<circle cx="${x}" cy="${y}" r="${r}" class="pop" style="fill:var(--${ok?'ok':'bad'});--d:${d}s"/>`;
+const CLOCK=`<circle r="10" class="warnf"/><path d="M0 -6V0L4 3" style="fill:none;stroke:#fff;stroke-width:2;stroke-linecap:round"/>`;
+const ptag=(x,y,name,k,{d=0,an='pop'}={})=>G(`<rect width="${Math.round(name.length*8.2+24)}" height="26" rx="13" style="fill:var(--${k})"/><text x="12" y="18" class="f13 b wht">${name}</text>`,{x,y,an,d});
+const spill=(x,y,txt,k='ok',{d=0,o,an}={})=>{const w=Math.round(txt.length*7.6+30);return G(`<rect width="${w}" height="24" rx="12" class="pill" style="stroke:var(--${k})"/><circle cx="13" cy="12" r="4.5" style="fill:var(--${k})"/><text x="23" y="16.5" class="f13 b">${txt}</text>`,{x,y,an:an||(o!=null?'inout':'pop'),d,o})};
+const pbox=(x,y,w,h,k,t,q,d)=>G(`<rect width="${w}" height="${h}" rx="14" class="panel" style="stroke:var(--${k});stroke-width:3"/><rect x="14" y="14" width="${Math.round(t.length*8.6+24)}" height="26" rx="13" style="fill:var(--${k})"/><text x="26" y="32" class="f14 b wht">${t}</text><text x="16" y="66" class="f14">${q}</text>`,{x,y,an:'pop',d});
+// ---------- Day 15 helpers ----------
+const crowd=(x,y,n,cols,{first=0,d0=.6,d1=1.8,gap=16,k='ink-2'}={})=>{let s='';for(let i=0;i<n;i++){const cx=x+(i%cols)*gap,cy=y+Math.floor(i/cols)*gap,d=i<first?d0:d1+(i-first)*.012;s+=`<circle cx="${cx}" cy="${cy}" r="5.5" class="pop" style="fill:var(--${k});--d:${d.toFixed(2)}s"/>`}return s};
+const meterCard=(x,y,w,h,title,val,frac,k,cap,{d=0,extra=''}={})=>G(`<rect width="${w}" height="${h}" rx="14" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><text x="16" y="30" class="f13 b mut">${title}</text>${val?`<text x="16" y="84" class="f30 b" style="fill:var(--${k})">${val}</text>`:''}<rect x="16" y="108" width="${w-32}" height="14" rx="7" style="fill:var(--line)"/><rect x="16" y="108" width="${Math.round((w-32)*frac)}" height="14" rx="7" class="grow-x" style="fill:var(--${k});--d:${d+.3}s"/><text x="16" y="150" class="f12">${cap}</text>${extra}`,{x,y,an:'pop',d});
+// ---------- Day 16 helpers ----------
+function house({x=0,y=0,w=150,h=140,name='inference-dev',k='teal',an='',v={},extra='',solar=false}={}){
+  const rh=Math.round(h*.38),bh=h-rh;
+  let g=`<path d="M${w/2} 0L${w} ${rh}H0Z" style="fill:var(--${k})"/>${solar?`<path d="M${w*.56} ${rh*.32}L${w*.86} ${rh*.82}L${w*.74} ${rh*.82}L${w*.48} ${rh*.42}Z" class="inkf" opacity=".75"/>`:''}<rect x="${w*.08}" y="${rh}" width="${w*.84}" height="${bh-24}" style="fill:var(--surface);stroke:var(--ink);stroke-width:2.5"/><rect x="${w/2-12}" y="${h-24-34}" width="24" height="34" rx="3" style="fill:var(--${k});fill-opacity:.6"/><rect x="${w*.18}" y="${rh+14}" width="22" height="18" rx="3" style="fill:var(--note)"/><rect x="${w*.82-22}" y="${rh+14}" width="22" height="18" rx="3" style="fill:var(--note)"/><rect y="${h-22}" width="${w}" height="22" rx="6" class="inkf"/><text x="${w/2}" y="${h-7}" text-anchor="middle" class="m f11 b inv">${name}</text>${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function blueprint({x=0,y=0,w=160,h=110,title='inference-chart',lines=[],an='',v={}}={}){
+  let grid='';for(let i=12;i<w;i+=16)grid+=`M${i} 0V${h}`;for(let j=12;j<h;j+=16)grid+=`M0 ${j}H${w}`;
+  let g=`<rect width="${w}" height="${h}" rx="8" style="fill:var(--web)"/><path d="${grid}" style="stroke:#fff;stroke-opacity:.14;stroke-width:1"/><path d="M${w-50} ${h-12}V${h-34}L${w-32} ${h-50}L${w-14} ${h-34}V${h-12}Z" style="fill:none;stroke:#fff;stroke-width:2;stroke-opacity:.75"/><text x="12" y="22" class="m f12 b wht">${title}</text>${lines.map((l,i)=>`<text x="12" y="${42+i*17}" class="m f11 wht">${l}</text>`).join('')}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function gears({x=0,y=0,w=150,h=120,label='helm render',an='',v={},d=0}={}){
+  const gear=(cx,cy,r,dd)=>{let t='';for(let i=0;i<8;i++)t+=`<rect x="${(cx-3.5).toFixed(1)}" y="${(cy-r-6).toFixed(1)}" width="7" height="10" rx="2" transform="rotate(${i*45} ${cx} ${cy})"/>`;return `<g class="spin" style="--d:${dd}s"><g style="fill:var(--ink-2)">${t}<circle cx="${cx}" cy="${cy}" r="${r}"/></g><circle cx="${cx}" cy="${cy}" r="${(r*.4).toFixed(1)}" style="fill:var(--surface)"/></g>`};
+  let g=`<rect width="${w}" height="${h}" rx="14" class="panel" style="stroke:var(--db);stroke-width:3"/>${gear(w*.36,h*.42,18,d)}${gear(w*.66,h*.58,13,d)}<text x="${w/2}" y="${h-12}" text-anchor="middle" class="m f12 b dbc">${label}</text>`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function docPaper({x=0,y=0,w=130,h=150,title='',lines=[],an='',v={},extra=''}={}){
+  let g=`<path d="M0 8Q0 0 8 0H${w-22}L${w} 22V${h-8}Q${w} ${h} ${w-8} ${h}H8Q0 ${h} 0 ${h-8}Z" class="paper"/><path d="M${w-22} 1V22H${w-1}" class="paperfold"/>${title?`<text x="12" y="22" class="m f11 b">${title}</text>`:''}${lines.map((l,i)=>`<text x="12" y="${46+i*18}" class="m f11">${l}</text>`).join('')}${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+const PARCEL=w=>`<rect width="${w}" height="80" rx="6" style="fill:var(--warn);fill-opacity:.35;stroke:var(--ink);stroke-width:2.5"/><rect x="${w/2-9}" width="18" height="80" style="fill:var(--warn)"/><path d="M0 22H${w}" style="stroke:var(--ink);stroke-width:2"/>`;
+const bx2=(x,y,w,h,a,b,k,d)=>G(`<rect width="${w}" height="${h}" rx="12" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><text x="${w/2}" y="${b?h/2-3:h/2+5}" text-anchor="middle" class="f14 b">${a}</text>${b?`<text x="${w/2}" y="${h/2+15}" text-anchor="middle" class="f11 mut">${b}</text>`:''}`,{x,y,an:'pop',d});
+// ---------- Day 17 helpers ----------
+function idCard({x=0,y=0,w=150,h=80,name='model-sa',sub='ServiceAccount',k='teal',an='',v={}}={}){
+  const m=h/2+10;
+  let g=`<rect x="${w/2-14}" y="-10" width="28" height="16" rx="5" class="inkf"/><rect width="${w}" height="${h}" rx="10" style="fill:var(--surface);stroke:var(--${k});stroke-width:3"/><path d="M0 10Q0 0 10 0H${w-10}Q${w} 0 ${w} 10V18H0Z" style="fill:var(--${k})"/><circle cx="26" cy="${m}" r="14" style="fill:var(--${k});fill-opacity:.22"/><circle cx="26" cy="${m-4}" r="5" style="fill:var(--${k})"/><path d="M17 ${m+11}Q26 ${m+1} 35 ${m+11}Z" style="fill:var(--${k})"/><text x="48" y="${m-1}" class="m f12 b">${name}</text><text x="48" y="${m+15}" class="f11 mut">${sub}</text>`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+function rdoor(x,y,label,{k='web',d=0,open=null,deny=null,w=64,h=96}={}){
+  let s=G(`<rect width="${w}" height="${h}" rx="4" style="fill:var(--line);stroke:var(--ink);stroke-width:2.5"/><rect x="6" y="6" width="${w-12}" height="${h-6}" rx="3" style="fill:var(--${k});fill-opacity:.55"/><circle cx="${w-14}" cy="${h/2+6}" r="3.5" class="inkf"/>${label?`<text x="${w/2}" y="${h+18}" text-anchor="middle" class="f12 b">${label}</text>`:''}`,{x,y,an:'pop',d});
+  s+=`<circle cx="${x+w/2}" cy="${y-10}" r="6" class="${open!=null?'inout':'pop'}" style="fill:var(--bad);--d:${d}s${open!=null?`;--o:${open}s`:''}"/>`;
+  if(open!=null)s+=G(`<rect x="6" y="6" width="${w-12}" height="${h-6}" rx="3" class="inkf" opacity=".85"/><path d="M6 6L${Math.round(w*.32)} 14V${h-4}L6 ${h}Z" style="fill:var(--${k})"/><circle cx="${w/2}" cy="-10" r="6" style="fill:var(--ok)"/>`,{x,y,an:'fade',d:open});
+  if(deny!=null)s+=icon('no',x+w/2,y+h/2,{r:13,d:deny});
+  return s;
+}
+const keyI=(x,y,{s=1,d=0,o,an='pop',k='warn'}={})=>G(`<g transform="scale(${s})"><circle cx="12" cy="15" r="10" style="fill:none;stroke:var(--${k});stroke-width:6"/><rect x="21" y="12" width="40" height="7" rx="3" style="fill:var(--${k})"/><rect x="47" y="18" width="6" height="9" rx="2" style="fill:var(--${k})"/><rect x="55" y="18" width="6" height="12" rx="2" style="fill:var(--${k})"/></g>`,{x,y,an:o!=null?'inout':an,d,o});
+const bindBand=(x,y,w,h,a,b,{d=0,k='vol'}={})=>G(`<rect width="${w}" height="${h}" rx="${h/2}" style="fill:var(--${k});fill-opacity:.18;stroke:var(--${k});stroke-width:3"/><g transform="translate(14 ${h/2-8})" style="fill:none;stroke:var(--${k});stroke-width:3"><rect width="16" height="10" rx="5"/><rect x="10" y="6" width="16" height="10" rx="5"/></g><text x="${w/2+14}" y="${b?h/2-2:h/2+5}" text-anchor="middle" class="f13 b">${a}</text>${b?`<text x="${w/2+14}" y="${h/2+14}" text-anchor="middle" class="f11 mut">${b}</text>`:''}`,{x,y,an:'pop',d});
+const mchip=(x,y,t,k,{d=0,o}={})=>{const w=Math.round(t.length*7.2+20);return G(`<rect width="${w}" height="24" rx="12" style="fill:var(--${k});fill-opacity:.18;stroke:var(--${k});stroke-width:2"/><text x="${w/2}" y="17" text-anchor="middle" class="m f12 b">${t}</text>`,{x,y,an:o!=null?'inout':'pop',d,o})};
+const hlr=(x,y,w,h,k,d)=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="4" class="fade" style="fill:var(--${k});fill-opacity:.22;stroke:var(--${k});stroke-width:1.5;--d:${d}s"/>`;
+// ---------- Day 18 helpers ----------
+function alarmClock(x,y,{s=1,an='pop',d=0,ring=null,k='warn'}={}){
+  const face=`<circle cx="9" cy="10" r="8" style="fill:var(--${k})"/><circle cx="51" cy="10" r="8" style="fill:var(--${k})"/><path d="M14 58L8 66M46 58L52 66" style="stroke:var(--ink);stroke-width:4;stroke-linecap:round"/><circle cx="30" cy="36" r="26" style="fill:var(--surface);stroke:var(--ink);stroke-width:4"/><path d="M30 20V36L41 42" style="fill:none;stroke:var(--ink);stroke-width:3.5;stroke-linecap:round"/><circle cx="30" cy="36" r="3" class="inkf"/>`;
+  const inner=ring!=null?`<g class="ringy" style="--d:${ring}s">${face}</g>`:face;
+  return G(`<g transform="scale(${s})">${inner}</g>`,{x,y,an,d});
+}
+function clipb({x=0,y=0,w=90,h=100,title='Job',k='db',an='pop',v={},extra=''}={}){
+  let g=`<rect width="${w}" height="${h}" rx="8" style="fill:var(--surface);stroke:var(--${k});stroke-width:3"/><rect x="${w/2-18}" y="-8" width="36" height="16" rx="5" style="fill:var(--${k})"/><text x="${w/2}" y="30" text-anchor="middle" class="f13 b">${title}</text><path d="M14 46H${w-14}M14 62H${w-14}M14 78H${w-30}" style="stroke:var(--line);stroke-width:4;stroke-linecap:round"/>${extra}`;
+  if(an)g=`<g class="${an}" ${S(v)}>${g}</g>`;
+  return `<g transform="translate(${x} ${y})">${g}</g>`;
+}
+const gbar=(x,y,w,h,k,d,label='',{dur=.8,lc='wht',op=1}={})=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="5" class="grow-x" style="fill:var(--${k});fill-opacity:${op};--d:${d}s;--dur:${dur}s"/>`+(label?T(x+8,y+h/2+4.5,label,{c:`f12 b ${lc}`,d:d+dur*.6}):'');
+const vline=(x,y1,y2,k,d,dash=true)=>`<path d="M${x} ${y1}V${y2}" class="fade" style="stroke:var(--${k});stroke-width:2.5;${dash?'stroke-dasharray:6 5;':''}--d:${d}s"/>`;
+// ---------- Day 19 helpers ----------
+const evCard=(x,y,w,h,lines,{d=0,k='warn',an='pop',rot=0}={})=>G(`<g transform="rotate(${rot} ${w/2} ${h/2})"><rect width="${w}" height="${h}" rx="6" style="fill:var(--note);stroke:var(--ink);stroke-width:1.5"/><circle cx="${w/2}" cy="8" r="6" style="fill:var(--${k});stroke:var(--ink);stroke-width:1.5"/>${lines.map(([t,c],i)=>`<text x="14" y="${34+i*20}" class="${c||'f12'} lbltxt">${t}</text>`).join('')}</g>`,{x,y,an,d});
+const chip=(x,y,w,t,k,{d=0,o,mono=false,h=30}={})=>G(`<rect width="${w}" height="${h}" rx="${h/2}" style="fill:var(--${k});fill-opacity:.16;stroke:var(--${k});stroke-width:2"/><text x="${w/2}" y="${h/2+4.5}" text-anchor="middle" class="${mono?'m ':''}f12 b">${t}</text>`,{x,y,an:o!=null?'inout':'pop',d,o});
+const stepsChain=(items,y,{x0=20,gap=14,d0=0,step=.4,h=34}={})=>{let s='',x=x0;items.forEach(([t,w,k],i)=>{s+=chip(x,y,w,t,k,{d:d0+i*step,h});if(i<items.length-1)s+=arrow({x1:x+w+2,y1:y+h/2,x2:x+w+gap-2,y2:y+h/2},{d:d0+i*step+.2,dur:.15,c:'var(--ink-2)',w:2});x+=w+gap});return s};
+// ---------- Day 21 helpers ----------
+const cgrid=(x,y,cols,rows,cell,gap,k,{d0=0,step=.01,op=1,an='pop',rnd=false}={})=>{let s='';for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){const i=r*cols+c,d=d0+(rnd?((i*37)%97)/97*step*cols*rows:i*step);s+=`<rect x="${x+c*(cell+gap)}" y="${y+r*(cell+gap)}" width="${cell}" height="${cell}" rx="${Math.max(2,cell/5)}" class="${an}" style="fill:var(--${k});fill-opacity:${op};--d:${d.toFixed(2)}s"/>`}return s};
+const progRing=(cx,cy,r,frac,k,d,{w=12}={})=>{const a=-Math.PI/2+frac*2*Math.PI,x=cx+r*Math.cos(a),y=cy+r*Math.sin(a),big=frac>.5?1:0;return `<circle cx="${cx}" cy="${cy}" r="${r}" class="fade" style="fill:none;stroke:var(--line);stroke-width:${w};--d:${d}s"/><path d="M${cx} ${cy-r}A${r} ${r} 0 ${big} 1 ${x.toFixed(1)} ${y.toFixed(1)}" pathLength="1" class="aline draw" style="stroke:var(--${k});stroke-width:${w};stroke-linecap:round;--d:${d}s;--dur:1.2s"/>`};
+const hbar=(x,y,w,h,k,d,{dur=.8,op=1,label='',lc='wht'}={})=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="4" class="grow-x" style="fill:var(--${k});fill-opacity:${op};--d:${d}s;--dur:${dur}s"/>`+(label?T(x+8,y+h/2+4.5,label,{c:`f12 b ${lc}`,d:d+dur*.6}):'');
+const vbar=(x,base,w,h,k,d,{op=1}={})=>`<rect x="${x}" y="${base-h}" width="${w}" height="${h}" rx="3" class="up" style="fill:var(--${k});fill-opacity:${op};--d:${d}s"/>`;
+const zbox=(x,y,w,h,a,b,{k='ink',d=0,inv=false,an='pop',o}={})=>G(inv?`<rect width="${w}" height="${h}" rx="10" class="inkf"/><text x="${w/2}" y="${b?h/2-2:h/2+5}" text-anchor="middle" class="f13 b inv">${a}</text>${b?`<text x="${w/2}" y="${h/2+15}" text-anchor="middle" class="m f11 inv" opacity=".8">${b}</text>`:''}`:`<rect width="${w}" height="${h}" rx="10" class="panel" style="stroke:var(--${k});stroke-width:2.5"/><text x="${w/2}" y="${b?h/2-2:h/2+5}" text-anchor="middle" class="f13 b">${a}</text>${b?`<text x="${w/2}" y="${h/2+15}" text-anchor="middle" class="m f11 mut">${b}</text>`:''}`,{x,y,an:o!=null?'inout':an,d,o});
+// ---------- Day 22 helpers ----------
+const STK=[['Application','Python / C++ / model serving','ink'],['Framework','PyTorch / TensorFlow','vol'],['CUDA runtime + libraries','libcudart.so · cuBLAS · cuDNN · NCCL','teal'],['CUDA Driver API','libcuda.so','db'],['NVIDIA host driver','user-space + kernel modules','web'],['Physical GPU','','ok']];
+const stackL=(x,y,w,L,{h=44,gap=10,d0=0,step=.2,rev=false,an='pop'}={})=>L.map(([n,sub,k],i)=>{const yy=y+i*(h+gap),d=d0+(rev?(L.length-1-i):i)*step;return G(`<rect width="${w}" height="${h}" rx="10" style="fill:var(--${k})"/><text x="16" y="${sub?h/2-2:h/2+5}" class="f14 b wht">${n}</text>${sub?`<text x="16" y="${h/2+15}" class="m f11 wht" opacity=".88">${sub}</text>`:''}`,{x,y:yy,an,d})}).join('');
+const vtag=(x,y,w,h,k,d,inner)=>G(`<path d="M24 0H${w-8}Q${w} 0 ${w} 8V${h-8}Q${w} ${h} ${w-8} ${h}H24L0 ${h/2}Z" style="fill:var(--surface);stroke:var(--${k});stroke-width:3;stroke-linejoin:round"/><circle cx="22" cy="${h/2}" r="6" style="fill:var(--paper);stroke:var(--${k});stroke-width:2.5"/>${inner}`,{x,y,an:'pop',d});
+// ---------- Day 23 helpers ----------
+const halfGauge=(cx,cy,r,frac,k,d,{w=12}={})=>{const a=Math.PI+Math.max(.001,Math.min(1,frac))*Math.PI,x=cx+r*Math.cos(a),y=cy+r*Math.sin(a);return `<path d="M${cx-r} ${cy}A${r} ${r} 0 0 1 ${cx+r} ${cy}" class="fade" style="fill:none;stroke:var(--line);stroke-width:${w};stroke-linecap:round;--d:${d}s"/><path d="M${cx-r} ${cy}A${r} ${r} 0 0 1 ${x.toFixed(1)} ${y.toFixed(1)}" pathLength="1" class="aline draw" style="stroke:var(--${k});stroke-width:${w};stroke-linecap:round;--d:${d}s;--dur:1.2s"/>`};
+const thermo=(x,y,frac,k,d)=>G(`<rect x="8" y="0" width="16" height="80" rx="8" style="fill:var(--surface);stroke:var(--ink);stroke-width:2.5"/><circle cx="16" cy="92" r="14" style="fill:var(--${k});stroke:var(--ink);stroke-width:2.5"/>`,{x,y,an:'pop',d})+`<rect x="${x+12}" y="${y+80-70*frac}" width="8" height="${70*frac+12}" rx="4" class="up" style="fill:var(--${k});--d:${d+.3}s"/>`;
+const lineP=(pts,k,d,{w=3.5,dash=false,dur=2}={})=>`<path d="M${pts.map(p=>p.join(' ')).join('L')}" pathLength="1" class="aline draw" style="stroke:var(--${k});stroke-width:${w};${dash?'stroke-dasharray:1 1;':''}--d:${d}s;--dur:${dur}s"/>`;
+// ---------- Day 24 helpers ----------
+const vramBar=(x,y,w,h,segs,{d0=0,step=.3,total=null,lab=true}={})=>{const tot=total||segs.reduce((a,s)=>a+s[0],0);let cx=x,s='';segs.forEach(([v,k,l,hat],i)=>{const sw=Math.round(v/tot*w),d=d0+i*step;s+=`<rect x="${cx}" y="${y}" width="${Math.max(sw,1)}" height="${h}" rx="3" class="grow-x" style="fill:var(--${k});fill-opacity:${hat?.25:1};${hat?`stroke:var(--${k});stroke-width:2;stroke-dasharray:5 4;`:''}--d:${d}s;--dur:.5s"/>`;if(lab&&l&&sw>l.length*6.6+12)s+=T(cx+sw/2,y+h/2+4,l,{c:`f11 b ${hat||k==='line'?'':'wht'}`,a:'middle',d:d+.3});cx+=sw});return s};
+const brk=(x1,x2,y,label,k,d,{up=false,c='f12 b'}={})=>{const t=up?-8:8;return `<path d="M${x1} ${y}V${y+t}H${x2}V${y}" class="fade" style="fill:none;stroke:var(--${k});stroke-width:2.5;--d:${d}s"/>`+T((x1+x2)/2,y+(up?-14:24),label,{c:`${c}`,a:'middle',d})};
+const lot=(x,y,slots,{w=40,h=56,gap=6,d0=0,step=.08}={})=>slots.split('').map((ch,i)=>{const sx=x+i*(w+gap),d=d0+i*step;let g=`<rect x="${sx}" y="${y}" width="${w}" height="${h}" rx="5" class="fade" style="fill:none;stroke:var(--line);stroke-width:2;stroke-dasharray:4 3;--d:${d0}s"/>`;if(ch==='L')g+=G(`<rect x="4" y="8" width="${w-8}" height="${h-16}" rx="8" style="fill:var(--teal)"/><rect x="9" y="14" width="${w-18}" height="10" rx="3" style="fill:#fff;opacity:.55"/>`,{x:sx,y,an:'drop',d});if(ch==='C')g+=G(`<path d="M${w/2} 12L${w/2+10} ${h-12}H${w/2-10}Z" style="fill:var(--db)"/><rect x="${w/2-13}" y="${h-14}" width="26" height="5" rx="2" style="fill:var(--db)"/>`,{x:sx,y,an:'pop',d});if(ch==='X')g+=G(`<rect x="4" y="8" width="${w-8}" height="${h-16}" rx="6" style="fill:var(--ink-2)"/>`,{x:sx,y,an:'pop',d});return g}).join('');
+// ---------- Day 25 helpers ----------
+const laneL=(x,y,t,d,{w=680,c='f12 b'}={})=>T(x,y+18,t,{c,d})+`<path d="M${x+60} ${y+28}H${x+60+w}" class="fade" style="stroke:var(--line);stroke-width:1.5;--d:${d}s"/>`;
+const blk=(x,y,w,k,d,label='',{h=28,op=1,dash=false,lc='wht',dur=.4}={})=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="5" class="grow-x" style="fill:var(--${k});fill-opacity:${op};${dash?`stroke:var(--${k});stroke-width:2;stroke-dasharray:5 4;`:''}--d:${d}s;--dur:${dur}s"/>`+(label?T(x+w/2,y+h/2+4.5,label,{c:`f11 b ${lc}`,a:'middle',d:d+dur*.7}):'');
+const tkt=(x,y,t,k,d,{an='drop'}={})=>G(`<path d="M0 0H44V46L38 52L32 46L26 52L20 46L14 52L8 46L2 52L0 50Z" style="fill:var(--surface);stroke:var(--${k});stroke-width:2.5"/><text x="22" y="30" text-anchor="middle" class="m f15 b" style="fill:var(--${k})">${t}</text>`,{x,y,an,d});
+// ---------- Day 26 helpers ----------
+const lockI=(x,y,{d=0,k='bad',s=1,an='pop',o}={})=>G(`<g transform="scale(${s})"><path d="M6 14V9A8 8 0 0 1 22 9V14" style="fill:none;stroke:var(--${k});stroke-width:3.5"/><rect x="1" y="14" width="26" height="20" rx="4" style="fill:var(--${k})"/><circle cx="14" cy="23" r="3" style="fill:#fff"/></g>`,{x,y,an:o!=null?'inout':an,d,o});
+const gpuChip=(x,y,w,h,label,{d=0,k='ok',an='pop'}={})=>G(`<rect width="${w}" height="${h}" rx="8" style="fill:var(--${k})"/><rect x="8" y="8" width="${w-16}" height="${h-16}" rx="4" style="fill:none;stroke:#fff;stroke-width:1.5;opacity:.6"/>`+[0,1,2,3].map(i=>`<path d="M${10+i*(w-20)/3} ${h}V${h+5}M${10+i*(w-20)/3} -5V0" style="stroke:var(--${k});stroke-width:2"/>`).join('')+`<text x="${w/2}" y="${h/2+5}" text-anchor="middle" class="f12 b wht">${label}</text>`,{x,y,an,d});
+const nbox=(x,y,w,h,lines,k,d,{an='pop',fill=.12,first='f13 b',rest='f12',lh=19,top=26}={})=>G(`<rect width="${w}" height="${h}" rx="12" style="fill:var(--${k});fill-opacity:${fill};stroke:var(--${k});stroke-width:2"/>`+lines.map((l,i)=>`<text x="14" y="${top+i*lh}" class="${i===0?first:rest}">${l}</text>`).join(''),{x,y,an,d});
+// ---------- Day 67 visuals 0-11 ----------
+const loopPk=(x1,y1,x2,y2,{d=0,dur=1.2,c='var(--web)',r=6}={})=>`<circle cx="${x1}" cy="${y1}" r="${r}" class="travel" style="fill:${c};--d:${d}s;--dur:${dur}s;--tx:${x2-x1}px;--ty:${y2-y1}px;--n:infinite"/>`;
+const pnl=(x,y,w,h,title,{k,d=0,an='fade',sub}={})=>G(`<rect width="${w}" height="${h}" rx="16" class="panel"${k?` style="stroke:var(--${k});stroke-width:2.5"`:''}/>${title?`<text x="18" y="30" class="f13 b">${title}</text>`:''}${sub?`<text x="18" y="48" class="f11 mut">${sub}</text>`:''}`,{x,y,an,d});
+const TC=(x,y,t,k,{c='',a,d=0}={})=>`<text x="${x}" y="${y}"${a?` text-anchor="${a}"`:''} class="${c} fade" style="fill:var(--${k});--d:${d}s">${t}</text>`;
+const solid=(x,y,w,h,k,a,b,d,{an='pop',fs='f14'}={})=>G(`<rect width="${w}" height="${h}" rx="12" style="fill:var(--${k})"/><text x="14" y="${b?26:h/2+5}" class="${fs} b wht">${a}</text>${b?`<text x="14" y="${h-14}" class="f12 wht">${b}</text>`:''}`,{x,y,an,d});
+const lines=(x,y,L,{lh=20,d=0,c='f12',step=0,a}={})=>L.map((t,i)=>T(x,y+i*lh,t,{c:Array.isArray(c)?c[i]:c,d:d+i*step,a})).join('');
+const tint=(x,y,w,h,k,d,inner,{an='pop',op=.1,sw=2.5}={})=>G(`<rect width="${w}" height="${h}" rx="12" style="fill:var(--${k});fill-opacity:${op};stroke:var(--${k});stroke-width:${sw}"/>${inner}`,{x,y,an,d});
+const code=(x,y,w,t,d,{h=32,fs='f12',an='up'}={})=>G(`<rect width="${w}" height="${h}" rx="8" class="codebg"/><text x="12" y="${h/2+5}" class="m ${fs} b">${t}</text>`,{x,y,an,d});
+const bar=(x,y,w,h,k,d,{op=1,rx=5}={})=>`<rect x="${(+x).toFixed(1)}" y="${y}" width="${Math.max(2,w).toFixed(1)}" height="${h}" rx="${rx}" class="grow-x" style="fill:var(--${k});fill-opacity:${op};--d:${d}s"/>`;
+const ink=(x,y,w,h,L,d,{fs='f15',lh=26,top=36}={})=>G(`<rect width="${w}" height="${h}" rx="16" class="inkf"/>${L.map((t,i)=>`<text x="24" y="${top+i*lh}" class="${i?'f13':fs+' b'} inv">${t}</text>`).join('')}`,{x,y,an:'up',d});
+
+function V0(){
+  let s=solid(16,24,210,76,'web','ai-infra-client','Span A · Python client',.2);
+  s+=solid(574,24,210,76,'db','ai-infra-vllm','Span B · GPU model server',.4);
+  s+=arrow({x1:228,y1:62,x2:570,y2:62},{d:.6,dur:.3,c:'var(--teal)'});
+  s+=G(`<rect width="150" height="28" rx="14" style="fill:var(--teal)"/><text x="75" y="19" text-anchor="middle" class="m f12 b wht">traceparent</text>`,{x:250,y:76,an:'travel',d:1.0,dur:2.6,tx:150,ty:0,n:'infinite'});
+  s+=pnl(16,124,768,120,'One shared trace, as Jaeger drew it (observed)',{k:'teal',d:1.2});
+  const X=ms=>176+ms*.42;
+  s+=T(36,184,'client span',{c:'f12 b',d:1.4})+bar(X(0),170,1342*.42,22,'web',1.4)+T(X(1342)-6,186,'1,342 ms',{c:'m f12 b wht',a:'end',d:2.0});
+  s+=T(36,224,'vLLM span',{c:'f12 b',d:1.6})+bar(X(1160),210,183*.42,22,'db',2.2)+T(X(1160)-8,226,'183 ms',{c:'m f12 b',a:'end',d:2.6});
+  s+=pnl(16,258,768,226,'What the Day 67 lab showed',{d:2.8});
+  const S=[['2 · 2 · 2','teal','services · spans · depth'],['183 ms','db','vLLM engine span'],['31.8 / 68.2%','web','prefill / decode time'],['+660 ms','bad','after a +600 ms fault']];
+  S.forEach(([a,k,b],i)=>{const x=28+i*188,d=3.0+i*.25;s+=G(`<rect width="176" height="160" rx="14" style="fill:var(--${k});fill-opacity:.1;stroke:var(--${k});stroke-width:2.5"/><text x="88" y="74" text-anchor="middle" class="m ${a.length>8?'f22':'f30'} b" style="fill:var(--${k})">${a}</text><text x="88" y="116" text-anchor="middle" class="f12 b">${b}</text>`,{x,y:302,an:'pop',d})});
+  return svg(s,'Day 67 in one picture: a Python client, ai-infra-client, owns span A and sends a request carrying a traceparent header to ai-infra-vllm, the GPU model server, which owns span B. Jaeger drew one shared trace: the client span lasted 1,342 ms and the vLLM span 183 ms near its end. What the lab showed: 2 services, 2 spans and depth 2; a 183 ms vLLM engine span; prefill and decode taking 31.8% and 68.2% of model time; and a 660 ms slowdown after a deliberate 600 ms fault.');
+}
+
+function V1(){
+  let s=G(`<rect width="768" height="44" rx="12" class="inkf"/><text x="384" y="28" text-anchor="middle" class="f14 b inv">Why did this particular chat request take so long?</text>`,{x:16,y:10,an:'up',d:.1});
+  s+=pnl(16,68,248,304,'METRICS',{k:'teal',d:.3,sub:'the delivery dashboard'});
+  [42,30,58,36,78,50].forEach((v,i)=>{s+=`<rect x="${42+i*30}" y="${214-v}" width="20" height="${v}" rx="3" class="up" style="fill:var(--${i===4?'bad':'teal'});--d:${(.5+i*.1).toFixed(2)}s"/>`});
+  s+=`<path d="M36 214H222" class="fade" style="stroke:var(--ink-2);stroke-width:2;--d:.5s"/>`+T(132,234,'% of parcels late',{c:'f11 mut',a:'middle',d:.6});
+  s+=lines(34,272,['How many are slow?','p95, rate, errors'],{lh:20,d:1.1,c:['f14 b','f12']});
+  s+=TC(34,350,'how much','teal',{c:'f15 b',d:1.3});
+  s+=pnl(276,68,248,304,'LOGS',{k:'warn',d:1.5,sub:'the scanner’s notes'});
+  ['08:02 scanned at hub','08:47 delayed: weather','09:30 out for delivery'].forEach((t,i)=>{s+=G(`<rect width="212" height="30" rx="6" style="fill:var(--note);stroke:var(--ink);stroke-width:1.5"/><text x="10" y="20" class="m f11 b lbltxt">${t}</text>`,{x:294,y:100+i*40,an:'drop',d:1.7+i*.25})});
+  s+=lines(294,272,['What event was recorded?','exceptions, messages'],{lh:20,d:2.4,c:['f14 b','f12']});
+  s+=TC(294,350,'what happened','warn',{c:'f15 b',d:2.6});
+  s+=pnl(536,68,248,304,'TRACES',{k:'db',d:2.8,sub:'the parcel’s tracking history'});
+  const P=[[560,200],[610,130],[680,170],[750,110]];
+  s+=`<path d="M${P.map(p=>p.join(' ')).join('L')}" pathLength="1" class="aline draw" style="stroke:var(--db);stroke-width:3;stroke-dasharray:.03 .02;--d:3.0s"/>`;
+  P.forEach(([x,y],i)=>{s+=`<circle cx="${x}" cy="${y}" r="9" class="pop" style="fill:var(--db);--d:${(3.0+i*.3).toFixed(1)}s"/>`+T(x,y+26,['0 s','+2 s','+45 s','+1 s'][i],{c:'m f11 b',a:'middle',d:3.0+i*.3})});
+  s+=lines(554,272,['Where did request X','spend its time?'],{lh:20,d:4.0,c:['f14 b','f14 b']});
+  s+=TC(554,350,'where time went','db',{c:'f15 b',d:4.2});
+  s+=ink(16,386,768,98,['p95 rose but GPU utilization is low? Metrics alone don’t say where.','A trace shows which instrumented step was slow; logs and metrics then explain why.','Unlike a parcel, one request can fan out, so spans may overlap.'],4.4,{fs:'f14',lh:24,top:30});
+  return svg(s,'Why did this particular chat request take so long? Think of a parcel network. Metrics are the delivery dashboard, showing what percent of parcels are late: how many are slow, with p95, rate and errors; they say how much. Logs are the scanner’s notes, such as scanned at hub, delayed by weather, out for delivery: what event was recorded; they say what happened. Traces are the parcel’s tracking history across facilities with timings: where did request X spend its time. If p95 rose but GPU utilization is low, metrics alone don’t say where. A trace shows which instrumented step was slow; logs and metrics then explain why. Unlike a parcel, one request can fan out, so spans may overlap. The scanner notes and times are illustrative.');
+}
+
+function V2(){
+  let s=pnl(16,12,470,472,'One span, labelled',{k:'db',d:.1});
+  const F=[['name','llm_request','ink-2'],['trace ID','e97b70d8…acad4 (shared)','teal'],['span ID','its own, unique','db'],['parent span ID','points at client.chat_completion','web'],['start / end','timestamps → duration','ok'],['attributes','model, route, token counts…','warn'],['events','timestamped moments, e.g. an exception','bad'],['resource','service.name = ai-infra-vllm','vol']];
+  F.forEach(([a,b,k],i)=>{const y=56+i*52,d=.3+i*.2;s+=G(`<rect width="430" height="44" rx="10" style="fill:var(--${k});fill-opacity:.1;stroke:var(--${k});stroke-width:2"/><rect width="8" height="44" rx="4" style="fill:var(--${k})"/><text x="20" y="27" class="f12 b">${a}</text><text x="150" y="27" class="m f12">${b}</text>`,{x:36,y,an:'slide',d,dx:-20})});
+  s+=pnl(500,12,284,472,'Trace vs span',{k:'teal',d:2.0});
+  s+=lines(520,66,['A trace is the whole journey','of one logical request.','A span is one leg of it: an','HTTP call, a queue wait, a','model-generation stage.'],{lh:22,d:2.2,step:.1,c:['f13 b','f13 b','f13','f13','f13']});
+  const pts=[[540,250],[600,300],[660,250],[720,300],[760,250]];
+  s+=`<path d="M${pts.map(p=>p.join(' ')).join('L')}" pathLength="1" class="aline draw" style="stroke:var(--teal);stroke-width:4;--d:2.8s"/>`;
+  pts.forEach(([x,y],i)=>{s+=`<circle cx="${x}" cy="${y}" r="10" class="pop" style="fill:var(--${i%2?'db':'teal'});--d:${(2.8+i*.2).toFixed(1)}s"/>`});
+  s+=T(642,346,'one tracking number,',{c:'f12 b',a:'middle',d:3.8})+T(642,364,'many legs',{c:'f12 b',a:'middle',d:3.8});
+  s+=lines(520,410,['The root span has no parent.','Every child points to one.'],{lh:22,d:4.1,step:.15,c:['f13','f13 b']});
+  return svg(s,'One span, labelled, using the real vLLM span: its name is llm_request; its trace ID, e97b70d8…acad4, is shared by the whole trace; its span ID is its own and unique; its parent span ID points at client.chat_completion; its start and end timestamps give the duration; its attributes hold metadata such as model, route and token counts; events are timestamped moments such as an exception; and the resource says who emitted it, service.name = ai-infra-vllm. A trace is the whole journey of one logical request; a span is one leg of it, such as an HTTP call, a queue wait or a model-generation stage: one tracking number, many legs. The root span has no parent; every child points to one.');
+}
+
+function V3(){
+  let s=pnl(16,12,768,300,'One trace, five spans (illustrative: the simulated 512 ms request)',{d:.1});
+  const X=ms=>230+ms*1.05;
+  [0,128,256,384,512].forEach(v=>{s+=`<path d="M${X(v)} 60V264" class="fade" style="stroke:var(--line);stroke-width:1;--d:.2s"/>`+T(X(v),284,String(v),{c:'m f11 mut',a:'middle',d:.2})});
+  s+=T(X(512)+14,284,'ms',{c:'f11 mut',d:.2});
+  const R=[['inference.request',0,512,'web','root'],['validation',0,20,'teal','≈ 20 ms'],['queue',20,120,'warn','≈ 120 ms'],['model.generate.simulated',140,360,'db','≈ 360 ms'],['serialization',500,10,'ok','≈ 10 ms']];
+  R.forEach(([n,a,w,k,l],i)=>{const y=70+i*40,d=.4+i*.35;s+=T(i?52:36,y+17,n,{c:`m f12${i?'':' b'}`,d})+bar(X(a),y,w*1.05,24,k,d);s+=T(X(a+w)+8,y+17,l,{c:'f12 b',d:d+.3});if(i)s+=`<path d="M40 ${y-14}V${y+12}H48" class="fade" style="fill:none;stroke:var(--ink-2);stroke-width:1.5;--d:${d}s"/>`});
+  s+=pnl(16,326,376,158,'Don’t add the root to its children',{k:'bad',d:2.4});
+  s+=T(36,378,'512 + 20 + 120 + 360 + 10',{c:'m f15 b',d:2.6})+icon('no',318,372,{d:2.8,r:12});
+  s+=lines(36,414,['The root already contains its children.','Adding them double-counts the time,','and siblings may even overlap.'],{lh:20,d:3.0,step:.15,c:['f13 b','f13','f13']});
+  s+=pnl(408,326,376,158,'This “model” was a sleep',{k:'warn',d:3.4});
+  s+=lines(428,378,['model.generate.simulated was a Python','sleep: no GPU inference ran. The real','vLLM lab comes later.'],{lh:22,d:3.6,step:.15,c:['f13','f13','f13 b']});
+  return svg(s,'One trace with five spans, illustrative, using the simulated 512 ms request: the root inference.request spans 0 to 512 ms; validation takes about 20 ms; queue about 120 ms; model.generate.simulated about 360 ms; and serialization about 10 ms. Don’t add the root to its children: 512 + 20 + 120 + 360 + 10 is wrong, because the root already contains its children, adding them double-counts the time, and siblings may even overlap. And this model was a sleep: model.generate.simulated was a Python sleep, so no GPU inference ran; the real vLLM lab comes later.');
+}
+
+function V4(){
+  let s=pnl(16,12,768,114,'The traceparent header',{k:'teal',d:.1});
+  const segs=[['00','ink-2','version'],['&lt;32-hex trace-id&gt;','teal','trace ID: shared by everyone'],['&lt;16-hex parent-span-id&gt;','db','parent: caller’s span'],['01','warn','flags']];
+  let cx=160;const lens=[2,20,24,2];
+  s+=T(36,74,'traceparent:',{c:'m f13 b',d:.2});
+  segs.forEach(([t,k,l],i)=>{const w=lens[i]*8.6+16,d=.3+i*.3;s+=G(`<rect width="${w}" height="30" rx="6" style="fill:var(--${k});fill-opacity:.2;stroke:var(--${k});stroke-width:2"/><text x="8" y="20" class="m f13 b">${t}</text>`,{x:cx,y:54,an:'pop',d})+T(i===3?cx+w:cx+w/2,104,l,{c:'f11 b',a:i===3?'end':'middle',d:d+.2});if(i<3)s+=T(cx+w+4,74,'-',{c:'m f13 b',d});cx+=w+14});
+  s+=solid(16,140,250,110,'web','ai-infra-client',' ',1.6);
+  s+=T(34,196,'Span A: client.chat_completion',{c:'f12 wht',d:1.8})+T(34,218,'trace ID = T',{c:'m f12 b wht',d:1.9})+T(34,238,'span ID = A',{c:'m f12 wht',d:2.0});
+  s+=solid(534,140,250,110,'db','ai-infra-vllm',' ',2.4);
+  s+=T(552,196,'Span B: llm_request',{c:'f12 wht',d:2.6})+T(552,218,'trace ID = T',{c:'m f12 b wht',d:2.7})+T(552,238,'span ID = B · parent = A',{c:'m f12 wht',d:2.8});
+  s+=arrow({x1:268,y1:195,x2:530,y2:195},{d:2.0,dur:.3,c:'var(--teal)'})+T(400,180,'HTTP request',{c:'f12 b',a:'middle',d:2.1});
+  s+=G(`<rect width="120" height="26" rx="13" style="fill:var(--teal)"/><text x="60" y="18" text-anchor="middle" class="m f11 b wht">00-T-A-01</text>`,{x:280,y:206,an:'travel',d:2.3,dur:2.2,tx:120,ty:0,n:'infinite'});
+  s+=T(400,276,'Same tracking number, new label for each leg.',{c:'f13 b',a:'middle',d:3.0});
+  s+=term(16,296,470,188,[['with tracer.start_as_current_span(','b',3.2],['        "client.chat_completion", kind=SpanKind.CLIENT):','b',3.3],['    headers = {"Content-Type": "application/json"}','',3.4],['    TraceContextTextMapPropagator().inject(headers)','okc b',3.6],['    # send these headers with the real request','mut',3.7]],{fs:11,lh:26,top:34,d:3.1});
+  s+=pnl(500,296,284,188,'Forget to inject?',{k:'bad',d:4.0});
+  s+=bar(520,346,120,20,'web',4.2)+T(520,384,'trace 1 (client only)',{c:'f11',d:4.3});
+  s+=bar(620,404,120,20,'db',4.4)+T(620,442,'trace 2 (vLLM only)',{c:'f11',d:4.5});
+  s+=T(520,470,'two disconnected root traces',{c:'f13 b badc',d:4.7});
+  return svg(s,'How context crosses a process boundary. The traceparent header has four parts: a version, 00; a 32-hex trace ID shared by everyone; a 16-hex parent span ID, the caller’s span; and flags, 01, for sampling. ai-infra-client starts span A, client.chat_completion, with trace ID T and span ID A, and sends an HTTP request carrying traceparent 00-T-A-01 to ai-infra-vllm, which starts span B, llm_request, with the same trace ID T, its own span ID B, and parent A. Same tracking number, new label for each leg. The client code starts client.chat_completion as a CLIENT span, builds headers, and calls TraceContextTextMapPropagator().inject(headers) before sending them with the real request. Forget to inject, and you get two disconnected root traces, one client-only and one vLLM-only.');
+}
+
+function V5(){
+  let s='';
+  s+=solid(16,24,200,80,'teal','Application','SDK + exporter',.2);
+  s+=solid(300,24,200,80,'web','OTel Collector','receive · process · export',.6);
+  s+=solid(584,24,200,80,'warn','Jaeger','store · search · UI',1.0);
+  s+=arrow({x1:218,y1:64,x2:296,y2:64},{d:.4,dur:.15,c:'var(--teal)'})+T(257,56,'OTLP',{c:'m f12 b',a:'middle',d:.5});
+  s+=arrow({x1:502,y1:64,x2:580,y2:64},{d:.8,dur:.15,c:'var(--web)'})+T(541,56,'OTLP',{c:'m f12 b',a:'middle',d:.9});
+  for(let i=0;i<2;i++)s+=loopPk(220,80,294,80,{d:1.4+i*.6,dur:.9,c:'var(--teal)',r:5})+loopPk(504,80,578,80,{d:1.7+i*.6,dur:.9,c:'var(--web)',r:5});
+  s+=chip(160,116,130,'gRPC often 4317','web',{d:1.2,h:26,mono:true})+chip(300,116,130,'HTTP often 4318','web',{d:1.3,h:26,mono:true});
+  const C=[[16,'SDK, inside the app','teal',[['tracer','creates spans'],['provider','tracers, resource, sampling'],['processor','handles finished spans'],['exporter','sends them out']]],[276,'Collector','web',[['receivers','accept telemetry'],['processors','batch, modify, filter'],['exporters','forward it onward'],['not a database','doesn’t keep history']]],[536,'Jaeger','warn',[['backend','stores traces'],['search','by service, time, ID'],['UI','waterfalls at :16686'],['in this lab','in-memory storage']]]];
+  C.forEach(([x,t,k,L],j)=>{const d=1.6+j*.4;s+=pnl(x,160,248,206,t,{k,d});L.forEach(([a,b],i)=>{const y=210+i*38;s+=T(x+18,y,a,{c:'m f12 b',d:d+.1+i*.1})+T(x+18,y+17,b,{c:'f12',d:d+.1+i*.1})})});
+  s+=pnl(16,380,768,104,'Verified in the lab',{k:'ok',d:3.0});
+  [['Collector: gRPC 4317, HTTP 4318,','“Everything is ready”'],['Jaeger UI at localhost:16686','returned HTTP 200'],['15 synthetic spans, then','2 real exports × 1 span each']].forEach(([a,b],i)=>{const x=36+i*250,d=3.2+i*.2;s+=icon('yes',x+8,421,{d,r:9})+T(x+24,426,a,{c:'f12',d}).replace('class="f12','class="f12')+T(x+24,446,b,{c:'f12 b',d})});
+  return svg(s,'The tracing pipeline, with roles kept distinct. The application’s SDK and exporter send spans over OTLP to the OpenTelemetry Collector, which receives, processes and exports them over OTLP to Jaeger, which stores, searches and shows them. OTLP over gRPC often uses port 4317 and over HTTP 4318. Inside the app, a tracer creates spans; a provider configures tracers, resource and sampling; a processor handles finished spans; an exporter sends them out. The Collector’s receivers accept telemetry, processors batch, modify and filter it, and exporters forward it onward; it is not a database and doesn’t keep history. Jaeger is the backend that stores traces, lets you search by service, time or ID, and draws waterfalls in its UI at port 16686; in this lab it used in-memory storage. Verified in the lab: Collector logs showed gRPC on 4317, HTTP on 4318 and Everything is ready; the Jaeger UI at localhost:16686 returned HTTP 200; and debug logs showed 15 synthetic spans, then 2 real exports of 1 span each.');
+}
+
+function V6(){
+  let s=term(16,12,420,472,[['receivers:','b',.2],['  otlp:','',.25],['    protocols:','',.3],['      grpc: {endpoint: 0.0.0.0:4317}','',.35],['      http: {endpoint: 0.0.0.0:4318}','',.4],['processors:','b',.5],['  batch: {}','',.55],['exporters:','b',.6],['  debug: {verbosity: basic}','',.65],['  otlp_http/jaeger:','',.7],['    endpoint: http://jaeger:4318','',.75],['service:','okc b',1.4],['  pipelines:','okc b',1.5],['    traces:','okc b',1.6],['      receivers: [otlp]','okc b',1.7],['      processors: [batch]','okc b',1.8],['      exporters: [debug, otlp_http/jaeger]','okc b',1.9]],{fs:12,lh:25,top:34,d:.1});
+  s+=pnl(450,12,334,300,'Parts do nothing until wired in',{k:'ok',d:2.2});
+  [['receivers','teal'],['processors','web'],['exporters','warn']].forEach(([t,k],i)=>{const x=470+i*104,d=2.4+i*.2;s+=G(`<rect width="90" height="62" rx="10" style="fill:var(--${k})"/><text x="45" y="36" text-anchor="middle" class="f12 b wht">${t}</text>`,{x,y:70,an:'pop',d});if(i<2)s+=`<path d="M${x+90} 101H${x+104}" class="fade" style="stroke:var(--ok);stroke-width:5;--d:3.2s"/>`});
+  s+=`<path d="M470 146H764" pathLength="1" class="aline draw" style="stroke:var(--ok);stroke-width:5;--d:3.0s"/>`+T(617,170,'service.pipelines.traces = the wiring',{c:'m f11 b okc',a:'middle',d:3.2});
+  s+=G(`<rect width="90" height="50" rx="10" style="fill:none;stroke:var(--ink-2);stroke-width:2.5;stroke-dasharray:6 4"/><text x="45" y="30" text-anchor="middle" class="f12 b mut">unwired</text>`,{x:470,y:196,an:'pop',d:3.4});
+  s+=lines(574,214,['defined but not listed','in a pipeline: inactive'],{lh:18,d:3.5,c:['f12 b','f12']});
+  s+=T(470,290,'Like appliances on a power strip.',{c:'f13 b',d:3.8});
+  s+=pnl(450,326,334,158,'Dev-only Jaeger',{k:'warn',d:4.0});
+  s+=lines(470,374,['Storage here is in memory, so','restarting Jaeger can erase the','trace history.'],{lh:22,d:4.2,step:.15,c:['f13','f13','f13 b']});
+  return svg(s,'A minimal Collector configuration: receivers define otlp with gRPC on 0.0.0.0:4317 and HTTP on 0.0.0.0:4318; processors define batch; exporters define debug at basic verbosity and otlp_http/jaeger with endpoint http://jaeger:4318; and the service section’s pipelines.traces lists receivers [otlp], processors [batch] and exporters [debug, otlp_http/jaeger]. Parts do nothing until wired in: receivers, processors and exporters are connected by service.pipelines.traces, the wiring; anything defined but not listed in a pipeline is inactive, like appliances on a power strip. Dev-only Jaeger: storage here is in memory, so restarting Jaeger can erase the trace history.');
+}
+
+function V7(){
+  let s=term(16,12,768,96,[['$ docker compose up -d','b',.2],['$ python -m pip install -r requirements-lab.txt','b',.35],['$ python trace_demo.py','b okc',.5]],{fs:12,lh:24,top:30,d:.1});
+  s+=pnl(16,122,376,226,'3 traces × 5 spans = 15 spans',{k:'teal',d:.8});
+  for(let t=0;t<3;t++){const x=40+t*118,d=1.0+t*.35;s+=`<circle cx="${x+40}" cy="176" r="12" class="pop" style="fill:var(--web);--d:${d}s"/>`;for(let c=0;c<4;c++){const cx=x+4+c*24;s+=`<path d="M${x+40} 188L${cx} 240" class="fade" style="stroke:var(--ink-2);stroke-width:2;--d:${d+.1}s"/><circle cx="${cx}" cy="248" r="9" class="pop" style="fill:var(--teal);--d:${(d+.15+c*.06).toFixed(2)}s"/>`}}
+  s+=lines(36,294,['each: 1 root + 4 children','(validation, queue, simulated generation, serialization)'],{lh:20,d:2.2,c:['f13 b','f11']});
+  s+=T(36,334,'Jaeger: 3 traces, 5 spans each',{c:'f12 b tealc',d:2.4});
+  s+=pnl(408,122,376,226,'Root durations (synthetic)',{k:'web',d:1.2});
+  [['Request 1',201],['Request 2',512],['Request 3',301]].forEach(([a,v],i)=>{const y=176+i*52,d=1.5+i*.3;s+=T(428,y+17,a,{c:'f13 b',d})+bar(520,y,v*.38,24,'web',d)+T(528+v*.38,y+17,`${v} ms`,{c:'m f13 b',d:d+.4})});
+  s+=pnl(16,362,376,122,'Proved',{k:'ok',d:2.8});
+  s+=icon('yes',44,410,{d:3.0,r:10})+lines(62,415,['spans travel SDK → Collector → Jaeger','for synthetic Python code'],{lh:20,d:3.0,c:['f13 b','f13']});
+  s+=pnl(408,362,376,122,'Not proved',{k:'bad',d:3.3});
+  ['that vLLM is instrumented','that a GPU was used','that model timing is correct'].forEach((t,i)=>{const y=412+i*24,d=3.5+i*.15;s+=icon('no',436,y-5,{d,r:9})+T(454,y,t,{c:'f13',d})});
+  return svg(s,'Lab A: synthetic traces before GPU complexity. Commands: docker compose up -d; python -m pip install -r requirements-lab.txt; python trace_demo.py. The program made 3 traces of 5 spans each, 15 spans in all: each a root plus 4 children for validation, queue, simulated generation and serialization; Jaeger showed 3 traces with 5 spans each. Synthetic root durations were 201, 512 and 301 ms. Proved: spans travel from SDK to Collector to Jaeger for synthetic Python code. Not proved: that vLLM is instrumented, that a GPU was used, or that model timing is correct.');
+}
+
+function V8(){
+  let s=pnl(16,12,376,280,'Two kitchens, two pantries',{k:'warn',d:.1});
+  s+=G(`<rect width="150" height="120" rx="12" style="fill:var(--ink-2);fill-opacity:.12;stroke:var(--ink-2);stroke-width:2.5"/><text x="14" y="28" class="f13 b">host Python</text><text x="14" y="62" class="m f13 b">vLLM 0.33.0</text><text x="14" y="92" class="f11 mut">the workstation’s venv</text>`,{x:36,y:56,an:'pop',d:.3});
+  s+=G(`<rect width="168" height="120" rx="12" style="fill:var(--db);fill-opacity:.12;stroke:var(--db);stroke-width:2.5"/><text x="14" y="28" class="f13 b">container Python</text><text x="14" y="62" class="m f13 b">vLLM 0.11.0</text><text x="14" y="92" class="f11 mut">the running server</text>`,{x:206,y:56,an:'pop',d:.6});
+  s+=code(36,190,336,'import opentelemetry  → ModuleNotFoundError',1.0,{h:30,fs:'f11'})+icon('no',360,205,{d:1.3,r:10});
+  s+=lines(36,252,['Not a contradiction: the host and the','container have isolated Python environments.'],{lh:18,d:1.5,c:['f12','f12 b']});
+  s+=pnl(408,12,376,280,'Settings to keep exactly',{k:'db',d:1.8});
+  [['image','vllm/vllm-openai:v0.11.0'],['model','Qwen/Qwen2.5-0.5B-Instruct'],['GPU','one NVIDIA GPU'],['flags','FP16 · --max-model-len 2048'],['','--gpu-memory-utilization 0.65'],['model cache','Hugging Face host cache, mounted'],['networks','day66-loki_default'],['','+ day67-distributed-tracing_default']].forEach(([a,b],i)=>{const y=62+i*27,d=2.0+i*.1;s+=T(428,y,a,{c:'f12 b mut',d})+T(530,y,b,{c:'m f11 b',d})});
+  s+=ink(16,306,768,178,['Change one thing: add tracing libraries to the same image.','Keep the model, GPU request, flags, cache and networks exactly as they were,','so any difference you see later can’t come from a silent config change.'],2.8,{fs:'f15',lh:30,top:52});
+  return svg(s,'Lab B: the compatibility puzzle, like two kitchens with two pantries. The workstation’s host Python reported vLLM 0.33.0, while the running server’s container Python reported vLLM 0.11.0, and importing opentelemetry inside the container raised ModuleNotFoundError. Not a contradiction: the host and the container have isolated Python environments. Settings to keep exactly: image vllm/vllm-openai:v0.11.0; model Qwen/Qwen2.5-0.5B-Instruct; one NVIDIA GPU; flags FP16, --max-model-len 2048 and --gpu-memory-utilization 0.65; the Hugging Face host cache mounted; and networks day66-loki_default plus day67-distributed-tracing_default. Change one thing, adding tracing libraries to the same image, and keep everything else as it was, so any difference seen later can’t come from a silent config change.');
+}
+
+function V9(){
+  let s=term(16,12,500,176,[['FROM vllm/vllm-openai:v0.11.0','b',.2],['RUN python3 -m pip install --no-cache-dir \\','b',.35],['  "opentelemetry-sdk&gt;=1.26.0,&lt;1.27.0" \\','',.45],['  "opentelemetry-api&gt;=1.26.0,&lt;1.27.0" \\','',.5],['  "opentelemetry-exporter-otlp&gt;=1.26.0,&lt;1.27.0" \\','',.55],['  "opentelemetry-semantic-conventions-ai&gt;=0.4.1,&lt;0.5.0"','',.6]],{fs:11,lh:24,top:32,d:.1});
+  s+=pnl(530,12,254,176,'Test before swapping',{k:'ok',d:.9});
+  s+=T(550,62,'day67-vllm-otel:v0.11.0',{c:'m f11 b',d:1.0});
+  s+=icon('yes',558,95,{d:1.3,r:10})+lines(576,90,['OpenTelemetry','dependencies: OK'],{lh:16,d:1.3,c:['m f11 b','m f11 b']});
+  s+=icon('yes',558,141,{d:1.6,r:10})+lines(576,136,['vLLM tracing','available: True'],{lh:16,d:1.6,c:['m f11 b','m f11 b']});
+  s+=pnl(16,202,768,180,'Recreate the one service, don’t duplicate it',{k:'web',d:2.0});
+  [['1','check the merged config','… config --quiet'],['2','review GPU, volumes, ports','before touching anything'],['3','recreate only vLLM','… up -d --no-deps vllm']].forEach(([n,a,b],i)=>{const x=36+i*250,d=2.2+i*.35;s+=G(`<circle cx="14" cy="14" r="14" style="fill:var(--web)"/><text x="14" y="19" text-anchor="middle" class="f13 b wht">${n}</text><text x="36" y="19" class="f13 b">${a}</text><text x="0" y="48" class="m f11">${b}</text>`,{x,y:244,an:'up',d})});
+  s+=code(36,320,728,'+ --otlp-traces-endpoint grpc://otel-collector:4317   (added to the original command)',3.3,{h:34,fs:'f12'});
+  s+=pnl(16,396,768,88,'',{k:'warn',d:3.6});
+  s+=lines(36,428,['One GPU, one model server. Early curl calls got connection resets while the model loaded;','later /v1/models listed Qwen. Resets during startup aren’t proof of a lasting fault.'],{lh:22,d:3.8,step:.2,c:['f13','f13']});
+  return svg(s,'A reproducible image, not a manual hot-fix. The Dockerfile starts FROM vllm/vllm-openai:v0.11.0 and pip-installs pinned packages: opentelemetry-sdk, opentelemetry-api and opentelemetry-exporter-otlp at 1.26 or later but below 1.27, and opentelemetry-semantic-conventions-ai at 0.4.1 or later but below 0.5.0. Test before swapping: the built day67-vllm-otel:v0.11.0 image printed OpenTelemetry dependencies: OK and vLLM tracing available: True. Then recreate the one service rather than duplicating it: 1, check the merged config with the compose.day67-otel.yaml override and config --quiet; 2, review GPU, volumes and ports by eye; 3, recreate only vLLM with up -d --no-deps vllm, adding --otlp-traces-endpoint grpc://otel-collector:4317 to the original command. One GPU, one model server: early curl calls got connection resets while the model loaded, and later /v1/models listed Qwen, so resets during startup aren’t proof of a lasting fault.');
+}
+
+function V10(){
+  let s=G(`<rect width="430" height="250" rx="18" style="fill:var(--teal);fill-opacity:.06;stroke:var(--teal);stroke-width:2.5;stroke-dasharray:8 6"/><text x="18" y="28" class="m f12 b tealc">day66-loki_default</text>`,{x:16,y:12,an:'fade',d:.1});
+  s+=G(`<rect width="484" height="240" rx="18" style="fill:var(--web);fill-opacity:.06;stroke:var(--web);stroke-width:2.5;stroke-dasharray:8 6"/><text x="466" y="226" text-anchor="end" class="m f12 b" style="fill:var(--web)">day67-distributed-tracing_default</text>`,{x:300,y:140,an:'fade',d:.4});
+  s+=tint(36,56,230,68,'teal',.3,`<text x="16" y="28" class="f13 b">Existing logging + metrics</text><text x="16" y="50" class="f12">Loki, Alloy, Grafana…</text>`,{op:.12});
+  s+=solid(316,166,124,76,'db','vLLM','GPU inference',.7);
+  s+=T(378,282,'in both networks',{c:'f12 b',a:'middle',d:1.0});
+  s+=solid(504,166,140,60,'web','otel-collector',':4317 gRPC',1.2,{fs:'f13'});
+  s+=solid(664,166,108,60,'warn','Jaeger',':16686 UI',1.4,{fs:'f13'});
+  s+=arrow({x1:442,y1:196,x2:500,y2:196},{d:1.6,dur:.15,c:'var(--db)'})+arrow({x1:646,y1:196,x2:660,y2:196},{d:1.8,dur:.1,c:'var(--web)'});
+  s+=T(574,250,'OTLP/HTTP → Jaeger',{c:'f11 mut',a:'middle',d:1.9});
+  for(let i=0;i<2;i++)s+=loopPk(444,210,498,210,{d:2.2+i*.6,dur:.8,c:'var(--db)',r:4});
+  s+=solid(16,300,220,64,'client','host client','127.0.0.1:8000',2.0,{fs:'f13'});
+  s+=arrow({x1:238,y1:330,x2:340,y2:246},{d:2.2,dur:.2,c:'var(--client)'});
+  s+=pnl(16,394,768,90,'Inside a container, localhost means that container',{k:'bad',d:2.6});
+  s+=icon('no',44,445,{d:2.8,r:10})+T(62,450,'export to 127.0.0.1:4317 from vLLM → it calls itself',{c:'m f12 b',d:2.8});
+  s+=icon('yes',44,471,{d:3.1,r:10})+T(62,476,'export to otel-collector:4317 → resolves on the shared network',{c:'m f12 b',d:3.1});
+  return svg(s,'The cross-network topology. The Day 66 network, day66-loki_default, holds the existing logging and metrics: Loki, Alloy, Grafana. The Day 67 tracing network, day67-distributed-tracing_default, holds otel-collector on gRPC port 4317 and Jaeger with its UI on port 16686, which receives OTLP over HTTP from the Collector. The vLLM container doing GPU inference sits in both networks and exports spans to otel-collector. The host client calls vLLM at 127.0.0.1:8000. Inside a container, localhost means that container: exporting to 127.0.0.1:4317 from vLLM calls itself, while exporting to otel-collector:4317 resolves on the shared network.');
+}
+
+function V11(){
+  let s=G(`<rect width="768" height="250" rx="16" style="fill:#151A24"/><text x="18" y="30" class="m f12 b" style="fill:#E7EAF3">Trace e97b70d80509c21b75e6c61ae38acad4</text>`,{x:16,y:12,an:'fade',d:.1});
+  [['Services','2'],['Total spans','2'],['Depth','2'],['GenAI calls','1']].forEach(([a,b],i)=>{s+=G(`<rect width="170" height="44" rx="8" style="fill:#232A38"/><text x="12" y="27" class="f12" style="fill:#C9D0DE">${a}</text><text x="158" y="29" text-anchor="end" class="m f17 b" style="fill:#7FE3A0">${b}</text>`,{x:34+i*186,y:56,an:'pop',d:.4+i*.2})});
+  s+=G(`<rect width="10" height="44" rx="3" style="fill:var(--web)"/><text x="22" y="18" class="f11" style="fill:#8A93A8">ai-infra-client</text><text x="22" y="36" class="m f13 b" style="fill:#E7EAF3">client.chat_completion</text><text x="700" y="28" text-anchor="end" class="f11" style="fill:#8A93A8">parent</text>`,{x:34,y:126,an:'slide',d:1.4,dx:-20});
+  s+=`<path d="M52 176V200H74" class="fade" style="fill:none;stroke:#8A93A8;stroke-width:2;--d:1.8s"/>`;
+  s+=G(`<rect width="10" height="44" rx="3" style="fill:var(--db)"/><text x="22" y="18" class="f11" style="fill:#8A93A8">ai-infra-vllm</text><text x="22" y="36" class="m f13 b" style="fill:#E7EAF3">llm_request</text><text x="646" y="28" text-anchor="end" class="f11" style="fill:#8A93A8">child</text>`,{x:88,y:180,an:'slide',d:1.9,dx:-20});
+  s+=pnl(16,276,376,208,'How each span reached Jaeger',{k:'web',d:2.4});
+  s+=chip(36,320,124,'client','web',{d:2.6,h:28})+T(172,339,'OTLP/HTTP →',{c:'m f12 b',d:2.7});
+  s+=chip(36,364,124,'vLLM','db',{d:2.9,h:28})+T(172,383,'OTLP/gRPC →',{c:'m f12 b',d:3.0});
+  s+=solid(272,316,104,80,'web','Collector','',3.2,{fs:'f13'})+T(36,432,'then Collector → Jaeger, joined by',{c:'f13',d:3.4})+T(36,454,'the shared trace ID',{c:'f13 b',d:3.4});
+  s+=pnl(408,276,376,208,'What “depth 2” means',{k:'warn',d:3.6});
+  s+=icon('yes',436,324,{d:3.8,r:10})+lines(454,329,['context really crossed','the process boundary'],{lh:18,d:3.8,c:['f13 b','f13']});
+  s+=icon('no',436,388,{d:4.2,r:10})+lines(454,393,['vLLM did only two things:','work without its own span is','simply invisible here'],{lh:18,d:4.2,c:['f13 b','f13','f13']});
+  return svg(s,'Lab C: a real two-service model trace, as Jaeger showed it. Trace e97b70d80509c21b75e6c61ae38acad4 had 2 services, 2 total spans, depth 2 and 1 GenAI call. The parent was ai-infra-client: client.chat_completion; the child was ai-infra-vllm: llm_request. How each span reached Jaeger: the client exported over OTLP/HTTP and vLLM over OTLP/gRPC to the Collector, then the Collector sent them to Jaeger, joined by the shared trace ID. What depth 2 means: context really crossed the process boundary; it doesn’t mean vLLM did only two things, since work without its own span is simply invisible here.');
+}
+
+// ---------- Day 67 visuals 12-23 ----------
+function V12(){
+  const X=ms=>170+ms*.43;
+  let s=pnl(16,12,768,250,'Read the waterfall honestly (observed)',{k:'web',d:.1});
+  [0,335,671,1000,1300].forEach(v=>{s+=`<path d="M${X(v).toFixed(1)} 56V198" class="fade" style="stroke:var(--line);stroke-width:1;--d:.2s"/>`+T(X(v),218,v.toLocaleString(),{c:'m f11 mut',a:'middle',d:.2})});
+  s+=T(X(1342)+8,218,'ms',{c:'f11 mut',d:.2});
+  s+=T(36,92,'client span',{c:'f13 b',d:.4})+bar(X(0),74,1342*.43,28,'web',.4)+T(X(1342)-8,93,'1,342 ms at the client',{c:'m f12 b wht',a:'end',d:1.2});
+  s+=T(36,160,'vLLM span',{c:'f13 b',d:.8});
+  s+=`<rect x="${X(0)}" y="142" width="${(1160*.43).toFixed(1)}" height="28" rx="5" class="fade" style="fill:var(--bad);fill-opacity:.08;stroke:var(--bad);stroke-width:2;stroke-dasharray:6 5;--d:1.6s"/>`;
+  [0,1,2,3,4].forEach(i=>{s+=T(X(120+i*220),162,'?',{c:'f15 b badc',a:'middle',d:1.8+i*.12})});
+  s+=bar(X(1160),142,183*.43,28,'db',1.4)+T(X(1160)-6,192,'starts ≈ 1.16 s in · lasts 183 ms',{c:'f12 b',a:'end',d:2.0});
+  s+=T(36,248,'≈ 1.16 s inside the client span has no instrumented explanation.',{c:'f13 b badc',d:2.4});
+  s+=pnl(16,276,500,208,'What might fill the gap? (hypotheses, none tested)',{k:'warn',d:2.8});
+  s+=chipsRow(36,316,['network latency','model warm-up','Collector overhead','client-side work'],{maxX:500,d:3.0,k:'warn'});
+  s+=lines(36,404,['Each stays a guess until new spans, logs or a','controlled experiment support it. Next time: add','HTTP transport and preprocessing spans.'],{lh:22,d:3.6,step:.15,c:['f13','f13','f13 b']});
+  s+=pnl(530,276,254,208,'Parcel analogy',{d:4.0});
+  s+=lines(550,336,['You only scanned the','parcel at the last depot.','You know when it got','there, not where it sat','beforehand.'],{lh:22,d:4.2,step:.12,c:['f13','f13','f13','f13','f13 b']});
+  return svg(s,'Reading the waterfall honestly, from the observed trace. The client span lasted 1,342 ms at the client. The vLLM span started about 1.16 s in and lasted 183 ms. About 1.16 s inside the client span has no instrumented explanation. What might fill the gap? Hypotheses, none tested: network latency, model warm-up, Collector overhead, or client-side work. Each stays a guess until new spans, logs or a controlled experiment support it; next time, add HTTP transport and preprocessing spans. Parcel analogy: you only scanned the parcel at the last depot, so you know when it got there, not where it sat beforehand.');
+}
+
+function V13(){
+  let s=pnl(16,12,420,300,'Attributes on the vLLM span (observed)',{k:'db',d:.1});
+  [['engine end-to-end','182.773 ms','ink'],['model inference','181.503 ms','db'],['  prefill','57.718 ms','teal'],['  decode','123.785 ms','web'],['queue waiting','0.068 ms','ok'],['time to first token','59.366 ms','warn'],['prompt / generated tokens','37 / 32','ink']].forEach(([a,b,k],i)=>{const y=72+i*33,d=.3+i*.2;s+=T(a.startsWith(' ')?56:36,y,a.trim(),{c:`f13${a.startsWith(' ')?'':' b'}`,d})+TC(416,y,b,k,{c:'m f14 b',a:'end',d})});
+  s+=pnl(450,12,334,300,'Inside 181.503 ms of inference',{k:'web',d:1.8});
+  const W=294/181.503;
+  s+=bar(470,70,57.718*W,48,'teal',2.0,{rx:6})+bar(470+57.718*W,70,123.785*W,48,'web',2.4,{rx:6});
+  s+=T(476,100,'prefill',{c:'f12 b wht',d:2.6})+T(470+57.718*W+8,100,'decode',{c:'f12 b wht',d:2.8});
+  s+=T(470,146,'57.7 ms · 31.8%',{c:'m f13 b tealc',d:2.8})+TC(764,146,'123.8 ms · 68.2%','web',{c:'m f13 b',a:'end',d:3.0});
+  s+=T(470,196,'57.718 + 123.785',{c:'m f15 b',d:3.3})+T(470,224,'≈ 181.503 ms',{c:'m f15 b',d:3.5})+icon('yes',700,214,{d:3.7,r:12});
+  s+=T(470,270,'In this run the two phases',{c:'f12',d:3.9})+T(470,288,'account for the model time.',{c:'f12 b',d:3.9});
+  s+=pnl(16,326,768,158,'Time to first token is a different ruler, not a third phase',{k:'warn',d:4.1});
+  const X=ms=>60+ms*3.7;
+  s+=bar(X(0),380,57.786*3.7,26,'teal',4.3,{op:.8})+bar(X(57.786),380,123.785*3.7,26,'web',4.6,{op:.8});
+  s+=`<path d="M${X(59.366).toFixed(1)} 366V420" class="fade" style="stroke:var(--warn);stroke-width:4;--d:5.0s"/>`+TC(X(59.366)+8,372,'TTFT 59.366 ms','warn',{c:'m f12 b',d:5.0});
+  s+=T(60,444,'0',{c:'m f11 mut',d:4.3})+T(X(181.571),444,'≈ 181.6 ms',{c:'m f11 mut',a:'end',d:4.3});
+  s+=T(60,470,'Adding 59.366 on top of prefill + decode would double-count. (Bar positions are approximate.)',{c:'f12',d:5.2});
+  return svg(s,'vLLM measurements from the GenAI span, observed: engine end-to-end 182.773 ms; model inference 181.503 ms, made of prefill 57.718 ms and decode 123.785 ms; queue waiting 0.068 ms; time to first token 59.366 ms; and 37 prompt tokens and 32 generated tokens. Inside the 181.503 ms of inference, prefill took 57.7 ms, 31.8%, and decode 123.8 ms, 68.2%; 57.718 + 123.785 ≈ 181.503 ms, so in this run the two phases account for the model time. Time to first token is a different ruler, not a third phase: it lands just after prefill ends, and adding 59.366 on top of prefill plus decode would double-count. Bar positions are approximate.');
+}
+
+function V14(){
+  const C=[['Queue','waiting for a table','The request waits for scheduling or free capacity.','0.068 ms here: basically no wait','ok'],['Prefill','reading the whole order','The prompt is processed and key/value state is built.','57.7 ms for 37 prompt tokens','teal'],['Decode','plating dishes one by one','Output tokens are generated one after another.','123.8 ms for 32 tokens','web']];
+  let s='';
+  C.forEach(([a,b,c,e,k],i)=>{const x=16+i*259,d=.2+i*.5;s+=G(`<rect width="246" height="252" rx="16" style="fill:var(--${k});fill-opacity:.08;stroke:var(--${k});stroke-width:2.5"/><rect width="246" height="62" rx="16" style="fill:var(--${k})"/><text x="18" y="30" class="f17 b wht">${a}</text><text x="18" y="50" class="f12 wht">${b}</text>`,{x,y:12,an:'pop',d});s+=lines(x+18,108,c.match(/.{1,30}(\s|$)/g).map(t=>t.trim()),{lh:20,d:d+.3,c:'f13'})+T(x+18,236,e,{c:'f12 b',d:d+.5})});
+  s+=pnl(16,278,768,82,'Which phase dominates depends on',{d:1.8});
+  s+=chipsRow(36,316,['prompt length','output length','batching','cache state','model size','accelerator','concurrency'],{maxX:770,d:2.0,k:'db'});
+  s+=ink(16,374,768,110,['A busy GPU neither proves nor rules out a request’s bottleneck.','Here the queue wait was near zero, and the client-vs-engine gap is still unexplained.','Don’t call it “GPU slowness” without new evidence.'],2.8,{fs:'f15',lh:24,top:36});
+  return svg(s,'Why queue, prefill and decode are distinct, like a restaurant. Queue is waiting for a table: the request waits for scheduling or free capacity; 0.068 ms here, basically no wait. Prefill is reading the whole order: the prompt is processed and key/value state is built; 57.7 ms for 37 prompt tokens. Decode is plating dishes one by one: output tokens are generated one after another; 123.8 ms for 32 tokens. Which phase dominates depends on prompt length, output length, batching, cache state, model size, accelerator and concurrency. A busy GPU neither proves nor rules out a request’s bottleneck. Here the queue wait was near zero, and the client-versus-engine gap is still unexplained; don’t call it GPU slowness without new evidence.');
+}
+
+function V15(){
+  const V=[183,165,162,166,175],Y=v=>262-v*.95;
+  let s=pnl(16,12,768,290,'Five repeated calls, same prompt and model (observed, all HTTP 200)',{d:.1});
+  [0,50,100,150,200].forEach(v=>{s+=`<path d="M90 ${Y(v)}H520" class="fade" style="stroke:var(--line);stroke-width:1;--d:.2s"/>`+T(82,Y(v)+4,String(v),{c:'m f11 mut',a:'end',d:.2})});
+  s+=T(56,62,'ms',{c:'f11 mut',d:.2});
+  V.forEach((v,i)=>{const x=116+i*80,d=.4+i*.25;s+=`<rect x="${x}" y="${Y(v)}" width="52" height="${(v*.95).toFixed(1)}" rx="6" class="up" style="fill:var(--db);--d:${d}s"/>`+T(x+26,Y(v)-8,String(v),{c:'m f13 b',a:'middle',d:d+.2})+T(x+26,282,`#${i+1}`,{c:'f12 mut',a:'middle',d})});
+  s+=`<path d="M100 ${Y(170.2)}H520" class="fade" style="stroke:var(--warn);stroke-width:3;stroke-dasharray:8 6;--d:2.0s"/>`;
+  s+=G(`<rect width="230" height="212" rx="14" class="codebg"/><text x="16" y="30" class="f12 b mut">the arithmetic</text><text x="16" y="62" class="m f12">183+165+162+166+175</text><text x="16" y="84" class="m f12">= 851 ms</text><text x="16" y="114" class="m f15 b" style="fill:var(--warn)">mean 170.2 ms</text><text x="16" y="146" class="m f12">sorted: 162 165 166 175 183</text><text x="16" y="174" class="m f13 b">median 166</text><text x="16" y="196" class="m f13 b">min 162 · max 183</text>`,{x:538,y:66,an:'pop',d:2.3});
+  s+=pnl(16,316,376,168,'Five calls can’t show',{k:'bad',d:2.8});
+  ['p95 or p99 latency','sustained throughput','concurrency effects','behavior under real traffic'].forEach((t,i)=>{const y=372+i*26,d=3.0+i*.15;s+=icon('no',44,y-5,{d,r:9})+T(62,y,t,{c:'f13',d})});
+  s+=pnl(408,316,376,168,'A real benchmark defines',{k:'ok',d:3.4});
+  s+=chipsRow(428,362,['workload mix','concurrency','warm-up','duration','errors','versions'],{maxX:770,d:3.6,k:'ok'});
+  s+=T(428,470,'Faster later runs fit warm-up or caching; not proven.',{c:'f11',d:4.2});
+  return svg(s,'Five repeated real calls with the same prompt and model, all HTTP 200: 183, 165, 162, 166 and 175 ms. The arithmetic: 183 + 165 + 162 + 166 + 175 = 851 ms, so the mean is 170.2 ms; sorted, 162, 165, 166, 175, 183, so the median is 166, the minimum 162 and the maximum 183. Five calls can’t show p95 or p99 latency, sustained throughput, concurrency effects, or behavior under real traffic. A real benchmark defines the workload mix, concurrency, warm-up, duration, error counting and versions. Later runs being faster fits warm-up or caching, but doesn’t prove it.');
+}
+
+function V16(){
+  let s=code(16,12,768,'$ python trace_breakfix.py --delay 0.6 | tee breakfix-slow.txt',.2,{h:32,fs:'f12'})+code(16,52,768,'$ python trace_breakfix.py --delay 0   | tee breakfix-fixed.txt',.4,{h:32,fs:'f12'});
+  s+=pnl(16,98,768,226,'Workflow latency (observed)',{k:'bad',d:.7});
+  const W=.58,x0=170;
+  [['Baseline 1','0 ms injected',257],['Fault injected','600 ms injected',907],['Baseline 2','0 ms injected',237]].forEach(([a,b,v],i)=>{const y=142+i*56,d=1.0+i*.6;s+=T(36,y+16,a,{c:'f13 b',d})+T(36,y+34,b,{c:'f11 mut',d});
+    if(i===1){s+=bar(x0,y,247*W,30,'ok',d,{op:.7})+bar(x0+247*W,y,600*W,30,'bad',d+.4)+`<rect x="${(x0+847*W).toFixed(1)}" y="${y}" width="${(60*W).toFixed(1)}" height="30" rx="5" class="grow-x" style="fill:var(--warn);fill-opacity:.35;stroke:var(--warn);stroke-width:2;stroke-dasharray:4 3;--d:${d+.8}s"/>`;s+=T(x0+247*W+300*W,y+21,'+600 ms we injected',{c:'f12 b wht',a:'middle',d:d+.8})+T(x0+907*W+8,y+21,'907 ms',{c:'m f13 b',d:d+1});}
+    else s+=bar(x0,y,v*W,30,'ok',d,{op:.7})+T(x0+v*W+8,y+21,`${v} ms`,{c:'m f13 b',d:d+.4})});
+  s+=T(x0+877*W,302,'60 ms ?',{c:'m f11 b warnc',a:'middle',d:3.2});
+  s+=pnl(16,338,376,146,'The arithmetic (from the notes)',{d:3.4});
+  s+=T(36,390,'baseline mean = (257 + 237) ÷ 2 = 247 ms',{c:'m f12 b',d:3.6})+T(36,414,'increase = 907 − 247 = 660 ms',{c:'m f12 b',d:3.8});
+  s+=lines(36,446,['600 ms explains most of it; the other','60 ms isn’t isolated by three trials.'],{lh:18,d:4.0,c:['f12','f12 b']});
+  s+=pnl(408,338,376,146,'Why do this?',{k:'ok',d:4.3});
+  s+=lines(428,384,['A known fault in a client span, with the','model untouched, separates a verified','client-side cause from GPU speculation.'],{lh:22,d:4.5,step:.12,c:['f13','f13','f13 b']});
+  return svg(s,'Lab D: a controlled break/fix experiment, run with python trace_breakfix.py --delay 0.6, saved to breakfix-slow.txt, then --delay 0, saved to breakfix-fixed.txt. Observed workflow latency: baseline 1 with 0 ms injected took 257 ms; the fault-injected run with 600 ms injected took 907 ms; baseline 2 took 237 ms. The 907 ms bar splits into the baseline mean, the 600 ms we injected, and a 60 ms remainder with no explanation. The arithmetic from the notes: baseline mean = (257 + 237) ÷ 2 = 247 ms; increase = 907 − 247 = 660 ms. 600 ms explains most of it; the other 60 ms isn’t isolated by three trials. Why do this? A known fault in a client span, with the model untouched, separates a verified client-side cause from GPU speculation.');
+}
+
+function V17(){
+  let s=pnl(16,12,470,300,'Spans you’d expect in a correct break/fix trace',{k:'web',d:.1});
+  const N=[[0,'client.inference_workflow','web'],[1,'client.preprocessing (600 ms in the fault run)','bad'],[1,'client.http_request','web'],[2,'ai-infra-vllm: llm_request','db']];
+  N.forEach(([lv,t,k],i)=>{const x=36+lv*36,y=62+i*58,d=.3+i*.35;if(lv)s+=`<path d="M${x-22} ${y-28}V${y+16}H${x-4}" class="fade" style="fill:none;stroke:var(--ink-2);stroke-width:2;--d:${d}s"/>`;s+=G(`<rect width="${t.length*7.4+24}" height="34" rx="8" style="fill:var(--${k});fill-opacity:.14;stroke:var(--${k});stroke-width:2"/><text x="12" y="22" class="m f12 b">${t}</text>`,{x,y,an:'pop',d})});
+  s+=T(36,300,'expected structure, drawn from the notes',{c:'f11 mut',d:1.8});
+  s+=pnl(500,12,284,300,'Evidence status',{k:'ok',d:1.6});
+  s+=icon('yes',528,72,{d:1.8,r:11})+lines(548,77,['slow and fixed timings:','verified in the terminal'],{lh:20,d:1.8,c:['f13 b','f13']});
+  s+=icon('warn',528,152,{d:2.2,r:11})+lines(548,157,['Jaeger waterfalls for','these runs: not captured','yet, so the span-by-span','picture still needs a check'],{lh:20,d:2.2,c:['f13 b','f13','f13','f13']});
+  s+=T(520,284,'next: open both trace IDs side by side',{c:'f11 b',d:2.8});
+  s+=ink(16,326,768,158,['We know what caused the 600 ms: we put it there.','We don’t know what caused the first real request’s ≈ 1.16 s gap.','A controlled intervention explains only itself, not unrelated slowness.'],3.2,{fs:'f17',lh:34,top:50});
+  return svg(s,'The spans you’d expect in a correct break/fix trace, drawn from the notes as an expected structure: client.inference_workflow, with children client.preprocessing, 600 ms in the fault run, and client.http_request, whose child is ai-infra-vllm: llm_request. Evidence status: the slow and fixed timings were verified in the terminal; the Jaeger waterfalls for these runs weren’t captured yet, so the span-by-span picture still needs a check; next, open both trace IDs side by side. We know what caused the 600 ms because we put it there. We don’t know what caused the first real request’s roughly 1.16 s gap. A controlled intervention explains only itself, not unrelated slowness.');
+}
+
+function V18(){
+  let s=pnl(16,12,376,300,'Head sampling: decide at the door',{k:'teal',d:.1});
+  s+=G(`<circle r="34" style="fill:var(--teal)"/><text y="7" text-anchor="middle" class="f17 b wht">keep?</text>`,{x:96,y:110,an:'pop',d:.3});
+  for(let i=0;i<6;i++){const keep=i%3===0;s+=G(`<rect x="-26" y="-11" width="52" height="22" rx="5" style="fill:var(--${keep?'teal':'line'})"/>`,{x:200+(i%3)*62,y:84+Math.floor(i/3)*52,an:'pop',d:.6+i*.12})}
+  s+=T(160,200,'decided when the trace begins',{c:'f12 b',d:1.4});
+  s+=lines(36,240,['✓ cheap, early cost control','✗ can drop the one rare failure','you’ll wish you had kept'],{lh:20,d:1.6,step:.15,c:['f13','f13','f13']});
+  s+=pnl(408,12,376,300,'Tail sampling: decide after watching',{k:'db',d:2.0});
+  for(let i=0;i<6;i++){const err=i===2||i===4;s+=G(`<rect x="-26" y="-11" width="52" height="22" rx="5" style="fill:var(--${err?'bad':'line'})"/>`,{x:470+(i%3)*62,y:84+Math.floor(i/3)*52,an:'pop',d:2.2+i*.1})}
+  s+=G(`<circle r="34" style="fill:var(--db)"/><text y="7" text-anchor="middle" class="f15 b wht">review</text>`,{x:712,y:110,an:'pop',d:2.9});
+  s+=T(560,200,'keeps errors and slow outliers',{c:'f12 b',a:'middle',d:3.1});
+  s+=lines(428,240,['✓ better selective retention','✗ needs buffering, delayed','decisions and more compute'],{lh:20,d:3.3,step:.15,c:['f13','f13','f13']});
+  s+=pnl(16,326,768,158,'Scaling tail sampling: route each trace to one Collector',{k:'warn',d:3.7});
+  ['A','B','A','B','A'].forEach((t,i)=>{s+=G(`<rect width="40" height="24" rx="5" style="fill:var(--${t==='A'?'teal':'warn'})"/><text x="20" y="17" text-anchor="middle" class="m f11 b wht">${t}</text>`,{x:40+i*48,y:388,an:'pop',d:3.9+i*.1})});
+  s+=arrow({x1:286,y1:400,x2:330,y2:400},{d:4.4,dur:.15,c:'var(--ink-2)'});
+  s+=solid(336,370,170,60,'ink-2','route by trace ID','',4.5,{fs:'f13'});
+  s+=arrow({x1:508,y1:388,x2:560,y2:372},{d:4.8,dur:.15,c:'var(--teal)'})+arrow({x1:508,y1:412,x2:560,y2:430},{d:4.9,dur:.15,c:'var(--warn)'});
+  s+=tint(564,352,200,40,'teal',5.0,`<text x="12" y="26" class="f12 b">Collector 1: all of trace A</text>`,{op:.15})+tint(564,410,200,40,'warn',5.1,`<text x="12" y="26" class="f12 b">Collector 2: all of trace B</text>`,{op:.15});
+  s+=T(36,468,'Split one trace across Collectors and its keep/drop decision is made on half the story.',{c:'f12',d:5.3});
+  return svg(s,'Sampling at production scale. Head sampling decides at the door, when the trace begins: cheap, early cost control, but it can drop the one rare failure you’ll wish you had kept. Tail sampling decides after watching more of the trace: it keeps errors and slow outliers for better selective retention, but needs buffering, delayed decisions and more compute. Scaling tail sampling means routing each trace to one Collector: spans from traces A and B are routed by trace ID so Collector 1 gets all of trace A and Collector 2 all of trace B. Split one trace across Collectors and its keep or drop decision is made on half the story.');
+}
+
+function V19(){
+  const C=[['vol','If Jaeger goes down…','…serving must keep going.',['asynchronous, filtered export','bounded Collector queues','retries and resource limits','monitor telemetry loss'],'Lowers the risk; doesn’t guarantee every span survives.'],['bad','Privacy and security','LLM requests carry secrets.',['no raw prompts or outputs','no credentials or user IDs','keep bounded metadata','secure Collector access'],'This lab: insecure OTLP and in-memory Jaeger.'],['warn','Tracing overhead','Every span costs something.',['timestamps and attributes','context propagation','batching and export','detailed engine spans'],'A/B: off vs basic vs detailed, same workload.']];
+  let s='';
+  C.forEach(([k,a,b,L,f],i)=>{const x=16+i*259,d=.2+i*.6;s+=pnl(x,12,246,472,a,{k,d});s+=T(x+18,64,b,{c:'f13 b',d:d+.1});L.forEach((t,j)=>{const y=110+j*48;s+=`<circle cx="${x+28}" cy="${y-5}" r="6" class="pop" style="fill:var(--${k});--d:${(d+.2+j*.12).toFixed(2)}s"/>`+T(x+44,y,t,{c:'f13',d:d+.2+j*.12})});s+=G(`<rect width="214" height="92" rx="12" style="fill:var(--${k});fill-opacity:.12"/>`,{x:x+16,y:350,an:'pop',d:d+.8});s+=lines(x+30,382,f.match(/.{1,26}(\s|$)/g).map(t=>t.trim()),{lh:20,d:d+.9,c:'f12 b'})});
+  return svg(s,'Production trade-offs. If Jaeger goes down, serving must keep going: use asynchronous, filtered export, bounded Collector queues, retries and resource limits, and monitor telemetry loss; this lowers the risk but doesn’t guarantee every span survives. Privacy and security: LLM requests carry secrets, so record no raw prompts or outputs and no credentials or user IDs, keep bounded metadata such as endpoint, model, token counts and latency, and secure Collector access; this lab used insecure OTLP and in-memory Jaeger. Tracing overhead: every span costs something, from timestamps and attributes, context propagation, batching and export, and especially detailed engine spans; compare tracing off, basic and detailed with the same workload.');
+}
+
+function V20(){
+  const R=[['vllm missing from host PATH','host venv vs Docker','read the version inside day66-vllm'],['OpenTelemetry import error in vLLM','container lacks dependencies','build the image; is_otel_available()'],['Collector receives no spans','SDK endpoint, sampling, listener','check 4317/4318, app + Collector logs'],['Collector logs spans, Jaeger empty','export, Jaeger readiness, search','exporter errors; Jaeger service search'],['container can’t reach Collector','network isolation, wrong localhost','connect to otel-collector:4317'],['connection reset during deploy','model still loading, or crashed','vLLM logs; wait for /health, /v1/models'],['client and server traces disconnected','missing context propagation','inspect traceparent and trace IDs'],['client much slower than vLLM span','missing spans on the path','add stage timing; correlate logs']];
+  let s=T(36,24,'Symptom',{c:'f12 b mut',d:.1})+T(300,24,'Layer to inspect',{c:'f12 b mut',d:.1})+T(536,24,'Evidence-driven test',{c:'f12 b mut',d:.1});
+  const K=['ink-2','db','web','warn','teal','vol','ok','bad'];
+  R.forEach(([a,b,c],i)=>{const y=36+i*56,d=.3+i*.2,k=K[i];s+=G(`<rect width="768" height="48" rx="10" style="fill:var(--${k});fill-opacity:.08;stroke:var(--${k});stroke-width:2"/><rect width="6" height="48" rx="3" style="fill:var(--${k})"/><text x="18" y="29" class="f12 b">${a}</text><text x="284" y="29" class="f12">${b}</text><text x="520" y="29" class="f12 b">${c}</text>`,{x:16,y,an:'slide',d,dx:-30})});
+  return svg(s,'Troubleshooting runbook, symptom, layer and test. vllm missing from the host PATH: host venv versus Docker; read the version inside day66-vllm. OpenTelemetry import error in vLLM: the container lacks dependencies; build the image and run is_otel_available(). Collector receives no spans: SDK endpoint, sampling or listener; check 4317 and 4318 and the app and Collector logs. Collector logs spans but Jaeger is empty: export, Jaeger readiness or search; check exporter errors and the Jaeger service search. Container can’t reach the Collector: network isolation or wrong localhost; connect to otel-collector:4317. Connection reset during deploy: the model is still loading or crashed; check vLLM logs and wait for /health and /v1/models. Client and server traces disconnected: missing context propagation; inspect traceparent and trace IDs. Client much slower than the vLLM span: missing spans on the path; add stage timing and correlate logs.');
+}
+
+function V21(){
+  const S=[[['endpoint','returns 200'],'the app serves requests','ok'],[['SDK flush','succeeds'],'the SDK handed spans off','teal'],[['Collector','exports'],'it received and forwarded','web'],[['trace in','Jaeger'],'backend stored the right IDs','db'],[['controlled','intervention'],'explains that change only','warn']];
+  let s=T(36,32,'Each rung proves a different claim',{c:'f15 b',d:.1});
+  S.forEach(([a,b,k],i)=>{const x=16+i*154,h=90+i*56,y=420-h,d=.3+i*.4;s+=G(`<rect width="146" height="${h}" rx="12" style="fill:var(--${k})"/><text x="12" y="28" class="f13 b wht">${a[0]}</text><text x="12" y="46" class="f13 b wht">${a[1]}</text>`,{x,y,an:'up',d})+lines(x+4,436,b.match(/.{1,20}(\s|$)/g).map(t=>t.trim()),{lh:18,d:d+.2,c:'f12'})});
+  s+=G(`<rect width="300" height="112" rx="14" style="fill:var(--note);stroke:var(--ink);stroke-width:2"/><text x="16" y="30" class="f13 b lbltxt">Label every timing claim:</text><text x="16" y="58" class="m f13 b lbltxt">observed · derived ·</text><text x="16" y="80" class="m f13 b lbltxt">hypothesized</text><text x="16" y="102" class="f11 lbltxt">and leave uninstrumented time unexplained</text>`,{x:16,y:60,an:'pop',d:2.6});
+  return svg(s,'An evidence ladder: each rung proves a different claim. An endpoint returning 200 shows the app serves requests. An SDK flush succeeding shows the SDK handed spans off. A Collector export shows it received and forwarded them. A trace in Jaeger shows the backend stored the right IDs. A controlled intervention explains that change only. Label every timing claim as observed, derived or hypothesized, and leave uninstrumented time unexplained.');
+}
+
+const miniSvg=(inner,vb)=>`<svg viewBox="${vb}" aria-hidden="true">${inner}</svg>`;
+function V22(){
+  const TR=`<rect x="0" y="4" width="60" height="8" rx="3" style="fill:var(--web)"/><rect x="34" y="16" width="26" height="8" rx="3" style="fill:var(--db)"/>`;
+  const TP=`<rect x="0" y="6" width="62" height="18" rx="9" style="fill:var(--teal)"/><text x="31" y="19" text-anchor="middle" class="m f11 b wht">00-T-A-01</text>`;
+  const PI=`<rect x="0" y="8" width="16" height="14" rx="3" style="fill:var(--teal)"/><path d="M17 15H23" style="stroke:var(--ink-2);stroke-width:2"/><rect x="24" y="8" width="16" height="14" rx="3" style="fill:var(--web)"/><path d="M41 15H47" style="stroke:var(--ink-2);stroke-width:2"/><rect x="48" y="8" width="16" height="14" rx="3" style="fill:var(--warn)"/>`;
+  const PD=`<rect x="0" y="8" width="20" height="14" rx="2" style="fill:var(--teal)"/><rect x="20" y="8" width="42" height="14" rx="2" style="fill:var(--web)"/>`;
+  const GP=`<rect x="0" y="8" width="44" height="14" rx="3" style="fill:none;stroke:var(--bad);stroke-width:2;stroke-dasharray:4 3"/><rect x="46" y="8" width="16" height="14" rx="3" style="fill:var(--db)"/>`;
+  const FX=`<rect x="0" y="8" width="16" height="14" rx="2" style="fill:var(--ok)"/><rect x="16" y="8" width="38" height="14" rx="2" style="fill:var(--bad)"/><rect x="54" y="8" width="6" height="14" rx="1" style="fill:var(--warn)"/>`;
+  const items=[[miniSvg(TR,'0 0 62 28'),'<b>A trace is one request’s tracking history.</b> Its spans share the trace ID; each has its own span ID and parent.'],
+    [miniSvg(TP,'0 0 64 30'),'<b>traceparent carries the context across HTTP.</b> Forget to inject it and you get disconnected root traces.'],
+    [miniSvg(PI,'0 0 66 30'),'<b>SDK creates, Collector receives and routes, Jaeger stores and shows.</b> Inside Docker, localhost isn’t the Collector.'],
+    [miniSvg(PD,'0 0 64 30'),'<b>vLLM span: 57.7 ms prefill + 123.8 ms decode ≈ 181.5 ms;</b> queue 0.068 ms. TTFT is a separate measure.'],
+    [miniSvg(GP,'0 0 64 30'),'<b>A gap in a waterfall is a question, not an answer.</b> The client’s ≈ 1.16 s before the engine span stays unexplained.'],
+    [miniSvg(FX,'0 0 62 30'),'<b>Injecting 600 ms raised latency by 660 ms.</b> An intervention explains itself, not other slowness.']];
+  return `<ul class="take">${items.map(([ic,t],i)=>`<li class="up" style="--d:${.3+i*.3}s">${ic}<div>${t}</div></li>`).join('')}</ul>`;
+}
+function V23(){
+  const Q=[['teal','Across two service spans in one trace, what stays shared: the trace ID or the span ID?','The trace ID. Each span has its own span ID; the shared trace ID keeps the request’s lineage.'],
+    ['bad','vLLM in Docker exports to 127.0.0.1:4317, but the Collector is another container. What goes wrong?','Wrong namespace: localhost points back to the vLLM container itself, not the Collector. Use otel-collector:4317 on a shared network.'],
+    ['warn','Does a successful Python SDK force_flush() prove Jaeger stored the data?','No. It only shows the SDK flush returned. Check the Collector and Jaeger separately.'],
+    ['db','The injected run took 907 ms; controls took 257 and 237 ms. How much slower was it than the mean control?','660 ms. The controls average 247 ms, and 907 − 247 = 660 ms.']];
+  return `<div class="quiz"><div class="cards">${Q.map(([k,q,a],i)=>`<button class="card up" style="--k:var(--${k});--d:${.3+i*.15}s" aria-pressed="false"><span class="card-inner"><span class="face front"><small>Question ${i+1}</small><span class="q">${q}</span><em>Tap to flip</em></span><span class="face back" aria-hidden="true"><small>Answer</small><span class="q">${a}</span></span></span></button>`).join('')}</div><button class="again up" style="--d:1s" data-action="restart">Watch again from the start</button></div>`;
+}
+
+// ---------- Scenes ----------
+const CH=['Intro','Why tracing','Anatomy','Propagation','The pipeline','Lab A','Lab B','Lab C','Measurements','Lab D','Production','Runbook','Wrap-up'];
+const P=(t,d)=>`<p class="up" style="--d:${d}s">${t}</p>`;
+const R=(t,d)=>`<p class="rule up" style="--d:${d}s"><span>${t}</span></p>`;
+const SC=[
+ {ch:0,dur:10,title:'Distributed Tracing',vis:V0(),copy:`<p class="course up" style="--d:.05s">AI Infrastructure &amp; ML Systems, Day 67</p><h1 class="long up" style="--d:.15s">Distributed Tracing</h1><p class="lede up" style="--d:.3s">Follow one LLM request across services, read its waterfall, and tell what you measured from what you guessed.</p><button class="start up" style="--d:.45s" data-action="start"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15l12-7.5z"/></svg>Start the explainer</button><p class="hint up" style="--d:.6s">About 5 minutes. Use ← → or swipe to go at your own pace.</p><p class="hint rotate-hint up" style="--d:.7s">Tip: turn your phone sideways for bigger diagrams.</p>`},
+ {ch:1,dur:13,title:'Track the parcel, not the fleet',vis:V1(),body:P('Metrics count, logs record, traces follow one request.',.2)+R('Ask where request X spent its time.',.35)},
+ {ch:2,dur:13,title:'What a span carries',vis:V2(),body:P('Every span has IDs, timing, attributes and an owner.',.2)+R('The trace ID ties the legs together.',.35)},
+ {ch:2,dur:12.5,title:'Reading a waterfall',vis:V3(),body:P('Children sit inside their parent’s time.',.2)+R('Never add the root to its children.',.35)},
+ {ch:3,dur:13.5,title:'Passing the context along',vis:V4(),body:P('One HTTP header carries the trace across services.',.2)+R('Same trace ID, new span ID.',.35)},
+ {ch:4,dur:13.5,title:'SDK, Collector, Jaeger',vis:V5(),body:P('Three tools, three different jobs.',.2)+R('The Collector isn’t a database.',.35)},
+ {ch:4,dur:12.5,title:'Wire the pipeline',vis:V6(),body:P('A component only runs once a pipeline lists it.',.2)+R('Dev Jaeger forgets on restart.',.35)},
+ {ch:5,dur:12.5,title:'Lab A: practice spans',vis:V7(),body:P('Synthetic spans test the delivery path first.',.2)+R('Plumbing works; the GPU isn’t involved yet.',.35)},
+ {ch:6,dur:12.5,title:'Lab B: two Pythons',vis:V8(),body:P('The host and the container had different vLLM versions.',.2)+R('Change one thing at a time.',.35)},
+ {ch:6,dur:13,title:'Build, test, then swap',vis:V9(),body:P('Pinned libraries in a new image, checked before use.',.2)+R('Recreate the server; never run two.',.35)},
+ {ch:6,dur:12.5,title:'Two networks, one container',vis:V10(),body:P('vLLM joined the tracing network to reach the Collector.',.2)+R('localhost is the container itself.',.35)},
+ {ch:7,dur:12.5,title:'Lab C: a real trace',vis:V11(),body:P('Client span and vLLM span, joined by one trace ID.',.2)+R('Depth 2 proves propagation, not completeness.',.35)},
+ {ch:7,dur:13,title:'Mind the gap',vis:V12(),body:P('The engine span starts late in the client span.',.2)+R('A gap is a question, not an answer.',.35)},
+ {ch:8,dur:13.5,title:'Inside the engine',vis:V13(),body:P('The vLLM span reports its own phase timings.',.2)+R('Prefill + decode ≈ inference time.',.35)},
+ {ch:8,dur:13,title:'Queue, prefill, decode',vis:V14(),body:P('Three phases, three different reasons for time.',.2)+R('Busy GPU ≠ proven bottleneck.',.35)},
+ {ch:8,dur:13,title:'Five calls, honestly',vis:V15(),body:P('Mean 170.2 ms, median 166 ms.',.2)+R('Five samples aren’t a benchmark.',.35)},
+ {ch:9,dur:13.5,title:'Lab D: break it on purpose',vis:V16(),body:P('A known 600 ms delay in a client span.',.2)+R('Latency rose 660 ms.',.35)},
+ {ch:9,dur:13,title:'Evidence vs explanation',vis:V17(),body:P('Timings were verified; the waterfall picture isn’t yet.',.2)+R('An intervention explains only itself.',.35)},
+ {ch:10,dur:13.5,title:'Which traces to keep?',vis:V18(),body:P('Decide early and cheap, or late and smart.',.2)+R('Keep a trace’s spans together.',.35)},
+ {ch:10,dur:13,title:'Safe, private, affordable',vis:V19(),body:P('Tracing must never take serving down.',.2)+R('Measure the cost of measuring.',.35)},
+ {ch:11,dur:13,title:'Runbook',vis:V20(),body:P('Eight symptoms, eight first checks.',.2)+R('Test one layer at a time.',.35)},
+ {ch:11,dur:12,title:'The evidence ladder',vis:V21(),body:P('A 200, a flush, an export and a trace prove different things.',.2)+R('Label claims observed, derived or hypothesized.',.35)},
+ {ch:12,dur:12,title:'What to remember',vis:V22(),body:P('Six ideas carry the whole lesson.',.2)+P('Next, check yourself with four quick questions.',.35)},
+ {ch:12,dur:10,title:'Check yourself',vis:V23(),body:P('Answer in your head first, then tap a card to flip it.',.2)+P('Next: Day 68, alerting.',.35)}
+];
+// ---------- Player ----------
+const stage=document.getElementById('stage'),track=document.getElementById('track'),chap=document.getElementById('chap'),count=document.getElementById('count'),live=document.getElementById('live');
+const btnPrev=document.getElementById('prev'),btnNext=document.getElementById('next'),btnPlay=document.getElementById('play'),btnReplay=document.getElementById('replay');
+const strip=s=>s.replace(/<[^>]+>/g,'').replace(/&amp;/g,'&');
+const els=[],fills=[],segs=[];
+SC.forEach((s,i)=>{
+  const sec=document.createElement('section');sec.className='scene';
+  sec.setAttribute('aria-label',`Scene ${i+1} of ${SC.length}: ${strip(s.title)}`);
+  sec.innerHTML=`<div class="copy">${s.copy||`<h2 class="up" style="--d:.05s">${s.title}</h2>${s.body}`}</div><div class="vis">${s.vis}</div>`;
+  stage.appendChild(sec);els.push(sec);
+  const b=document.createElement('button');b.className='seg'+(i>0&&SC[i-1].ch!==s.ch?' chstart':'');
+  b.setAttribute('aria-label',`Go to scene ${i+1}: ${strip(s.title)}`);b.innerHTML='<i><b></b></i>';
+  b.addEventListener('click',()=>go(i));track.appendChild(b);segs.push(b);fills.push(b.querySelector('b'));
+});
+const ICON_PLAY='<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',ICON_PAUSE='<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6.5" y="5" width="4" height="14" rx="1"/><rect x="13.5" y="5" width="4" height="14" rx="1"/></svg>';
+let cur=-1,auto=false,t0=performance.now(),onTimer=null;
+function setAuto(v){
+  auto=v;btnPlay.innerHTML=v?ICON_PAUSE:ICON_PLAY;btnPlay.setAttribute('aria-label',v?'Pause auto-play':'Start auto-play');btnPlay.setAttribute('aria-pressed',String(v));
+  if(v&&cur>=0){const dur=SC[cur].dur*1000,el=performance.now()-t0;if(el>dur-1200)t0=performance.now()-(dur-1200)}
+}
+function go(i,{replay=false}={}){
+  i=Math.max(0,Math.min(SC.length-1,i));
+  if(i===cur&&!replay)return;
+  const prev=cur;
+  els.forEach((el,j)=>{el.classList.toggle('active',j===i);el.classList.toggle('past',j<i);
+    if(j===i){el.inert=false;el.removeAttribute('aria-hidden')}else{el.inert=true;el.setAttribute('aria-hidden','true')}});
+  if(prev>=0&&prev!==i){const p=prev;setTimeout(()=>{if(cur!==p)els[p].classList.remove('on')},750)}
+  const el=els[i];el.classList.remove('on');void el.getBoundingClientRect();
+  clearTimeout(onTimer);const delay=(prev===i)?40:260;
+  onTimer=setTimeout(()=>{el.classList.add('on');t0=performance.now()},delay);
+  t0=performance.now()+delay;cur=i;el.scrollTop=0;
+  const s=SC[i];
+  chap.innerHTML=s.ch===0?'<b>Intro</b>':`Chapter ${s.ch} of ${CH.length-1}: <b>${CH[s.ch]}</b>`;
+  count.textContent=`${i+1} / ${SC.length}`;
+  live.textContent=`Scene ${i+1} of ${SC.length}: ${strip(s.title)}`;
+  btnPrev.disabled=i===0;btnNext.disabled=i===SC.length-1;
+  fills.forEach((f,j)=>{f.style.width=j<i?'100%':'0%'});
+  segs.forEach((b,j)=>{if(j===i)b.setAttribute('aria-current','step');else b.removeAttribute('aria-current')});
+}
+function tick(now){
+  if(cur>=0){const dur=SC[cur].dur*1000,el=Math.max(0,now-t0);fills[cur].style.width=(Math.min(1,el/dur)*100).toFixed(2)+'%';
+    if(auto&&el>=dur){if(cur<SC.length-1)go(cur+1);else setAuto(false)}}
+  requestAnimationFrame(tick);
+}
+btnPrev.addEventListener('click',()=>go(cur-1));
+btnNext.addEventListener('click',()=>go(cur+1));
+btnPlay.addEventListener('click',()=>{if(!auto&&cur===SC.length-1){go(0)}setAuto(!auto);if(auto&&cur===0)go(1)});
+btnReplay.addEventListener('click',()=>go(cur,{replay:true}));
+stage.addEventListener('click',e=>{
+  const a=e.target.closest('[data-action]');
+  if(a){if(a.dataset.action==='start'){setAuto(true);go(1)}else if(a.dataset.action==='restart'){setAuto(true);go(1)}return}
+  const c=e.target.closest('.card');
+  if(c){const f=c.classList.toggle('flipped');c.setAttribute('aria-pressed',String(f));c.querySelector('.front').setAttribute('aria-hidden',String(f));c.querySelector('.back').setAttribute('aria-hidden',String(!f))}
+});
+document.addEventListener('keydown',e=>{
+  if(e.altKey||e.ctrlKey||e.metaKey)return;
+  const onBtn=e.target.closest&&e.target.closest('button');
+  if(e.key==='ArrowRight'||e.key==='PageDown'){e.preventDefault();go(cur+1)}
+  else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();go(cur-1)}
+  else if(e.key===' '&&!onBtn){e.preventDefault();btnPlay.click()}
+  else if(e.key==='r'||e.key==='R'){go(cur,{replay:true})}
+  else if(e.key==='Home'){go(0)}else if(e.key==='End'){go(SC.length-1)}
+});
+let sx=null,sy=null;
+stage.addEventListener('touchstart',e=>{const t=e.touches[0];sx=t.clientX;sy=t.clientY},{passive:true});
+stage.addEventListener('touchend',e=>{if(sx==null)return;const t=e.changedTouches[0],dx=t.clientX-sx,dy=t.clientY-sy;if(Math.abs(dx)>55&&Math.abs(dx)>Math.abs(dy)*1.4)go(cur+(dx<0?1:-1));sx=null},{passive:true});
+setAuto(false);go(0);requestAnimationFrame(tick);
+</script>
+</body>
+</html>
